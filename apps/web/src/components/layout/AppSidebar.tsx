@@ -1,0 +1,130 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import {
+  LayoutDashboard,
+  Workflow,
+  Cpu,
+  Settings,
+  LogOut,
+  Menu,
+  X,
+  Leaf,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+
+interface AppSidebarProps {
+  isOpen: boolean;
+  onToggle: () => void;
+}
+
+const navigation = [
+  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Automations", href: "/automations", icon: Workflow },
+  { name: "Controllers", href: "/controllers", icon: Cpu },
+  { name: "Settings", href: "/settings", icon: Settings },
+];
+
+export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
+  const pathname = usePathname();
+
+  return (
+    <>
+      {/* Mobile overlay */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={onToggle}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={cn(
+          "fixed left-0 top-0 z-50 flex h-full w-60 flex-col bg-sidebar text-sidebar-foreground transition-transform duration-300 lg:translate-x-0",
+          isOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        {/* Logo */}
+        <div className="flex h-16 items-center justify-between px-4 border-b border-sidebar-border">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+              <Leaf className="h-5 w-5 text-primary-foreground" />
+            </div>
+            <span className="text-lg font-semibold">EnviroFlow</span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="lg:hidden text-sidebar-foreground hover:bg-sidebar-accent"
+            onClick={onToggle}
+          >
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 space-y-1 px-3 py-4">
+          {navigation.map((item) => {
+            const isActive = pathname?.startsWith(item.href);
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                )}
+                onClick={() => {
+                  if (typeof window !== "undefined" && window.innerWidth < 1024) onToggle();
+                }}
+              >
+                <item.icon className="h-5 w-5" />
+                {item.name}
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* User menu */}
+        <div className="border-t border-sidebar-border p-4">
+          <div className="flex items-center gap-3">
+            <Avatar className="h-9 w-9">
+              <AvatarFallback className="bg-sidebar-accent text-sidebar-accent-foreground">
+                JD
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">John Doe</p>
+              <p className="text-xs text-sidebar-foreground/60 truncate">
+                john@example.com
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </aside>
+
+      {/* Mobile menu button */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="fixed left-4 top-4 z-30 lg:hidden"
+        onClick={onToggle}
+      >
+        <Menu className="h-6 w-6" />
+      </Button>
+    </>
+  );
+}
