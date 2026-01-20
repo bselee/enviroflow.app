@@ -88,6 +88,7 @@ export async function POST(request: NextRequest) {
  * Fetch sensor data from Supabase based on data type and time range
  */
 async function fetchSensorData(dataType: string, timeRange?: { start: string; end: string }) {
+  const supabase = getSupabaseClient();
   let query = supabase
     .from('sensor_logs')
     .select('*')
