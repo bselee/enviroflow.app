@@ -1,5 +1,7 @@
 {
-  "buildCommand": "npm --prefix apps/web install && npm --prefix apps/web run build",
-  "outputDirectory": "apps/web/.next",
-  "installCommand": "npm install"
+  "buildCommand": null,
+  "outputDirectory": null,
+  "installCommand": null,
+  "framework": "nextjs",
+  "rootDirectory": "apps/web"
 }
