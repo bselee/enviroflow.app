@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "supabase start",
+    "build": "echo 'Automation engine has no build step'",
     "deploy": "supabase functions deploy"
   }
 }
