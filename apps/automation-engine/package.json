@@ -2,8 +2,24 @@
   "name": "@enviroflow/automation-engine",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "supabase start",
-    "deploy": "supabase functions deploy"
+    "stop": "supabase stop",
+    "deploy": "supabase functions deploy",
+    "deploy:workflow-executor": "supabase functions deploy workflow-executor",
+    "deploy:sunrise-sunset": "supabase functions deploy sunrise-sunset",
+    "deploy:health-check": "supabase functions deploy health-check",
+    "db:push": "supabase db push",
+    "db:reset": "supabase db reset",
+    "db:diff": "supabase db diff",
+    "db:migrate": "supabase migration new",
+    "functions:serve": "supabase functions serve",
+    "test:functions": "deno test --allow-all",
+    "lint": "deno lint",
+    "fmt": "deno fmt"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0"
   }
 }
