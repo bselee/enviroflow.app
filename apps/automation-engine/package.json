@@ -1,0 +1,9 @@
+{
+  "name": "@enviroflow/automation-engine",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "supabase start",
+    "deploy": "supabase functions deploy"
+  }
+}
