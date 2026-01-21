@@ -1,19 +1,12 @@
 "use client";
 
-/**
- * Signup Page
- *
- * Creates new user accounts via Supabase Auth.
- * Shows confirmation message after successful registration.
- */
-
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Leaf, Loader2, CheckCircle2 } from "lucide-react";
+import { Leaf, Loader2, CheckCircle2, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -28,27 +21,18 @@ import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 
 /**
- * Validation schema for signup form
+ * Signup form validation schema
  * - Name: minimum 2 characters
- * - Email: must be valid format
+ * - Email: valid email format
  * - Password: minimum 8 characters for security
- * - Confirm password: must match password
+ * - Confirm Password: must match password field
  */
 const signupSchema = z
   .object({
-    name: z
-      .string()
-      .min(1, "Name is required")
-      .min(2, "Name must be at least 2 characters"),
-    email: z
-      .string()
-      .min(1, "Email is required")
-      .email("Please enter a valid email address"),
-    password: z
-      .string()
-      .min(1, "Password is required")
-      .min(8, "Password must be at least 8 characters"),
-    confirmPassword: z.string().min(1, "Please confirm your password"),
+    name: z.string().min(2, "Name must be at least 2 characters"),
+    email: z.string().email("Invalid email address"),
+    password: z.string().min(8, "Password must be at least 8 characters"),
+    confirmPassword: z.string(),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords don't match",
@@ -57,11 +41,23 @@ const signupSchema = z
 
 type SignupFormData = z.infer<typeof signupSchema>;
 
-export default function SignupPage(): JSX.Element {
+/**
+ * Signup Page Component
+ *
+ * Handles user registration with Supabase Auth.
+ * Features:
+ * - Form validation with Zod schema
+ * - Real Supabase authentication
+ * - Email confirmation flow handling
+ * - Loading states and error handling
+ * - Toast notifications for user feedback
+ */
+export default function SignupPage() {
   const router = useRouter();
-  const { signUp, user, loading: authLoading } = useAuth();
+  const { signUp } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
+  // Track whether signup was successful and email confirmation is needed
+  const [emailSent, setEmailSent] = useState(false);
   const [submittedEmail, setSubmittedEmail] = useState("");
 
   const form = useForm<SignupFormData>({
@@ -74,18 +70,11 @@ export default function SignupPage(): JSX.Element {
     },
   });
 
-  // Redirect if already authenticated
-  useEffect(() => {
-    if (!authLoading && user) {
-      router.replace("/dashboard");
-    }
-  }, [user, authLoading, router]);
-
   /**
    * Handle form submission
-   * Calls Supabase signUp via AuthContext
+   * Calls Supabase signUp and handles the response appropriately
    */
-  async function onSubmit(data: SignupFormData): Promise<void> {
+  async function onSubmit(data: SignupFormData) {
     setIsLoading(true);
 
     try {
@@ -94,94 +83,85 @@ export default function SignupPage(): JSX.Element {
       });
 
       if (!result.success) {
+        // Show error toast with the specific error message
         toast({
-          title: "Sign up failed",
-          description: result.error,
           variant: "destructive",
+          title: "Signup failed",
+          description: result.error || "An unexpected error occurred.",
         });
-        setIsLoading(false);
         return;
       }
 
-      // Store email for success message
+      // Signup successful - show email confirmation state
+      // Supabase requires email confirmation by default
       setSubmittedEmail(data.email);
-      setIsSuccess(true);
-      setIsLoading(false);
+      setEmailSent(true);
 
       toast({
         title: "Account created!",
         description: "Please check your email to verify your account.",
       });
     } catch (error) {
+      // Handle unexpected errors (network issues, etc.)
       console.error("Signup error:", error);
       toast({
-        title: "Sign up failed",
-        description: "An unexpected error occurred. Please try again.",
         variant: "destructive",
+        title: "Signup failed",
+        description: "An unexpected error occurred. Please try again.",
       });
+    } finally {
       setIsLoading(false);
     }
   }
 
-  // Show nothing while checking auth state to prevent flash
-  if (authLoading) {
+  // Show email confirmation success state
+  if (emailSent) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  // Don't render signup form if user is already authenticated
-  if (user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  // Show success message after registration
-  if (isSuccess) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12">
-        <div className="max-w-md w-full space-y-8 p-8 bg-card rounded-xl shadow-lg border border-border text-center">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-background px-4 py-12">
+        <div className="max-w-md w-full space-y-8 p-8 bg-card rounded-xl shadow-lg border border-border">
           {/* Success Icon */}
-          <div className="flex justify-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/20">
-              <CheckCircle2 className="h-10 w-10 text-green-600 dark:text-green-400" />
+          <div className="text-center">
+            <div className="flex justify-center mb-4">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/20">
+                <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400" />
+              </div>
             </div>
-          </div>
-
-          {/* Success Message */}
-          <div>
             <h1 className="text-2xl font-bold text-foreground">
               Check your email
             </h1>
-            <p className="mt-3 text-muted-foreground">
-              We&apos;ve sent a verification link to
-            </p>
-            <p className="mt-1 font-medium text-foreground">{submittedEmail}</p>
+            <div className="mt-4 flex items-center justify-center gap-2 text-muted-foreground">
+              <Mail className="h-5 w-5" />
+              <span className="text-sm">{submittedEmail}</span>
+            </div>
             <p className="mt-4 text-sm text-muted-foreground">
-              Click the link in the email to verify your account. If you
-              don&apos;t see the email, check your spam folder.
+              We&apos;ve sent you a verification link. Please check your inbox
+              and click the link to activate your account.
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Didn&apos;t receive the email? Check your spam folder or try
+              signing up again.
             </p>
           </div>
 
           {/* Actions */}
-          <div className="space-y-3 pt-4">
+          <div className="space-y-3">
             <Button
               variant="outline"
               className="w-full"
-              onClick={() => setIsSuccess(false)}
+              onClick={() => router.push("/login")}
+            >
+              Go to Sign In
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={() => {
+                setEmailSent(false);
+                form.reset();
+              }}
             >
               Use a different email
             </Button>
-            <Link href="/login" className="block">
-              <Button variant="ghost" className="w-full">
-                Return to sign in
-              </Button>
-            </Link>
           </div>
         </div>
       </div>
@@ -189,7 +169,7 @@ export default function SignupPage(): JSX.Element {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-background px-4 py-12">
       <div className="max-w-md w-full space-y-8 p-8 bg-card rounded-xl shadow-lg border border-border">
         {/* Logo & Header */}
         <div className="text-center">
@@ -206,10 +186,7 @@ export default function SignupPage(): JSX.Element {
 
         {/* Form */}
         <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit(onSubmit)}
-            className="mt-8 space-y-5"
-          >
+          <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 space-y-5">
             <FormField
               control={form.control}
               name="name"
@@ -217,12 +194,7 @@ export default function SignupPage(): JSX.Element {
                 <FormItem>
                   <FormLabel>Full Name</FormLabel>
                   <FormControl>
-                    <Input
-                      placeholder="John Doe"
-                      autoComplete="name"
-                      disabled={isLoading}
-                      {...field}
-                    />
+                    <Input placeholder="John Doe" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -239,8 +211,6 @@ export default function SignupPage(): JSX.Element {
                     <Input
                       type="email"
                       placeholder="you@example.com"
-                      autoComplete="email"
-                      disabled={isLoading}
                       {...field}
                     />
                   </FormControl>
@@ -256,13 +226,7 @@ export default function SignupPage(): JSX.Element {
                 <FormItem>
                   <FormLabel>Password</FormLabel>
                   <FormControl>
-                    <Input
-                      type="password"
-                      placeholder="Create a strong password"
-                      autoComplete="new-password"
-                      disabled={isLoading}
-                      {...field}
-                    />
+                    <Input type="password" placeholder="••••••••" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -276,13 +240,7 @@ export default function SignupPage(): JSX.Element {
                 <FormItem>
                   <FormLabel>Confirm Password</FormLabel>
                   <FormControl>
-                    <Input
-                      type="password"
-                      placeholder="Confirm your password"
-                      autoComplete="new-password"
-                      disabled={isLoading}
-                      {...field}
-                    />
+                    <Input type="password" placeholder="••••••••" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

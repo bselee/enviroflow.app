@@ -25,6 +25,10 @@ import type {
   DeviceType,
   SensorCapability,
   DeviceCapability,
+  DiscoverableAdapter,
+  DiscoveryCredentials,
+  DiscoveryResult,
+  DiscoveredDevice,
 } from './types'
 
 const API_BASE = 'https://www.acinfinityserver.com'
@@ -95,8 +99,153 @@ interface ACSensor {
 // AC Infinity Adapter Implementation
 // ============================================
 
-export class ACInfinityAdapter implements ControllerAdapter {
-  
+export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter {
+
+  /**
+   * Discover all AC Infinity devices associated with the given credentials.
+   * This queries the AC Infinity cloud API to list all registered devices
+   * without connecting to any specific one.
+   *
+   * @param credentials - User's AC Infinity account credentials
+   * @returns Discovery result with list of all devices
+   */
+  async discoverDevices(credentials: DiscoveryCredentials): Promise<DiscoveryResult> {
+    const { email, password } = credentials
+
+    try {
+      // Step 1: Login to get token
+      const loginResponse = await fetch(`${API_BASE}/api/user/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'EnviroFlow/1.0'
+        },
+        body: JSON.stringify({ email, password })
+      })
+
+      if (!loginResponse.ok) {
+        return {
+          success: false,
+          devices: [],
+          totalDevices: 0,
+          alreadyRegisteredCount: 0,
+          error: `Login failed: HTTP ${loginResponse.status}`,
+          timestamp: new Date(),
+          source: 'cloud_api'
+        }
+      }
+
+      const loginData: ACLoginResponse = await loginResponse.json()
+
+      if (loginData.code !== 200 || !loginData.data?.token) {
+        return {
+          success: false,
+          devices: [],
+          totalDevices: 0,
+          alreadyRegisteredCount: 0,
+          error: loginData.msg || 'Login failed: Invalid credentials',
+          timestamp: new Date(),
+          source: 'cloud_api'
+        }
+      }
+
+      const token = loginData.data.token
+
+      // Step 2: Get all devices for this account
+      const devicesResponse = await fetch(`${API_BASE}/api/user/devInfoListAll`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'User-Agent': 'EnviroFlow/1.0'
+        }
+      })
+
+      const devicesData: ACDeviceListResponse = await devicesResponse.json()
+
+      if (!devicesData.data || devicesData.data.length === 0) {
+        return {
+          success: true,
+          devices: [],
+          totalDevices: 0,
+          alreadyRegisteredCount: 0,
+          timestamp: new Date(),
+          source: 'cloud_api'
+        }
+      }
+
+      // Step 3: Map AC Infinity devices to DiscoveredDevice format
+      const discoveredDevices: DiscoveredDevice[] = await Promise.all(
+        devicesData.data.map(async (device) => {
+          // Try to get capabilities for each device
+          let capabilities: DiscoveredDevice['capabilities'] = undefined
+          try {
+            const capabilitiesData = await this.getDeviceCapabilities(device.devId, token)
+            capabilities = {
+              sensors: capabilitiesData.sensors.map(s => s.type),
+              devices: capabilitiesData.devices.map(d => d.type),
+              supportsDimming: capabilitiesData.supportsDimming
+            }
+          } catch {
+            // Ignore capability fetch errors - device is still discoverable
+          }
+
+          return {
+            deviceId: device.devId,
+            deviceCode: device.devCode,
+            name: device.devName || `AC Infinity Device`,
+            brand: 'ac_infinity' as const,
+            model: this.mapDeviceTypeToModel(device.devType),
+            deviceType: device.devType,
+            isOnline: device.online,
+            lastSeen: device.lastOnlineTime ? new Date(device.lastOnlineTime * 1000) : undefined,
+            firmwareVersion: device.firmwareVersion,
+            isAlreadyRegistered: false, // Will be updated by caller if needed
+            capabilities
+          }
+        })
+      )
+
+      return {
+        success: true,
+        devices: discoveredDevices,
+        totalDevices: discoveredDevices.length,
+        alreadyRegisteredCount: 0, // Will be calculated by caller
+        timestamp: new Date(),
+        source: 'cloud_api'
+      }
+
+    } catch (error) {
+      return {
+        success: false,
+        devices: [],
+        totalDevices: 0,
+        alreadyRegisteredCount: 0,
+        error: error instanceof Error ? error.message : 'Discovery failed due to network error',
+        timestamp: new Date(),
+        source: 'cloud_api'
+      }
+    }
+  }
+
+  /**
+   * Map AC Infinity device type number to human-readable model name
+   */
+  private mapDeviceTypeToModel(devType: number): string {
+    // AC Infinity device type mappings (based on observation)
+    const typeMap: Record<number, string> = {
+      1: 'Controller 67',
+      2: 'Controller 69',
+      3: 'Controller 69 Pro',
+      4: 'UIS Inline Fan',
+      5: 'UIS LED Bar',
+      6: 'UIS Oscillating Fan',
+      7: 'USB-C Zone Controller',
+      // Add more mappings as discovered
+    }
+    return typeMap[devType] || `AC Infinity Device (Type ${devType})`
+  }
+
   /**
    * Connect to AC Infinity cloud and get device info
    */

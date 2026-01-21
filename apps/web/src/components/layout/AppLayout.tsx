@@ -2,21 +2,17 @@
 
 import { useState, type ReactNode } from "react";
 import { AppSidebar } from "./AppSidebar";
-import { cn } from "@/lib/utils";
 
 interface AppLayoutProps {
   children: ReactNode;
-  /**
-   * When true, hides the sidebar for full-screen experiences like the workflow builder.
-   * The main content will take up the entire viewport width.
-   */
+  /** When true, hides the sidebar completely for full-width content */
   hideSidebar?: boolean;
 }
 
 export function AppLayout({ children, hideSidebar = false }: AppLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Full-screen mode without sidebar
+  // When hideSidebar is true, render full-width content without sidebar
   if (hideSidebar) {
     return (
       <div className="min-h-screen bg-background">

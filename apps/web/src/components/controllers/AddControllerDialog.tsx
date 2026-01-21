@@ -3,12 +3,13 @@
  *
  * Multi-step dialog for adding a new controller to EnviroFlow.
  * Steps:
- * 1. Select brand (AC Infinity, Inkbird, CSV Upload)
- * 2. Enter credentials (brand-specific form)
+ * 1. Select brand OR discover devices (AC Infinity, Inkbird, CSV Upload)
+ * 2. Enter credentials (brand-specific form) OR select from discovered devices
  * 3. Optionally assign to room
  * 4. Name the controller
  *
  * Features:
+ * - Device discovery for cloud-connected controllers
  * - Brand-specific credential forms
  * - CSV file upload support
  * - Connection progress indicator
@@ -31,6 +32,8 @@ import {
   ArrowLeft,
   ArrowRight,
   AlertCircle,
+  Search,
+  Radar,
 } from "lucide-react";
 import {
   Dialog,
@@ -52,8 +55,11 @@ import {
 } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import type { Brand, ControllerBrand, Room, Controller } from "@/types";
+import { NetworkDiscovery } from "@/components/controllers/NetworkDiscovery";
+import { supportsDiscovery } from "@/lib/network-discovery";
+import type { Brand, ControllerBrand, Controller, DiscoveredDevice } from "@/types";
 
 // Form validation schemas
 const credentialsSchema = z.object({
@@ -87,11 +93,15 @@ interface AddControllerDialogProps {
   onOpenChange: (open: boolean) => void;
   brands: Brand[];
   rooms: Array<{ id: string; name: string }>;
+  /** Auth token for discovery (to check already-registered devices) */
+  authToken?: string;
   onAdd: (data: {
     brand: ControllerBrand;
     name: string;
     credentials?: { email?: string; password?: string };
     room_id?: string | null;
+    /** Pre-discovered device info (skips connection test) */
+    discoveredDevice?: DiscoveredDevice;
   }) => Promise<{ success: boolean; data?: Controller; error?: string }>;
 }
 
@@ -147,6 +157,7 @@ export function AddControllerDialog({
   onOpenChange,
   brands,
   rooms,
+  authToken,
   onAdd,
 }: AddControllerDialogProps) {
   // Wizard state
@@ -154,6 +165,10 @@ export function AddControllerDialog({
   const [selectedBrand, setSelectedBrand] = useState<Brand | null>(null);
   const [credentials, setCredentials] = useState<CredentialsFormData | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
+
+  // Discovery state - for adding devices discovered through network scan
+  const [discoveredDevice, setDiscoveredDevice] = useState<DiscoveredDevice | null>(null);
+  const [addMode, setAddMode] = useState<"manual" | "discover">("manual");
 
   // Connection state
   const [isConnecting, setIsConnecting] = useState(false);
@@ -189,6 +204,8 @@ export function AddControllerDialog({
     setSelectedBrand(null);
     setCredentials(null);
     setCsvFile(null);
+    setDiscoveredDevice(null);
+    setAddMode("manual");
     setIsConnecting(false);
     setConnectionProgress(0);
     setConnectionStatus("idle");
@@ -216,10 +233,29 @@ export function AddControllerDialog({
    */
   const handleBrandSelect = useCallback((brand: Brand) => {
     setSelectedBrand(brand);
+    setAddMode("manual");
+    setDiscoveredDevice(null);
     // Pre-fill controller name based on brand
     nameForm.setValue("name", `My ${brand.name}`);
     setStep(2);
   }, [nameForm]);
+
+  /**
+   * Handle discovered device selection from NetworkDiscovery component
+   */
+  const handleDiscoveredDeviceSelect = useCallback((device: DiscoveredDevice) => {
+    // Find the brand info for this device
+    const brand = brands.find(b => b.id === device.brand);
+    if (!brand) return;
+
+    setSelectedBrand(brand);
+    setDiscoveredDevice(device);
+    setAddMode("discover");
+    // Pre-fill controller name from discovered device
+    nameForm.setValue("name", device.name);
+    // Skip credentials step and go directly to name/room step
+    setStep(3);
+  }, [brands, nameForm]);
 
   /**
    * Handle credentials submit
@@ -270,13 +306,22 @@ export function AddControllerDialog({
           setConnectionProgress((prev) => Math.min(prev + 15, 85));
         }, 300);
 
-        // Call the add controller function
-        const result = await onAdd({
+        // Build the request - include discovered device info if available
+        const addRequest: Parameters<typeof onAdd>[0] = {
           brand: selectedBrand.id,
           name: data.name,
           credentials: credentials || undefined,
           room_id: data.roomId || null,
-        });
+        };
+
+        // If this is a discovered device, include the device info
+        // This allows the backend to skip the connection test and use pre-validated device info
+        if (addMode === "discover" && discoveredDevice) {
+          addRequest.discoveredDevice = discoveredDevice;
+        }
+
+        // Call the add controller function
+        const result = await onAdd(addRequest);
 
         clearInterval(progressInterval);
 
@@ -284,8 +329,11 @@ export function AddControllerDialog({
           setConnectionProgress(100);
           setConnectionStatus("success");
 
-          // Simulate discovered devices for demo
-          if (selectedBrand.id === "ac_infinity") {
+          // Show the device that was added
+          if (discoveredDevice) {
+            // For discovered devices, show the actual device
+            setDiscoveredDevices([discoveredDevice.name]);
+          } else if (selectedBrand.id === "ac_infinity") {
             setDiscoveredDevices(["Controller 69 Pro", "UIS Inline Fan", "UIS Light Bar"]);
           } else if (selectedBrand.id === "inkbird") {
             setDiscoveredDevices(["ITC-308 Temp Probe"]);
@@ -310,7 +358,7 @@ export function AddControllerDialog({
         setIsConnecting(false);
       }
     },
-    [selectedBrand, credentials, onAdd, handleOpenChange]
+    [selectedBrand, credentials, addMode, discoveredDevice, onAdd, handleOpenChange]
   );
 
   /**
@@ -331,71 +379,107 @@ export function AddControllerDialog({
     switch (step) {
       case 1:
         return (
-          <div className="space-y-4">
-            <DialogDescription>
-              Select your controller brand to get started. We support major environmental
-              controller brands with automatic device discovery.
-            </DialogDescription>
+          <Tabs defaultValue="discover" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="discover" className="gap-2">
+                <Radar className="w-4 h-4" />
+                Discover
+              </TabsTrigger>
+              <TabsTrigger value="manual" className="gap-2">
+                <Search className="w-4 h-4" />
+                Manual
+              </TabsTrigger>
+            </TabsList>
 
-            {/* Available brands */}
-            <div className="space-y-3">
-              {availableBrands.map((brand) => (
-                <button
-                  key={brand.id}
-                  onClick={() => handleBrandSelect(brand)}
-                  className="w-full flex items-center gap-4 p-4 border-2 border-border rounded-lg hover:border-primary hover:bg-primary/5 transition-colors text-left"
-                >
-                  <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center shrink-0">
-                    <BrandIcon brand={brand.id} className="w-6 h-6 text-muted-foreground" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-foreground">{brand.name}</div>
-                    <div className="text-sm text-muted-foreground truncate">
-                      {brand.description}
+            {/* Discover Tab - Network Discovery */}
+            <TabsContent value="discover" className="space-y-4 mt-4">
+              <DialogDescription>
+                Discover devices registered with your AC Infinity or Inkbird account.
+                Enter your app credentials to find and add your devices automatically.
+              </DialogDescription>
+
+              <NetworkDiscovery
+                onSelectDevice={handleDiscoveredDeviceSelect}
+                authToken={authToken}
+                className="border-0 shadow-none p-0"
+              />
+            </TabsContent>
+
+            {/* Manual Tab - Brand Selection */}
+            <TabsContent value="manual" className="space-y-4 mt-4">
+              <DialogDescription>
+                Select your controller brand to add it manually. You will need to enter
+                your credentials in the next step.
+              </DialogDescription>
+
+              {/* Available brands */}
+              <div className="space-y-3">
+                {availableBrands.map((brand) => (
+                  <button
+                    key={brand.id}
+                    onClick={() => handleBrandSelect(brand)}
+                    className="w-full flex items-center gap-4 p-4 border-2 border-border rounded-lg hover:border-primary hover:bg-primary/5 transition-colors text-left"
+                  >
+                    <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center shrink-0">
+                      <BrandIcon brand={brand.id} className="w-6 h-6 text-muted-foreground" />
                     </div>
-                    {brand.note && (
-                      <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        {brand.note}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-foreground">{brand.name}</span>
+                        {supportsDiscovery(brand.id) && (
+                          <Badge variant="outline" className="text-xs">
+                            <Radar className="w-3 h-3 mr-1" />
+                            Discovery
+                          </Badge>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <Badge variant="secondary" className="shrink-0">
-                    Available
-                  </Badge>
-                </button>
-              ))}
-            </div>
-
-            {/* Coming soon brands */}
-            {comingSoonBrands.length > 0 && (
-              <>
-                <div className="text-sm font-medium text-muted-foreground pt-2">
-                  Coming Soon
-                </div>
-                <div className="space-y-2">
-                  {comingSoonBrands.map((brand) => (
-                    <div
-                      key={brand.id}
-                      className="flex items-center gap-4 p-4 border border-border rounded-lg opacity-60"
-                    >
-                      <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center shrink-0">
-                        <BrandIcon brand={brand.id} className="w-6 h-6 text-muted-foreground" />
+                      <div className="text-sm text-muted-foreground truncate">
+                        {brand.description}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-foreground">{brand.name}</div>
-                        <div className="text-sm text-muted-foreground truncate">
-                          {brand.description}
+                      {brand.note && (
+                        <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                          {brand.note}
                         </div>
-                      </div>
-                      <Badge variant="outline" className="shrink-0">
-                        Coming Soon
-                      </Badge>
+                      )}
                     </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+                    <Badge variant="secondary" className="shrink-0">
+                      Available
+                    </Badge>
+                  </button>
+                ))}
+              </div>
+
+              {/* Coming soon brands */}
+              {comingSoonBrands.length > 0 && (
+                <>
+                  <div className="text-sm font-medium text-muted-foreground pt-2">
+                    Coming Soon
+                  </div>
+                  <div className="space-y-2">
+                    {comingSoonBrands.map((brand) => (
+                      <div
+                        key={brand.id}
+                        className="flex items-center gap-4 p-4 border border-border rounded-lg opacity-60"
+                      >
+                        <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center shrink-0">
+                          <BrandIcon brand={brand.id} className="w-6 h-6 text-muted-foreground" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-foreground">{brand.name}</div>
+                          <div className="text-sm text-muted-foreground truncate">
+                            {brand.description}
+                          </div>
+                        </div>
+                        <Badge variant="outline" className="shrink-0">
+                          Coming Soon
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </TabsContent>
+          </Tabs>
         );
 
       case 2:
@@ -526,9 +610,52 @@ export function AddControllerDialog({
         return (
           <form onSubmit={nameForm.handleSubmit(handleConnect)} className="space-y-4">
             <DialogDescription>
-              Give your controller a name and optionally assign it to a room for better
-              organization.
+              {addMode === "discover" && discoveredDevice
+                ? "Confirm the device details and optionally assign it to a room."
+                : "Give your controller a name and optionally assign it to a room for better organization."
+              }
             </DialogDescription>
+
+            {/* Show discovered device info if available */}
+            {addMode === "discover" && discoveredDevice && (
+              <div className="bg-muted rounded-lg p-4 space-y-2">
+                <div className="flex items-center gap-3">
+                  <div className={cn(
+                    "w-10 h-10 rounded-lg flex items-center justify-center",
+                    discoveredDevice.isOnline ? "bg-success/10" : "bg-muted-foreground/10"
+                  )}>
+                    {discoveredDevice.isOnline ? (
+                      <Wifi className="w-5 h-5 text-success" />
+                    ) : (
+                      <Wifi className="w-5 h-5 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-medium">{discoveredDevice.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {discoveredDevice.model || selectedBrand?.name}
+                      {discoveredDevice.isOnline && (
+                        <span className="text-success ml-2">Online</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                {discoveredDevice.capabilities && (
+                  <div className="flex gap-1 flex-wrap">
+                    {discoveredDevice.capabilities.sensors?.map((sensor) => (
+                      <Badge key={sensor} variant="outline" className="text-xs">
+                        {sensor}
+                      </Badge>
+                    ))}
+                    {discoveredDevice.capabilities.supportsDimming && (
+                      <Badge variant="outline" className="text-xs">
+                        Dimming
+                      </Badge>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="space-y-4">
               <div className="space-y-2">
@@ -572,7 +699,16 @@ export function AddControllerDialog({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setStep(selectedBrand?.requiresCredentials ? 2 : 1)}
+                onClick={() => {
+                  // If from discovery, go back to step 1 (discovery tab)
+                  // If from manual, go back to credentials (step 2) or step 1
+                  if (addMode === "discover") {
+                    setStep(1);
+                    setDiscoveredDevice(null);
+                  } else {
+                    setStep(selectedBrand?.requiresCredentials ? 2 : 1);
+                  }
+                }}
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Back
@@ -581,11 +717,11 @@ export function AddControllerDialog({
                 {isConnecting ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Connecting...
+                    {addMode === "discover" ? "Adding..." : "Connecting..."}
                   </>
                 ) : (
                   <>
-                    Connect Controller
+                    {addMode === "discover" ? "Add Controller" : "Connect Controller"}
                     <Wifi className="w-4 h-4 ml-2" />
                   </>
                 )}
@@ -680,17 +816,24 @@ export function AddControllerDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className={cn(
+        "sm:max-w-[500px]",
+        // Wider dialog for discovery step to accommodate the NetworkDiscovery component
+        step === 1 && "sm:max-w-[600px]"
+      )}>
         <DialogHeader>
           <DialogTitle>
             {step === 1 && "Add Controller"}
             {step === 2 && (selectedBrand?.id === "csv_upload" ? "Upload CSV" : "Enter Credentials")}
-            {step === 3 && "Name Your Controller"}
-            {step === 4 && "Connecting..."}
+            {step === 3 && (addMode === "discover" ? "Confirm Device" : "Name Your Controller")}
+            {step === 4 && (addMode === "discover" ? "Adding Device..." : "Connecting...")}
           </DialogTitle>
         </DialogHeader>
 
-        <StepIndicator currentStep={step} />
+        {/* Only show step indicator for manual flow or after discovery selection */}
+        {(addMode === "manual" || step > 1) && (
+          <StepIndicator currentStep={step} />
+        )}
 
         {renderStepContent()}
       </DialogContent>

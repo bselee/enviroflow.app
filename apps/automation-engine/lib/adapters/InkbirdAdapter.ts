@@ -22,6 +22,10 @@ import type {
   ControllerStatus,
   SensorCapability,
   DeviceCapability,
+  DiscoverableAdapter,
+  DiscoveryCredentials,
+  DiscoveryResult,
+  DiscoveredDevice,
 } from './types'
 
 // Inkbird cloud API (unofficial)
@@ -76,7 +80,120 @@ interface InkbirdDeviceDataResponse {
 // Inkbird Adapter Implementation
 // ============================================
 
-export class InkbirdAdapter implements ControllerAdapter {
+export class InkbirdAdapter implements ControllerAdapter, DiscoverableAdapter {
+
+  /**
+   * Discover all Inkbird devices associated with the given credentials.
+   * This queries the Inkbird cloud API to list all registered devices.
+   *
+   * @param credentials - User's Inkbird account credentials
+   * @returns Discovery result with list of all devices
+   */
+  async discoverDevices(credentials: DiscoveryCredentials): Promise<DiscoveryResult> {
+    const { email, password } = credentials
+
+    try {
+      // Step 1: Login
+      const loginResponse = await fetch(`${API_BASE}/v1/user/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'EnviroFlow/1.0'
+        },
+        body: JSON.stringify({ email, password })
+      })
+
+      if (!loginResponse.ok) {
+        return {
+          success: false,
+          devices: [],
+          totalDevices: 0,
+          alreadyRegisteredCount: 0,
+          error: `Login failed: HTTP ${loginResponse.status}`,
+          timestamp: new Date(),
+          source: 'cloud_api'
+        }
+      }
+
+      const loginData: InkbirdLoginResponse = await loginResponse.json()
+
+      if (loginData.code !== 0 || !loginData.data?.token) {
+        return {
+          success: false,
+          devices: [],
+          totalDevices: 0,
+          alreadyRegisteredCount: 0,
+          error: loginData.message || 'Login failed: Invalid credentials',
+          timestamp: new Date(),
+          source: 'cloud_api'
+        }
+      }
+
+      const token = loginData.data.token
+
+      // Step 2: Get all devices
+      const devicesResponse = await fetch(`${API_BASE}/v1/device/list`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'User-Agent': 'EnviroFlow/1.0'
+        }
+      })
+
+      const devicesData: InkbirdDeviceListResponse = await devicesResponse.json()
+
+      if (!devicesData.data || devicesData.data.length === 0) {
+        return {
+          success: true,
+          devices: [],
+          totalDevices: 0,
+          alreadyRegisteredCount: 0,
+          timestamp: new Date(),
+          source: 'cloud_api'
+        }
+      }
+
+      // Step 3: Map Inkbird devices to DiscoveredDevice format
+      const discoveredDevices: DiscoveredDevice[] = devicesData.data.map((device) => {
+        const capabilities = this.getCapabilitiesForModel(device.deviceType)
+
+        return {
+          deviceId: device.deviceId,
+          name: device.deviceName || `Inkbird ${device.deviceType}`,
+          brand: 'inkbird' as const,
+          model: device.deviceType,
+          isOnline: device.online,
+          lastSeen: device.lastUpdate ? new Date(device.lastUpdate * 1000) : undefined,
+          isAlreadyRegistered: false, // Will be updated by caller if needed
+          capabilities: {
+            sensors: capabilities.sensors.map(s => s.type),
+            devices: capabilities.devices.map(d => d.type),
+            supportsDimming: capabilities.supportsDimming
+          }
+        }
+      })
+
+      return {
+        success: true,
+        devices: discoveredDevices,
+        totalDevices: discoveredDevices.length,
+        alreadyRegisteredCount: 0, // Will be calculated by caller
+        timestamp: new Date(),
+        source: 'cloud_api'
+      }
+
+    } catch (error) {
+      return {
+        success: false,
+        devices: [],
+        totalDevices: 0,
+        alreadyRegisteredCount: 0,
+        error: error instanceof Error ? error.message : 'Discovery failed due to network error',
+        timestamp: new Date(),
+        source: 'cloud_api'
+      }
+    }
+  }
 
   /**
    * Connect to Inkbird cloud and get device info
@@ -245,7 +362,7 @@ export class InkbirdAdapter implements ControllerAdapter {
    */
   async controlDevice(
     controllerId: string,
-    port: number,
+    _port: number,
     command: DeviceCommand
   ): Promise<CommandResult> {
     const stored = tokenStore.get(controllerId)

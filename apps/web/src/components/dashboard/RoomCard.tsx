@@ -31,14 +31,44 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSensorReadings } from "@/hooks/use-sensor-readings";
-import type { RoomWithControllers as Room, Controller, TimeSeriesPoint } from "@/types";
+import type { RoomWithControllers, Controller, TimeSeriesPoint } from "@/types";
+
+/**
+ * Display-friendly room data for RoomCard.
+ * Supports both real database Room objects and mock data.
+ */
+interface RoomDisplayData {
+  id: string;
+  name: string;
+  // Real room properties (from database)
+  user_id?: string;
+  description?: string | null;
+  settings?: Record<string, unknown>;
+  current_stage?: string | null;
+  stage_started_at?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  timezone?: string;
+  created_at?: string;
+  updated_at?: string;
+  controllers?: Controller[];
+  // Mock room properties (for development)
+  isOnline?: boolean;
+  workflowActive?: boolean;
+  temperature?: number;
+  humidity?: number;
+  vpd?: number;
+  fanSpeed?: number;
+  lightLevel?: number;
+  lastUpdate?: string;
+}
 
 /**
  * Props for RoomCard component.
  * Accepts a room object with optional controllers relation.
  */
 interface RoomCardProps {
-  room: Room;
+  room: RoomDisplayData | RoomWithControllers;
   /** Whether to show loading skeleton */
   isLoading?: boolean;
 }

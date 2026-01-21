@@ -14,7 +14,14 @@
 import { ACInfinityAdapter } from './ACInfinityAdapter'
 import { InkbirdAdapter } from './InkbirdAdapter'
 import { CSVUploadAdapter, generateCSVTemplate, validateCSVHeaders } from './CSVUploadAdapter'
-import type { ControllerAdapter, ControllerBrand } from './types'
+import type {
+  ControllerAdapter,
+  ControllerBrand,
+  DiscoverableAdapter,
+  DiscoveryCredentials,
+  DiscoveryResult,
+  DiscoveredDevice,
+} from './types'
 
 // ============================================
 // Adapter Factory
@@ -67,6 +74,48 @@ export function isBrandSupported(brand: string): brand is ControllerBrand {
     'csv_upload'
   ]
   return supportedBrands.includes(brand as ControllerBrand)
+}
+
+/**
+ * Check if a brand supports cloud-based device discovery
+ */
+export function supportsDiscovery(brand: ControllerBrand): boolean {
+  const discoverableBrands: ControllerBrand[] = ['ac_infinity', 'inkbird']
+  return discoverableBrands.includes(brand)
+}
+
+/**
+ * Get a discoverable adapter for a brand that supports discovery.
+ * Throws an error if the brand doesn't support discovery.
+ *
+ * @param brand - The controller brand
+ * @returns DiscoverableAdapter instance
+ * @throws Error if brand doesn't support discovery
+ */
+export function getDiscoverableAdapter(brand: ControllerBrand): DiscoverableAdapter {
+  if (!supportsDiscovery(brand)) {
+    throw new Error(
+      `Brand "${brand}" does not support cloud discovery. ` +
+      'Only AC Infinity and Inkbird currently support this feature.'
+    )
+  }
+
+  // Both ACInfinityAdapter and InkbirdAdapter implement DiscoverableAdapter
+  switch (brand) {
+    case 'ac_infinity':
+      return new ACInfinityAdapter()
+    case 'inkbird':
+      return new InkbirdAdapter()
+    default:
+      throw new Error(`Unknown discoverable brand: ${brand}`)
+  }
+}
+
+/**
+ * Get list of brands that support cloud discovery
+ */
+export function getDiscoverableBrands(): ControllerBrand[] {
+  return ['ac_infinity', 'inkbird']
 }
 
 /**

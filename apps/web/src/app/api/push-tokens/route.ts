@@ -3,25 +3,38 @@
  *
  * POST   /api/push-tokens         - Register a push notification token for user
  * DELETE /api/push-tokens         - Remove a push notification token
+ * GET    /api/push-tokens         - List user's push tokens (without actual token values)
  *
  * SECURITY NOTES:
  * - All operations require authentication
  * - Tokens are validated before storage
  * - Users can only manage their own tokens
  * - Invalid tokens are automatically cleaned up
+ * - GET endpoint never returns actual token values (security)
+ *
+ * @module api/push-tokens
  */
 
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import {
+  registerPushToken,
+  unregisterPushToken,
+  type PushPlatform,
+} from "@/lib/push-notification-service";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseClient = ReturnType<typeof createClient<any>>;
 
-// Lazy Supabase client
+/** Cached Supabase client instance */
 let supabase: SupabaseClient | null = null;
 
 /**
- * Gets or creates the Supabase client instance (service role)
+ * Gets or creates the Supabase client instance (service role).
+ * Service role is required to bypass RLS for push token operations.
+ *
+ * @throws Error if Supabase credentials are not configured
+ * @returns Supabase client instance
  */
 function getSupabase(): SupabaseClient {
   if (!supabase) {
@@ -29,7 +42,10 @@ function getSupabase(): SupabaseClient {
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!url || !key) {
-      throw new Error("Supabase credentials not configured");
+      throw new Error(
+        "Supabase credentials not configured. " +
+          "Ensure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set."
+      );
     }
 
     supabase = createClient(url, key, {
@@ -43,7 +59,12 @@ function getSupabase(): SupabaseClient {
 }
 
 /**
- * Extracts and validates user ID from request
+ * Extracts and validates user ID from request.
+ * Supports Bearer token authentication and development fallback.
+ *
+ * @param request - The incoming Next.js request
+ * @param client - Supabase client for auth verification
+ * @returns User ID string or null if not authenticated
  */
 async function getUserId(
   request: NextRequest,
@@ -59,7 +80,7 @@ async function getUserId(
     return user?.id || null;
   }
 
-  // Development fallback
+  // Development fallback for testing
   if (process.env.NODE_ENV !== "production") {
     return request.headers.get("x-user-id");
   }
@@ -68,28 +89,56 @@ async function getUserId(
 }
 
 /**
- * Supported push token types
+ * Supported push token platforms.
+ * Maps to database constraint on push_tokens.platform column.
  */
-type TokenType = "web_push" | "fcm" | "apns";
+type TokenPlatform = PushPlatform;
 
 /**
- * Request body for registering a push token
+ * Request body for registering a push token.
+ * Accepts either 'platform' (preferred) or 'type' (legacy) field.
  */
 interface RegisterTokenRequest {
+  /** The push notification token string */
   token: string;
-  type: TokenType;
+  /** Platform: ios, android, or web (preferred) */
+  platform?: TokenPlatform;
+  /** Legacy field for backwards compatibility (maps to platform) */
+  type?: "web_push" | "fcm" | "apns";
+  /** Optional friendly device name */
   device_name?: string;
+  /** Optional user agent string for device identification */
   user_agent?: string;
 }
 
 /**
- * Validates a push token format based on its type
+ * Maps legacy token type names to platform names.
+ * Provides backwards compatibility with older API clients.
+ */
+function mapLegacyTypeToplatform(
+  type: "web_push" | "fcm" | "apns"
+): TokenPlatform {
+  switch (type) {
+    case "web_push":
+      return "web";
+    case "fcm":
+      return "android";
+    case "apns":
+      return "ios";
+    default:
+      throw new Error(`Unknown token type: ${type}`);
+  }
+}
+
+/**
+ * Validates a push token format based on its platform.
+ * Prevents storage of malformed tokens.
  *
  * @param token - The token string to validate
- * @param type - The token type (web_push, fcm, apns)
+ * @param platform - The token platform (ios, android, web)
  * @returns true if the token format is valid
  */
-function isValidTokenFormat(token: string, type: TokenType): boolean {
+function isValidTokenFormat(token: string, platform: TokenPlatform): boolean {
   if (!token || typeof token !== "string") {
     return false;
   }
@@ -99,21 +148,25 @@ function isValidTokenFormat(token: string, type: TokenType): boolean {
     return false;
   }
 
-  switch (type) {
-    case "web_push":
-      // Web Push tokens are typically URL-safe base64 or JSON endpoints
-      // They often start with https:// or contain base64 characters
-      return (
-        token.startsWith("https://") ||
-        /^[A-Za-z0-9_-]+$/.test(token.replace(/[:.]/g, ""))
-      );
+  switch (platform) {
+    case "web":
+      // Web Push: Either a JSON subscription object or URL endpoint
+      try {
+        if (token.startsWith("{")) {
+          const parsed = JSON.parse(token);
+          return !!parsed.endpoint && !!parsed.keys;
+        }
+        return token.startsWith("https://");
+      } catch {
+        return false;
+      }
 
-    case "fcm":
+    case "android":
       // FCM tokens are alphanumeric strings, usually 150-200 chars
       // They may contain colons and underscores
       return /^[A-Za-z0-9:_-]+$/.test(token) && token.length >= 100;
 
-    case "apns":
+    case "ios":
       // APNS tokens are 64-character hex strings (32 bytes)
       return /^[a-f0-9]{64}$/i.test(token);
 
@@ -126,19 +179,20 @@ function isValidTokenFormat(token: string, type: TokenType): boolean {
  * POST /api/push-tokens
  *
  * Register a push notification token for the authenticated user.
- * If the token already exists, updates the last_seen timestamp.
+ * If the token already exists, updates the timestamp.
  *
  * Request Body: {
- *   token: string       - The push notification token
- *   type: string        - Token type: 'web_push' | 'fcm' | 'apns'
- *   device_name?: string - Optional friendly device name
- *   user_agent?: string  - Optional user agent for identification
+ *   token: string         - The push notification token
+ *   platform: string      - Platform: 'ios' | 'android' | 'web' (preferred)
+ *   type?: string         - Legacy: 'web_push' | 'fcm' | 'apns' (backwards compatible)
+ *   device_name?: string  - Optional friendly device name
+ *   user_agent?: string   - Optional user agent for identification
  * }
  *
  * Response: {
  *   success: true
  *   message: string
- *   token_id: string
+ *   platform: string
  * }
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -147,10 +201,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const userId = await getUserId(request, client);
 
     if (!userId) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Parse request body
@@ -164,129 +215,68 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { token, type, device_name, user_agent } = body;
+    const { token, platform: rawPlatform, type: legacyType, device_name } = body;
 
-    // Validate required fields
+    // Validate required token field
     if (!token || typeof token !== "string") {
-      return NextResponse.json(
-        { error: "Token is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Token is required" }, { status: 400 });
     }
 
-    if (!type || !["web_push", "fcm", "apns"].includes(type)) {
+    // Determine platform (prefer 'platform' field, fall back to 'type' for legacy)
+    let platform: TokenPlatform;
+
+    if (rawPlatform && ["ios", "android", "web"].includes(rawPlatform)) {
+      platform = rawPlatform;
+    } else if (legacyType && ["web_push", "fcm", "apns"].includes(legacyType)) {
+      platform = mapLegacyTypeToplatform(legacyType);
+    } else {
       return NextResponse.json(
         {
-          error: "Invalid token type",
-          validTypes: ["web_push", "fcm", "apns"],
+          error: "Invalid platform",
+          validPlatforms: ["ios", "android", "web"],
+          legacyTypes: ["web_push", "fcm", "apns"],
         },
         { status: 400 }
       );
     }
 
     // Validate token format
-    if (!isValidTokenFormat(token, type as TokenType)) {
+    if (!isValidTokenFormat(token, platform)) {
       return NextResponse.json(
-        { error: "Invalid token format for the specified type" },
+        { error: `Invalid token format for platform: ${platform}` },
         { status: 400 }
       );
     }
 
-    // Check if token already exists for this user
-    const { data: existingToken, error: findError } = await client
-      .from("push_tokens")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("token", token)
-      .single();
+    // Use the push notification service to register the token
+    const success = await registerPushToken(userId, token, platform);
 
-    if (findError && findError.code !== "PGRST116") {
-      // PGRST116 = no rows returned (which is fine)
-      console.error("[Push Tokens POST] Find error:", {
-        code: findError.code,
-        message: findError.message,
-      });
-    }
-
-    if (existingToken) {
-      // Token exists, update last_seen
-      const { error: updateError } = await client
-        .from("push_tokens")
-        .update({
-          last_seen: new Date().toISOString(),
-          is_valid: true,
-          device_name: device_name || null,
-          user_agent: user_agent || null,
-        })
-        .eq("id", existingToken.id);
-
-      if (updateError) {
-        console.error("[Push Tokens POST] Update error:", {
-          code: updateError.code,
-          message: updateError.message,
-        });
-        return NextResponse.json(
-          { error: "Failed to update token" },
-          { status: 500 }
-        );
-      }
-
-      return NextResponse.json({
-        success: true,
-        message: "Token refreshed successfully",
-        token_id: existingToken.id,
-        is_new: false,
-      });
-    }
-
-    // Insert new token
-    const { data: insertedToken, error: insertError } = await client
-      .from("push_tokens")
-      .insert({
-        user_id: userId,
-        token,
-        token_type: type,
-        device_name: device_name || null,
-        user_agent: user_agent || request.headers.get("user-agent") || null,
-        is_valid: true,
-        last_seen: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-      })
-      .select("id")
-      .single();
-
-    if (insertError) {
-      console.error("[Push Tokens POST] Insert error:", {
-        code: insertError.code,
-        message: insertError.message,
-      });
-
-      // Handle duplicate token (race condition)
-      if (insertError.code === "23505") {
-        return NextResponse.json(
-          { error: "Token already registered" },
-          { status: 409 }
-        );
-      }
-
+    if (!success) {
       return NextResponse.json(
         { error: "Failed to register token" },
         { status: 500 }
       );
     }
 
+    // If device_name provided, update it separately
+    if (device_name) {
+      await client
+        .from("push_tokens")
+        .update({ device_name })
+        .eq("user_id", userId)
+        .eq("token", token);
+    }
+
     console.log("[Push Tokens POST] Token registered:", {
       userId: `${userId.substring(0, 8)}...`,
-      tokenType: type,
-      tokenId: insertedToken.id,
+      platform,
     });
 
     return NextResponse.json(
       {
         success: true,
         message: "Token registered successfully",
-        token_id: insertedToken.id,
-        is_new: true,
+        platform,
       },
       { status: 201 }
     );
@@ -324,10 +314,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
     const userId = await getUserId(request, client);
 
     if (!userId) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Get token from query params or body
@@ -354,38 +341,18 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Delete the token (only if it belongs to this user)
-    const { data: deletedToken, error: deleteError } = await client
-      .from("push_tokens")
-      .delete()
-      .eq("user_id", userId)
-      .eq("token", token)
-      .select("id")
-      .single();
+    // Use the push notification service to unregister the token
+    const success = await unregisterPushToken(token);
 
-    if (deleteError) {
-      if (deleteError.code === "PGRST116") {
-        // No rows returned - token doesn't exist or doesn't belong to user
-        return NextResponse.json(
-          { error: "Token not found or does not belong to you" },
-          { status: 404 }
-        );
-      }
-
-      console.error("[Push Tokens DELETE] Error:", {
-        code: deleteError.code,
-        message: deleteError.message,
-      });
-
+    if (!success) {
       return NextResponse.json(
-        { error: "Failed to delete token" },
-        { status: 500 }
+        { error: "Token not found or failed to delete" },
+        { status: 404 }
       );
     }
 
     console.log("[Push Tokens DELETE] Token removed:", {
       userId: `${userId.substring(0, 8)}...`,
-      tokenId: deletedToken?.id,
     });
 
     return NextResponse.json({
@@ -410,15 +377,17 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
  * List all push tokens for the authenticated user.
  * Useful for managing notification settings.
  *
+ * SECURITY: Never returns actual token values, only metadata.
+ *
  * Response: {
  *   success: true
  *   tokens: Array<{
  *     id: string
- *     token_type: string
+ *     platform: string
  *     device_name: string | null
- *     is_valid: boolean
- *     last_seen: string
+ *     is_active: boolean
  *     created_at: string
+ *     updated_at: string
  *   }>
  *   count: number
  * }
@@ -429,23 +398,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const userId = await getUserId(request, client);
 
     if (!userId) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Fetch user's tokens (never return the actual token value)
+    // Fetch user's tokens (never return the actual token value for security)
     const { data: tokens, error } = await client
       .from("push_tokens")
       .select(
         `
         id,
-        token_type,
+        platform,
         device_name,
-        is_valid,
-        last_seen,
-        created_at
+        is_active,
+        created_at,
+        updated_at
       `
       )
       .eq("user_id", userId)

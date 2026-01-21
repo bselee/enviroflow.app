@@ -435,3 +435,96 @@ export interface DBActivityLog {
   user_agent: string | null
   timestamp: string
 }
+
+// ============================================
+// Network/Cloud Discovery Types
+// ============================================
+
+/**
+ * A device discovered through cloud API or network scanning.
+ * Represents a controller that can be added to EnviroFlow.
+ */
+export interface DiscoveredDevice {
+  /** Unique device identifier from the cloud API */
+  deviceId: string
+  /** Device code/serial number (if available) */
+  deviceCode?: string
+  /** Human-readable device name */
+  name: string
+  /** Controller brand */
+  brand: ControllerBrand
+  /** Device model (e.g., "Controller 69", "ITC-308") */
+  model?: string
+  /** Device type code (brand-specific) */
+  deviceType?: number
+  /** Is device currently online */
+  isOnline: boolean
+  /** Last online timestamp */
+  lastSeen?: Date
+  /** Firmware version (if available) */
+  firmwareVersion?: string
+  /** IP address (for local network devices, if discoverable) */
+  ipAddress?: string
+  /** MAC address (if available) */
+  macAddress?: string
+  /** Whether this device is already registered in EnviroFlow */
+  isAlreadyRegistered?: boolean
+  /** Device capabilities summary */
+  capabilities?: {
+    sensors?: string[]
+    devices?: string[]
+    supportsDimming?: boolean
+  }
+}
+
+/**
+ * Result of a cloud-based device discovery operation.
+ */
+export interface DiscoveryResult {
+  /** Whether the discovery was successful */
+  success: boolean
+  /** List of discovered devices */
+  devices: DiscoveredDevice[]
+  /** Total number of devices found */
+  totalDevices: number
+  /** Number of devices already registered */
+  alreadyRegisteredCount: number
+  /** Error message if discovery failed */
+  error?: string
+  /** Timestamp of the discovery */
+  timestamp: Date
+  /** Source of discovery (cloud, mdns, upnp, etc.) */
+  source: DiscoverySource
+}
+
+/**
+ * Source of device discovery
+ */
+export type DiscoverySource =
+  | 'cloud_api'      // Via brand's cloud API (most reliable)
+  | 'mdns'           // Via mDNS/Bonjour local network discovery
+  | 'upnp'           // Via UPnP/SSDP local network discovery
+  | 'manual_scan'    // Via IP range scanning
+
+/**
+ * Credentials required for cloud-based discovery
+ */
+export interface DiscoveryCredentials {
+  brand: ControllerBrand
+  email: string
+  password: string
+}
+
+/**
+ * Interface for adapters that support cloud-based device discovery
+ */
+export interface DiscoverableAdapter extends ControllerAdapter {
+  /**
+   * Discover all devices associated with the given credentials.
+   * This queries the brand's cloud API to list all registered devices.
+   *
+   * @param credentials - User credentials for the brand's cloud service
+   * @returns Discovery result with list of devices
+   */
+  discoverDevices(credentials: DiscoveryCredentials): Promise<DiscoveryResult>
+}

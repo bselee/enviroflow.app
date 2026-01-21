@@ -794,3 +794,88 @@ export interface UseMutationState {
   updating: boolean;
   deleting: boolean;
 }
+
+// =============================================================================
+// Network Discovery Types
+// =============================================================================
+
+/**
+ * A device discovered through cloud API or network scanning.
+ */
+export interface DiscoveredDevice {
+  /** Unique device identifier from the cloud API */
+  deviceId: string;
+  /** Device code/serial number (if available) */
+  deviceCode?: string;
+  /** Human-readable device name */
+  name: string;
+  /** Controller brand */
+  brand: ControllerBrand;
+  /** Device model (e.g., "Controller 69", "ITC-308") */
+  model?: string;
+  /** Device type code (brand-specific) */
+  deviceType?: number;
+  /** Is device currently online */
+  isOnline: boolean;
+  /** Last online timestamp (ISO string) */
+  lastSeen?: string;
+  /** Firmware version (if available) */
+  firmwareVersion?: string;
+  /** IP address (for local network devices, if discoverable) */
+  ipAddress?: string;
+  /** MAC address (if available) */
+  macAddress?: string;
+  /** Whether this device is already registered in EnviroFlow */
+  isAlreadyRegistered: boolean;
+  /** Device capabilities summary */
+  capabilities?: {
+    sensors?: string[];
+    devices?: string[];
+    supportsDimming?: boolean;
+  };
+}
+
+/**
+ * Result of a discovery operation from the API.
+ */
+export interface DiscoveryResponse {
+  /** Whether the discovery was successful */
+  success: boolean;
+  /** List of discovered devices */
+  devices: DiscoveredDevice[];
+  /** Total number of devices found */
+  totalDevices: number;
+  /** Number of devices already registered */
+  alreadyRegisteredCount: number;
+  /** Error message if discovery failed */
+  error?: string;
+  /** Additional error details */
+  details?: string;
+  /** Discovery source */
+  source: string;
+  /** Timestamp of the discovery (ISO string) */
+  timestamp: string;
+}
+
+/**
+ * Credentials required for cloud-based discovery.
+ */
+export interface DiscoveryCredentials {
+  brand: ControllerBrand;
+  email: string;
+  password: string;
+}
+
+/**
+ * Discovery state for UI components.
+ */
+export interface DiscoveryState {
+  /** Whether a discovery is in progress */
+  isScanning: boolean;
+  /** Discovered devices */
+  devices: DiscoveredDevice[];
+  /** Error message if any */
+  error: string | null;
+  /** Last successful scan timestamp */
+  lastScanAt: Date | null;
+}

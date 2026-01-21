@@ -2,6 +2,11 @@
   "name": "@enviroflow/automation-engine",
   "version": "0.1.0",
   "private": true,
+  "main": "./lib/adapters/index.ts",
+  "types": "./lib/adapters/index.ts",
+  "exports": {
+    "./adapters": "./lib/adapters/index.ts"
+  },
   "scripts": {
     "dev": "supabase start",
     "build": "echo 'Automation engine has no build step'",
