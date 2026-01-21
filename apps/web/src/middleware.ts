@@ -4,10 +4,12 @@
  * Protects routes by checking for valid Supabase session.
  * Redirects unauthenticated users to login page.
  * Redirects authenticated users away from auth pages.
+ *
+ * Uses @supabase/ssr for proper cookie-based session management.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
 /**
  * Routes that require authentication
@@ -77,48 +79,34 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return NextResponse.next();
   }
 
-  // Create Supabase client for middleware
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
+  // Create response to potentially modify
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
     },
   });
 
-  // Get access token from cookies
-  // Supabase stores session in cookies with these names
-  const accessToken = request.cookies.get("sb-access-token")?.value;
-  const refreshToken = request.cookies.get("sb-refresh-token")?.value;
+  // Create Supabase client with cookie handling for middleware
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value, options }) => {
+          request.cookies.set(name, value);
+          response.cookies.set(name, value, options);
+        });
+      },
+    },
+  });
 
-  // Also check for the combined auth token cookie (Supabase v2 format)
-  const authTokenCookie = request.cookies.get(
-    `sb-${new URL(supabaseUrl).hostname.split(".")[0]}-auth-token`
-  )?.value;
+  // Get user from session (this also refreshes the session if needed)
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  let isAuthenticated = false;
-
-  // Try to verify the session
-  if (authTokenCookie) {
-    try {
-      // Parse the auth token cookie (it's a JSON array: [access_token, refresh_token])
-      const tokens = JSON.parse(authTokenCookie);
-      if (Array.isArray(tokens) && tokens[0]) {
-        const { data, error } = await supabase.auth.getUser(tokens[0]);
-        isAuthenticated = !error && !!data.user;
-      }
-    } catch {
-      // Token parsing failed, user is not authenticated
-      isAuthenticated = false;
-    }
-  } else if (accessToken) {
-    // Fallback to separate token cookies
-    try {
-      const { data, error } = await supabase.auth.getUser(accessToken);
-      isAuthenticated = !error && !!data.user;
-    } catch {
-      isAuthenticated = false;
-    }
-  }
+  const isAuthenticated = !!user;
 
   // Handle protected routes - redirect to login if not authenticated
   if (matchesRoute(pathname, PROTECTED_ROUTES)) {
@@ -140,7 +128,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  return NextResponse.next();
+  return response;
 }
 
 /**

@@ -1,51 +1,34 @@
 /**
  * Auth Callback Route Handler
  *
- * This route handles the OAuth/email confirmation callback from Supabase.
- * When a user clicks the confirmation link in their email, Supabase redirects
- * them to this endpoint with an auth code. This handler exchanges that code
- * for a session, sets the appropriate cookies, and redirects to the dashboard.
+ * Handles both:
+ * 1. Email confirmation (token_hash + type)
+ * 2. OAuth callbacks (code)
  *
- * Flow:
- * 1. User clicks confirmation link in email
- * 2. Supabase redirects to /auth/callback?code=xxx
- * 3. This handler exchanges the code for a session
- * 4. User is redirected to /dashboard with an active session
+ * Uses @supabase/ssr for proper cookie-based session management
  */
 
-import { createClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-/**
- * GET /auth/callback
- *
- * Handles the auth callback from Supabase email confirmation links.
- * Exchanges the auth code for a session and sets cookies for authentication.
- */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestUrl = new URL(request.url);
+
+  // Get all possible auth parameters
   const code = requestUrl.searchParams.get("code");
+  const token_hash = requestUrl.searchParams.get("token_hash");
+  const type = requestUrl.searchParams.get("type");
   const error = requestUrl.searchParams.get("error");
   const errorDescription = requestUrl.searchParams.get("error_description");
 
-  // Handle OAuth errors (e.g., user denied consent)
-  if (error) {
-    console.error("Auth callback error:", error, errorDescription);
-    const loginUrl = new URL("/login", requestUrl.origin);
-    loginUrl.searchParams.set(
-      "error",
-      errorDescription || "Authentication failed"
-    );
-    return NextResponse.redirect(loginUrl);
-  }
+  const origin = requestUrl.origin;
 
-  // If no code is present, redirect to login
-  if (!code) {
-    console.error("Auth callback: No code parameter received");
-    const loginUrl = new URL("/login", requestUrl.origin);
-    loginUrl.searchParams.set("error", "Invalid confirmation link");
-    return NextResponse.redirect(loginUrl);
+  // Handle errors from OAuth provider
+  if (error) {
+    console.error("[Auth Callback] Error:", error, errorDescription);
+    return NextResponse.redirect(
+      `${origin}/login?error=${encodeURIComponent(errorDescription || error)}`
+    );
   }
 
   // Get Supabase credentials
@@ -53,95 +36,82 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    console.error("Auth callback: Missing Supabase environment variables");
-    const loginUrl = new URL("/login", requestUrl.origin);
-    loginUrl.searchParams.set("error", "Server configuration error");
-    return NextResponse.redirect(loginUrl);
+    console.error("[Auth Callback] Missing Supabase env vars");
+    return NextResponse.redirect(`${origin}/login?error=Server+configuration+error`);
   }
 
-  // Create a Supabase client for this request
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
+  // Create response early so we can set cookies on it
+  let response = NextResponse.redirect(`${origin}/dashboard`);
+
+  // Create Supabase client with cookie handling
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value, options }) => {
+          // Set on the response so cookies persist
+          response.cookies.set(name, value, options);
+        });
+      },
     },
   });
 
   try {
-    // Exchange the code for a session
-    const { data, error: exchangeError } =
-      await supabase.auth.exchangeCodeForSession(code);
+    // Handle email confirmation (token_hash flow)
+    if (token_hash && type) {
+      console.log("[Auth Callback] Processing email verification, type:", type);
 
-    if (exchangeError) {
-      console.error("Auth callback: Code exchange failed:", exchangeError);
-      const loginUrl = new URL("/login", requestUrl.origin);
-      loginUrl.searchParams.set(
-        "error",
-        exchangeError.message || "Session creation failed"
-      );
-      return NextResponse.redirect(loginUrl);
+      const { data, error: verifyError } = await supabase.auth.verifyOtp({
+        token_hash,
+        type: type as "signup" | "recovery" | "invite" | "email",
+      });
+
+      if (verifyError) {
+        console.error("[Auth Callback] OTP verification failed:", verifyError.message);
+        return NextResponse.redirect(
+          `${origin}/login?error=${encodeURIComponent(verifyError.message)}`
+        );
+      }
+
+      if (data.session) {
+        console.log("[Auth Callback] Email verified, session created for:", data.session.user.email);
+        // Session cookies are automatically set by the Supabase client
+        return response;
+      }
+
+      // No session but no error - might just be email confirmed
+      console.log("[Auth Callback] Email verified, redirecting to login");
+      return NextResponse.redirect(`${origin}/login?message=Email+confirmed!+Please+sign+in.`);
     }
 
-    if (!data.session) {
-      console.error("Auth callback: No session returned from code exchange");
-      const loginUrl = new URL("/login", requestUrl.origin);
-      loginUrl.searchParams.set("error", "Session creation failed");
-      return NextResponse.redirect(loginUrl);
+    // Handle OAuth callback (code flow)
+    if (code) {
+      console.log("[Auth Callback] Processing OAuth code exchange");
+
+      const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+
+      if (exchangeError) {
+        console.error("[Auth Callback] Code exchange failed:", exchangeError.message);
+        return NextResponse.redirect(
+          `${origin}/login?error=${encodeURIComponent(exchangeError.message)}`
+        );
+      }
+
+      if (data.session) {
+        console.log("[Auth Callback] OAuth session created for:", data.session.user.email);
+        // Session cookies are automatically set by the Supabase client
+        return response;
+      }
     }
 
-    // Create the response with redirect to dashboard
-    const dashboardUrl = new URL("/dashboard", requestUrl.origin);
-    const response = NextResponse.redirect(dashboardUrl);
+    // No valid auth parameters
+    console.error("[Auth Callback] No valid auth parameters found");
+    return NextResponse.redirect(`${origin}/login?error=Invalid+confirmation+link`);
 
-    // Set the auth cookies
-    // Supabase v2 uses a combined auth token cookie format
-    const projectRef = new URL(supabaseUrl).hostname.split(".")[0];
-    const authCookieName = `sb-${projectRef}-auth-token`;
-
-    // The auth token cookie stores both access and refresh tokens as a JSON array
-    const authTokenValue = JSON.stringify([
-      data.session.access_token,
-      data.session.refresh_token,
-    ]);
-
-    // Get the cookie store to set cookies properly
-    const cookieStore = await cookies();
-
-    // Set the main auth cookie
-    // Using httpOnly: false because the client-side Supabase SDK needs to read it
-    cookieStore.set(authCookieName, authTokenValue, {
-      path: "/",
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      // Max age matches Supabase session expiry (default: 1 week)
-      maxAge: 60 * 60 * 24 * 7,
-    });
-
-    // Also set individual token cookies for compatibility
-    cookieStore.set("sb-access-token", data.session.access_token, {
-      path: "/",
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 60 * 60 * 24 * 7,
-    });
-
-    cookieStore.set("sb-refresh-token", data.session.refresh_token, {
-      path: "/",
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 60 * 60 * 24 * 7,
-    });
-
-    console.log(
-      "Auth callback: Session created successfully for user:",
-      data.session.user.email
-    );
-
-    return response;
-  } catch (error) {
-    console.error("Auth callback: Unexpected error:", error);
-    const loginUrl = new URL("/login", requestUrl.origin);
-    loginUrl.searchParams.set("error", "An unexpected error occurred");
-    return NextResponse.redirect(loginUrl);
+  } catch (err) {
+    console.error("[Auth Callback] Unexpected error:", err);
+    return NextResponse.redirect(`${origin}/login?error=An+unexpected+error+occurred`);
   }
 }
