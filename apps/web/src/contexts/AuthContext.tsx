@@ -87,16 +87,26 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
   useEffect(() => {
     // Get initial session
     const initializeAuth = async () => {
+      console.log("[AuthContext] Initializing auth...");
       try {
         const {
           data: { session: initialSession },
+          error,
         } = await supabase.auth.getSession();
+
+        console.log("[AuthContext] getSession result:", {
+          hasSession: !!initialSession,
+          hasUser: !!initialSession?.user,
+          userEmail: initialSession?.user?.email,
+          error: error?.message,
+        });
 
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
       } catch (error) {
-        console.error("Error fetching initial session:", error);
+        console.error("[AuthContext] Error fetching initial session:", error);
       } finally {
+        console.log("[AuthContext] Setting loading to false");
         setLoading(false);
       }
     };
@@ -106,7 +116,12 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
     // Subscribe to auth state changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
+      console.log("[AuthContext] Auth state changed:", {
+        event,
+        hasSession: !!newSession,
+        userEmail: newSession?.user?.email,
+      });
       setSession(newSession);
       setUser(newSession?.user ?? null);
       setLoading(false);

@@ -8,11 +8,14 @@
  * Uses @supabase/ssr for proper cookie-based session management
  */
 
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestUrl = new URL(request.url);
+
+  console.log("[Auth Callback] Full URL:", request.url);
+  console.log("[Auth Callback] Search params:", Object.fromEntries(requestUrl.searchParams));
 
   // Get all possible auth parameters
   const code = requestUrl.searchParams.get("code");
@@ -25,7 +28,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   // Handle errors from OAuth provider
   if (error) {
-    console.error("[Auth Callback] Error:", error, errorDescription);
+    console.error("[Auth Callback] Error param:", error, errorDescription);
     return NextResponse.redirect(
       `${origin}/login?error=${encodeURIComponent(errorDescription || error)}`
     );
@@ -40,19 +43,32 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(`${origin}/login?error=Server+configuration+error`);
   }
 
-  // Create response early so we can set cookies on it
+  // Create response - we'll set cookies on this
   let response = NextResponse.redirect(`${origin}/dashboard`);
+
+  // Track cookies being set for debugging
+  const cookiesSet: string[] = [];
 
   // Create Supabase client with cookie handling
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       getAll() {
-        return request.cookies.getAll();
+        const cookies = request.cookies.getAll();
+        console.log("[Auth Callback] getAll cookies:", cookies.map(c => c.name));
+        return cookies;
       },
       setAll(cookiesToSet) {
+        console.log("[Auth Callback] setAll called with:", cookiesToSet.length, "cookies");
         cookiesToSet.forEach(({ name, value, options }) => {
-          // Set on the response so cookies persist
-          response.cookies.set(name, value, options);
+          console.log("[Auth Callback] Setting cookie:", name, "options:", options);
+          cookiesSet.push(name);
+          // Ensure secure cookies on production
+          response.cookies.set(name, value, {
+            ...options,
+            secure: true,
+            sameSite: "lax",
+            path: "/",
+          });
         });
       },
     },
@@ -61,7 +77,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     // Handle email confirmation (token_hash flow)
     if (token_hash && type) {
-      console.log("[Auth Callback] Processing email verification, type:", type);
+      console.log("[Auth Callback] Processing email verification");
+      console.log("[Auth Callback] token_hash length:", token_hash.length);
+      console.log("[Auth Callback] type:", type);
 
       const { data, error: verifyError } = await supabase.auth.verifyOtp({
         token_hash,
@@ -70,25 +88,36 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
       if (verifyError) {
         console.error("[Auth Callback] OTP verification failed:", verifyError.message);
+        console.error("[Auth Callback] OTP error code:", verifyError.status);
         return NextResponse.redirect(
           `${origin}/login?error=${encodeURIComponent(verifyError.message)}`
         );
       }
 
+      console.log("[Auth Callback] verifyOtp result - has session:", !!data.session);
+      console.log("[Auth Callback] verifyOtp result - has user:", !!data.user);
+
       if (data.session) {
-        console.log("[Auth Callback] Email verified, session created for:", data.session.user.email);
-        // Session cookies are automatically set by the Supabase client
+        console.log("[Auth Callback] Session created for:", data.session.user.email);
+        console.log("[Auth Callback] Session expires at:", data.session.expires_at);
+        console.log("[Auth Callback] Cookies that were set:", cookiesSet);
+
+        // Double-check by getting session (this should trigger cookie setting)
+        const { data: sessionCheck } = await supabase.auth.getSession();
+        console.log("[Auth Callback] Session check after verify:", !!sessionCheck.session);
+
         return response;
       }
 
-      // No session but no error - might just be email confirmed
-      console.log("[Auth Callback] Email verified, redirecting to login");
+      // No session but verified - redirect to login with success message
+      console.log("[Auth Callback] Email verified but no session, redirecting to login");
       return NextResponse.redirect(`${origin}/login?message=Email+confirmed!+Please+sign+in.`);
     }
 
     // Handle OAuth callback (code flow)
     if (code) {
       console.log("[Auth Callback] Processing OAuth code exchange");
+      console.log("[Auth Callback] code length:", code.length);
 
       const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
 
@@ -101,13 +130,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
       if (data.session) {
         console.log("[Auth Callback] OAuth session created for:", data.session.user.email);
-        // Session cookies are automatically set by the Supabase client
+        console.log("[Auth Callback] Cookies that were set:", cookiesSet);
         return response;
       }
     }
 
     // No valid auth parameters
     console.error("[Auth Callback] No valid auth parameters found");
+    console.error("[Auth Callback] code:", !!code, "token_hash:", !!token_hash, "type:", type);
     return NextResponse.redirect(`${origin}/login?error=Invalid+confirmation+link`);
 
   } catch (err) {
