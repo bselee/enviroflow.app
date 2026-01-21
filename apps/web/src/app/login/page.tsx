@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -42,8 +42,27 @@ type LoginFormData = z.infer<typeof loginSchema>;
  */
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { signIn, user, loading: authLoading } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+
+  // Check for error message from auth callback (e.g., failed email confirmation)
+  const authError = searchParams.get("error");
+
+  // Show auth callback errors as toast on mount
+  useEffect(() => {
+    if (authError) {
+      toast({
+        title: "Authentication error",
+        description: decodeURIComponent(authError),
+        variant: "destructive",
+      });
+      // Clear the error from URL to prevent showing it again on refresh
+      const url = new URL(window.location.href);
+      url.searchParams.delete("error");
+      window.history.replaceState({}, "", url.pathname + url.search);
+    }
+  }, [authError]);
 
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),

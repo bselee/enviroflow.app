@@ -32,7 +32,7 @@ const AUTH_ROUTES = ["/login", "/signup", "/reset-password"];
  * Routes that are always public
  * No authentication checks are performed
  */
-const PUBLIC_ROUTES = ["/", "/api"];
+const PUBLIC_ROUTES = ["/", "/api", "/auth/callback"];
 
 /**
  * Check if a pathname matches any route in the list
@@ -60,8 +60,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return NextResponse.next();
   }
 
-  // Skip for public routes
-  if (pathname === "/") {
+  // Skip for public routes (includes auth callback for email confirmation)
+  if (matchesRoute(pathname, PUBLIC_ROUTES)) {
     return NextResponse.next();
   }
 

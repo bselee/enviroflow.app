@@ -163,8 +163,9 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
           password,
           options: {
             data: metadata,
-            // Email confirmation is required by default in Supabase
-            emailRedirectTo: `${window.location.origin}/login`,
+            // Redirect to auth callback to exchange code for session
+            // This ensures the user is automatically logged in after confirmation
+            emailRedirectTo: `${window.location.origin}/auth/callback`,
           },
         });
 
