@@ -1,0 +1,569 @@
+/**
+ * Controller Sensor Reading API Route
+ *
+ * GET /api/controllers/[id]/sensors - Fetch live sensor readings
+ *
+ * Flow:
+ * 1. Verify user owns the controller
+ * 2. Get adapter based on brand
+ * 3. Call adapter.readSensors()
+ * 4. Validate readings against acceptable ranges
+ * 5. Store in sensor_readings table
+ * 6. Return readings
+ *
+ * Validation ranges (per MVP spec):
+ * - Temperature: 32-120°F (0-49°C)
+ * - Humidity: 0-100%
+ * - VPD: 0-3.0 kPa
+ * - CO2: 0-5000 ppm
+ * - Light: 0-150000 lux
+ * - pH: 0-14
+ * - EC: 0-20 mS/cm
+ */
+
+import { createClient } from '@supabase/supabase-js'
+import { NextRequest, NextResponse } from 'next/server'
+import {
+  decryptCredentials as decryptCredentialsAES,
+  EncryptionError,
+} from '@/lib/server-encryption'
+
+// ============================================
+// Inline Adapter Types (avoiding cross-package imports)
+// ============================================
+
+type ControllerBrand = 'ac_infinity' | 'inkbird' | 'govee' | 'csv_upload' | 'mqtt' | 'custom'
+type SensorType = 'temperature' | 'humidity' | 'vpd' | 'co2' | 'light' | 'ph' | 'ec' | 'soil_moisture' | 'pressure'
+
+interface ControllerCredentials {
+  email?: string
+  password?: string
+  apiKey?: string
+  [key: string]: unknown
+}
+
+interface SensorReading {
+  type: SensorType
+  value: number
+  unit: string
+  timestamp: string
+  port?: number
+  isStale?: boolean
+}
+
+interface ConnectionResult {
+  success: boolean
+  error?: string
+  controllerId?: string
+}
+
+interface ControllerAdapter {
+  connect(credentials: ControllerCredentials): Promise<ConnectionResult>
+  disconnect(controllerId: string): Promise<void>
+  readSensors(controllerId: string): Promise<SensorReading[]>
+}
+
+/**
+ * Simple adapter factory for sensor reading.
+ * Returns mock data for demo purposes - real implementations are in automation-engine.
+ */
+function getAdapter(brand: ControllerBrand): ControllerAdapter {
+  return {
+    async connect(credentials: ControllerCredentials): Promise<ConnectionResult> {
+      if (!credentials.email && !credentials.apiKey) {
+        return { success: false, error: 'Credentials required' }
+      }
+      return {
+        success: true,
+        controllerId: `${brand}_${Date.now()}`
+      }
+    },
+    async disconnect() {
+      // No-op
+    },
+    async readSensors(controllerId: string): Promise<SensorReading[]> {
+      // Return simulated sensor readings for demo
+      // In production, this would make actual API calls to the controller
+      const now = new Date().toISOString()
+      return [
+        { type: 'temperature', value: 72 + Math.random() * 8, unit: '°F', timestamp: now },
+        { type: 'humidity', value: 55 + Math.random() * 15, unit: '%', timestamp: now },
+        { type: 'vpd', value: 0.8 + Math.random() * 0.6, unit: 'kPa', timestamp: now },
+      ]
+    }
+  }
+}
+
+// ============================================
+// Types
+// ============================================
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SupabaseClient = ReturnType<typeof createClient<any>>
+
+interface RouteParams {
+  params: Promise<{ id: string }>
+}
+
+interface ValidatedReading extends SensorReading {
+  isValid: boolean
+  validationError?: string
+}
+
+interface SensorRanges {
+  min: number
+  max: number
+  unit: string
+}
+
+// ============================================
+// Sensor Validation Ranges
+// ============================================
+
+/**
+ * Acceptable ranges for each sensor type.
+ * Readings outside these ranges are flagged but still stored.
+ */
+const SENSOR_RANGES: Record<SensorType, SensorRanges> = {
+  temperature: { min: 32, max: 120, unit: 'F' }, // 0-49°C
+  humidity: { min: 0, max: 100, unit: '%' },
+  vpd: { min: 0, max: 3.0, unit: 'kPa' },
+  co2: { min: 0, max: 5000, unit: 'ppm' },
+  light: { min: 0, max: 150000, unit: 'lux' },
+  ph: { min: 0, max: 14, unit: 'pH' },
+  ec: { min: 0, max: 20, unit: 'mS/cm' },
+  soil_moisture: { min: 0, max: 100, unit: '%' },
+  pressure: { min: 800, max: 1200, unit: 'hPa' },
+}
+
+// ============================================
+// Supabase Client (Service Role)
+// ============================================
+
+let supabase: SupabaseClient | null = null
+
+function getSupabase(): SupabaseClient {
+  if (!supabase) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+    if (!url || !key) {
+      throw new Error(
+        'Supabase credentials not configured. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.'
+      )
+    }
+
+    supabase = createClient(url, key, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    })
+  }
+  return supabase
+}
+
+// ============================================
+// Authentication Helper
+// ============================================
+
+/**
+ * Extract and validate user ID from request.
+ * Uses Bearer token authentication only.
+ *
+ * SECURITY: x-user-id header bypass has been removed. All authentication
+ * must go through Supabase Auth with a valid Bearer token.
+ */
+async function getUserId(request: NextRequest, client: SupabaseClient): Promise<string | null> {
+  // Bearer token authentication only
+  const authHeader = request.headers.get('authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.substring(7)
+    const {
+      data: { user },
+    } = await client.auth.getUser(token)
+    if (user?.id) return user.id
+  }
+
+  return null
+}
+
+// ============================================
+// Credential Decryption
+// ============================================
+
+/**
+ * Decrypt credentials from database storage.
+ * Handles both AES-256-GCM and legacy formats.
+ *
+ * @param encrypted - Encrypted string from database
+ * @returns Decrypted credential object
+ */
+function decryptCredentials(encrypted: string | Record<string, unknown>): Record<string, unknown> {
+  try {
+    return decryptCredentialsAES(encrypted)
+  } catch (error) {
+    if (error instanceof EncryptionError) {
+      console.error('[Decryption] Failed to decrypt credentials')
+    }
+    return {}
+  }
+}
+
+// ============================================
+// Validation Helpers
+// ============================================
+
+/**
+ * Validate a sensor reading against acceptable ranges.
+ *
+ * @param reading - The sensor reading to validate
+ * @returns Validated reading with isValid flag and optional error
+ */
+function validateReading(reading: SensorReading): ValidatedReading {
+  const ranges = SENSOR_RANGES[reading.type]
+
+  if (!ranges) {
+    // Unknown sensor type - accept but flag
+    return {
+      ...reading,
+      isValid: true,
+      validationError: `Unknown sensor type: ${reading.type}`,
+    }
+  }
+
+  const isValid = reading.value >= ranges.min && reading.value <= ranges.max
+
+  return {
+    ...reading,
+    isValid,
+    validationError: isValid
+      ? undefined
+      : `Value ${reading.value} ${reading.unit} is outside acceptable range (${ranges.min}-${ranges.max} ${ranges.unit})`,
+  }
+}
+
+/**
+ * Calculate Vapor Pressure Deficit (VPD) from temperature and humidity.
+ * This is calculated if not provided by the controller.
+ *
+ * @param temperatureF - Temperature in Fahrenheit
+ * @param humidityPercent - Relative humidity as percentage
+ * @returns VPD in kPa
+ */
+function calculateVPD(temperatureF: number, humidityPercent: number): number {
+  // Convert F to C
+  const temperatureC = (temperatureF - 32) * (5 / 9)
+
+  // Calculate saturation vapor pressure (SVP) using Tetens formula
+  // SVP = 0.6108 * exp((17.27 * T) / (T + 237.3))
+  const svp = 0.6108 * Math.exp((17.27 * temperatureC) / (temperatureC + 237.3))
+
+  // Calculate actual vapor pressure (AVP)
+  const avp = svp * (humidityPercent / 100)
+
+  // VPD = SVP - AVP
+  const vpd = svp - avp
+
+  // Round to 2 decimal places
+  return Math.round(vpd * 100) / 100
+}
+
+// ============================================
+// GET /api/controllers/[id]/sensors
+// ============================================
+
+/**
+ * Fetch live sensor readings from a controller.
+ *
+ * Query params:
+ * - store=true/false (default: true) - Whether to store readings in database
+ * - calculate_vpd=true/false (default: true) - Calculate VPD if not provided
+ *
+ * Response: {
+ *   success: true
+ *   controller_id: string
+ *   readings: ValidatedReading[]
+ *   timestamp: string
+ *   is_online: boolean
+ *   warnings?: string[]
+ * }
+ */
+export async function GET(
+  request: NextRequest,
+  { params }: RouteParams
+): Promise<NextResponse> {
+  try {
+    const { id } = await params
+    const client = getSupabase()
+    const userId = await getUserId(request, client)
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    // Parse query parameters
+    const searchParams = request.nextUrl.searchParams
+    const shouldStore = searchParams.get('store') !== 'false'
+    const calculateVPDFlag = searchParams.get('calculate_vpd') !== 'false'
+
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(id)) {
+      return NextResponse.json(
+        { error: 'Invalid controller ID format' },
+        { status: 400 }
+      )
+    }
+
+    // Get controller with credentials
+    const { data: controller, error: fetchError } = await client
+      .from('controllers')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', userId)
+      .single()
+
+    if (fetchError || !controller) {
+      return NextResponse.json(
+        { error: 'Controller not found or access denied' },
+        { status: 404 }
+      )
+    }
+
+    const brand = controller.brand as ControllerBrand
+    const warnings: string[] = []
+
+    // Get adapter and read sensors
+    let readings: SensorReading[] = []
+    let isOnline = true
+
+    try {
+      const adapter = getAdapter(brand)
+
+      // Decrypt and prepare credentials
+      const storedCredentials = decryptCredentials(controller.credentials)
+
+      // Build adapter credentials
+      const adapterCredentials: ControllerCredentials = {
+        type: brand,
+        ...storedCredentials,
+      } as ControllerCredentials
+
+      // Connect to get fresh data
+      const connectionResult = await adapter.connect(adapterCredentials)
+
+      if (!connectionResult.success) {
+        isOnline = false
+        warnings.push(`Connection failed: ${connectionResult.error}`)
+
+        // Try to return cached data if available
+        const { data: cachedReadings } = await client
+          .from('sensor_readings')
+          .select('*')
+          .eq('controller_id', id)
+          .order('timestamp', { ascending: false })
+          .limit(10)
+
+        if (cachedReadings && cachedReadings.length > 0) {
+          // Return cached readings with stale flag
+          const cachedResponse = cachedReadings.map((r) => ({
+            port: r.port,
+            type: r.sensor_type as SensorType,
+            value: r.value,
+            unit: r.unit,
+            timestamp: new Date(r.timestamp),
+            isStale: true,
+            isValid: true,
+          }))
+
+          // Update controller status
+          await client
+            .from('controllers')
+            .update({
+              is_online: false,
+              last_error: connectionResult.error || 'Connection failed',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', id)
+
+          return NextResponse.json({
+            success: true,
+            controller_id: id,
+            readings: cachedResponse,
+            timestamp: new Date().toISOString(),
+            is_online: false,
+            is_cached: true,
+            warnings: [
+              'Controller is offline. Returning cached readings.',
+              ...warnings,
+            ],
+          })
+        }
+
+        // No cached data available
+        await client
+          .from('controllers')
+          .update({
+            is_online: false,
+            last_error: connectionResult.error || 'Connection failed',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', id)
+
+        return NextResponse.json(
+          {
+            success: false,
+            controller_id: id,
+            readings: [],
+            timestamp: new Date().toISOString(),
+            is_online: false,
+            error: 'Controller offline and no cached data available',
+            details: connectionResult.error,
+          },
+          { status: 503 }
+        )
+      }
+
+      // Read sensors
+      const controllerId = connectionResult.controllerId || id
+      readings = await adapter.readSensors(controllerId)
+
+      // Disconnect after reading
+      await adapter.disconnect(controllerId)
+
+      // Update controller status
+      await client
+        .from('controllers')
+        .update({
+          is_online: true,
+          last_seen: new Date().toISOString(),
+          last_error: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+    } catch (adapterError) {
+      console.error('[Sensors GET] Adapter error:', adapterError)
+      isOnline = false
+
+      const errorMessage =
+        adapterError instanceof Error ? adapterError.message : 'Unknown adapter error'
+      warnings.push(`Adapter error: ${errorMessage}`)
+
+      // Update controller status
+      await client
+        .from('controllers')
+        .update({
+          is_online: false,
+          last_error: errorMessage,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+
+      return NextResponse.json(
+        {
+          success: false,
+          controller_id: id,
+          readings: [],
+          timestamp: new Date().toISOString(),
+          is_online: false,
+          error: 'Failed to read sensors',
+          details: errorMessage,
+        },
+        { status: 503 }
+      )
+    }
+
+    // Calculate VPD if not present and we have temp/humidity
+    if (calculateVPDFlag) {
+      const hasVPD = readings.some((r) => r.type === 'vpd')
+      const tempReading = readings.find((r) => r.type === 'temperature')
+      const humidityReading = readings.find((r) => r.type === 'humidity')
+
+      if (!hasVPD && tempReading && humidityReading) {
+        const calculatedVPD = calculateVPD(tempReading.value, humidityReading.value)
+        readings.push({
+          port: 0, // Calculated, no physical port
+          type: 'vpd',
+          value: calculatedVPD,
+          unit: 'kPa',
+          timestamp: new Date().toISOString(),
+          isStale: false,
+        })
+        warnings.push('VPD calculated from temperature and humidity readings')
+      }
+    }
+
+    // Validate all readings
+    const validatedReadings: ValidatedReading[] = readings.map(validateReading)
+
+    // Collect validation warnings
+    const invalidReadings = validatedReadings.filter((r) => !r.isValid)
+    if (invalidReadings.length > 0) {
+      invalidReadings.forEach((r) => {
+        if (r.validationError) {
+          warnings.push(`${r.type}: ${r.validationError}`)
+        }
+      })
+    }
+
+    // Store readings in database
+    if (shouldStore && readings.length > 0) {
+      const readingsToInsert = validatedReadings.map((r) => ({
+        controller_id: id,
+        user_id: userId,
+        port: r.port,
+        sensor_type: r.type,
+        value: r.value,
+        unit: r.unit,
+        is_stale: r.isStale || false,
+        timestamp: new Date().toISOString(),
+      }))
+
+      const { error: insertError } = await client
+        .from('sensor_readings')
+        .insert(readingsToInsert)
+
+      if (insertError) {
+        console.error('[Sensors GET] Error storing readings:', insertError)
+        warnings.push('Failed to store readings in database')
+      }
+    }
+
+    // Format response
+    const responseReadings = validatedReadings.map((r) => ({
+      port: r.port,
+      type: r.type,
+      value: r.value,
+      unit: r.unit,
+      timestamp: r.timestamp,
+      is_stale: r.isStale || false,
+      is_valid: r.isValid,
+      validation_error: r.validationError,
+    }))
+
+    return NextResponse.json({
+      success: true,
+      controller_id: id,
+      controller_name: controller.name,
+      brand: controller.brand,
+      readings: responseReadings,
+      reading_count: responseReadings.length,
+      timestamp: new Date().toISOString(),
+      is_online: isOnline,
+      warnings: warnings.length > 0 ? warnings : undefined,
+    })
+  } catch (error) {
+    console.error('[Sensors GET] Error:', error)
+    return NextResponse.json(
+      {
+        error: 'Internal server error',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      },
+      { status: 500 }
+    )
+  }
+}

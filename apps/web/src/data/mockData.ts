@@ -1,6 +1,30 @@
-import { Room } from "@/components/dashboard/RoomCard";
+/**
+ * Mock data for development and testing purposes.
+ *
+ * NOTE: This is legacy mock data that does not match the current database schema.
+ * Use real data from Supabase hooks in production components.
+ *
+ * @deprecated Use data from useRooms and useControllers hooks instead
+ */
 
-export const mockRooms: Room[] = [
+/**
+ * Legacy mock room interface for static demo data.
+ * Does not match the actual Room type from @/types.
+ */
+export interface MockRoom {
+  id: string;
+  name: string;
+  isOnline: boolean;
+  workflowActive: boolean;
+  temperature: number;
+  humidity: number;
+  vpd: number;
+  fanSpeed: number;
+  lightLevel: number;
+  lastUpdate: string;
+}
+
+export const mockRooms: MockRoom[] = [
   {
     id: "1",
     name: "Veg Room A",
@@ -51,7 +75,11 @@ export const mockRooms: Room[] = [
   },
 ];
 
-export interface Controller {
+/**
+ * Legacy mock controller interface for static demo data.
+ * Does not match the actual Controller type from @/types.
+ */
+export interface MockController {
   id: string;
   name: string;
   brand: "ac_infinity" | "inkbird" | "generic_wifi";
@@ -62,7 +90,7 @@ export interface Controller {
   roomName?: string;
 }
 
-export const mockControllers: Controller[] = [
+export const mockControllers: MockController[] = [
   {
     id: "1",
     name: "Controller 69 Pro",

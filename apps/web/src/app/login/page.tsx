@@ -1,6 +1,13 @@
 "use client";
 
-import { useState } from "react";
+/**
+ * Login Page
+ *
+ * Authenticates users via Supabase Auth.
+ * Redirects to dashboard on successful authentication.
+ */
+
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -19,17 +26,30 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
+/**
+ * Validation schema for login form
+ * - Email: must be valid format
+ * - Password: minimum 6 characters (Supabase default)
+ */
 const loginSchema = z.object({
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  email: z
+    .string()
+    .min(1, "Email is required")
+    .email("Please enter a valid email address"),
+  password: z
+    .string()
+    .min(1, "Password is required")
+    .min(6, "Password must be at least 6 characters"),
   rememberMe: z.boolean().default(false),
 });
 
 type LoginFormData = z.infer<typeof loginSchema>;
 
-export default function LoginPage() {
+export default function LoginPage(): JSX.Element {
   const router = useRouter();
+  const { signIn, user, loading: authLoading } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<LoginFormData>({
@@ -41,18 +61,67 @@ export default function LoginPage() {
     },
   });
 
-  async function onSubmit(data: LoginFormData) {
-    setIsLoading(true);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    setIsLoading(false);
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace("/dashboard");
+    }
+  }, [user, authLoading, router]);
 
-    // Mock successful login
-    toast({
-      title: "Welcome back!",
-      description: "You have successfully signed in.",
-    });
-    router.push("/dashboard");
+  /**
+   * Handle form submission
+   * Calls Supabase signInWithPassword via AuthContext
+   */
+  async function onSubmit(data: LoginFormData): Promise<void> {
+    setIsLoading(true);
+
+    try {
+      const result = await signIn(data.email, data.password);
+
+      if (!result.success) {
+        toast({
+          title: "Sign in failed",
+          description: result.error,
+          variant: "destructive",
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      toast({
+        title: "Welcome back!",
+        description: "You have successfully signed in.",
+      });
+
+      // Router will handle redirect via the useEffect above
+      // after auth state updates
+    } catch (error) {
+      console.error("Login error:", error);
+      toast({
+        title: "Sign in failed",
+        description: "An unexpected error occurred. Please try again.",
+        variant: "destructive",
+      });
+      setIsLoading(false);
+    }
+  }
+
+  // Show nothing while checking auth state to prevent flash
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Don't render login form if user is already authenticated
+  if (user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   return (
@@ -73,7 +142,10 @@ export default function LoginPage() {
 
         {/* Form */}
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 space-y-6">
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="mt-8 space-y-6"
+          >
             <FormField
               control={form.control}
               name="email"
@@ -84,6 +156,8 @@ export default function LoginPage() {
                     <Input
                       type="email"
                       placeholder="you@example.com"
+                      autoComplete="email"
+                      disabled={isLoading}
                       {...field}
                     />
                   </FormControl>
@@ -99,7 +173,13 @@ export default function LoginPage() {
                 <FormItem>
                   <FormLabel>Password</FormLabel>
                   <FormControl>
-                    <Input type="password" placeholder="••••••••" {...field} />
+                    <Input
+                      type="password"
+                      placeholder="Enter your password"
+                      autoComplete="current-password"
+                      disabled={isLoading}
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -116,6 +196,7 @@ export default function LoginPage() {
                       <Checkbox
                         checked={field.value}
                         onCheckedChange={field.onChange}
+                        disabled={isLoading}
                       />
                     </FormControl>
                     <FormLabel className="text-sm font-normal cursor-pointer">

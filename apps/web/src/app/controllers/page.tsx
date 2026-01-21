@@ -1,52 +1,132 @@
+/**
+ * Controllers Page
+ *
+ * Main page for managing connected controllers.
+ * Features:
+ * - Grid/list view of all controllers
+ * - Real-time status updates
+ * - Add, edit, delete controllers
+ * - Loading skeleton while fetching
+ * - Empty state with onboarding CTA
+ */
 "use client";
 
-import { useState } from "react";
-import { Plus, Cpu, Wifi, WifiOff, MoreVertical, Trash2 } from "lucide-react";
+import { useState, useCallback } from "react";
+import { formatDistanceToNow } from "date-fns";
+import {
+  Plus,
+  Cpu,
+  Wifi,
+  WifiOff,
+  MoreVertical,
+  Trash2,
+  Pencil,
+  RefreshCw,
+  Upload,
+  AlertCircle,
+} from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { mockControllers, Controller } from "@/data/mockData";
-import { AppLayout } from "@/components/layout/AppLayout";
+import { useControllers } from "@/hooks/use-controllers";
+import {
+  AddControllerDialog,
+  EditControllerDialog,
+  DeleteControllerDialog,
+} from "@/components/controllers";
+import type { ControllerWithRoom, ControllerBrand } from "@/types";
 
-const brands = [
-  {
-    id: "ac_infinity",
-    name: "AC Infinity",
-    description: "Controller 69, UIS Series",
-    icon: Cpu,
-  },
-  {
-    id: "inkbird",
-    name: "Inkbird",
-    description: "WiFi Controllers",
-    icon: Cpu,
-  },
-  {
-    id: "generic_wifi",
-    name: "Generic WiFi",
-    description: "Other brands",
-    icon: Cpu,
-  },
-] as const;
+/**
+ * Brand display names and configuration
+ */
+const BRAND_CONFIG: Record<
+  ControllerBrand,
+  { name: string; icon: typeof Cpu; color: string }
+> = {
+  ac_infinity: { name: "AC Infinity", icon: Cpu, color: "text-blue-600" },
+  inkbird: { name: "Inkbird", icon: Cpu, color: "text-green-600" },
+  csv_upload: { name: "CSV Upload", icon: Upload, color: "text-amber-600" },
+  govee: { name: "Govee", icon: Cpu, color: "text-purple-600" },
+  mqtt: { name: "MQTT", icon: Cpu, color: "text-cyan-600" },
+  custom: { name: "Custom", icon: Cpu, color: "text-gray-600" },
+};
 
-function ControllerCard({ controller }: { controller: Controller }) {
-  const brandInfo = brands.find((b) => b.id === controller.brand);
+/**
+ * Format last seen timestamp
+ */
+function formatLastSeen(lastSeen: string | null): string {
+  if (!lastSeen) return "Never";
+
+  try {
+    const date = new Date(lastSeen);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+
+    // If less than 2 minutes ago, show "Just now"
+    if (diffMs < 120000) {
+      return "Just now";
+    }
+
+    return formatDistanceToNow(date, { addSuffix: true });
+  } catch {
+    return "Unknown";
+  }
+}
+
+/**
+ * Controller Card Skeleton for loading state
+ */
+function ControllerCardSkeleton() {
+  return (
+    <div className="bg-card rounded-xl border border-border p-5">
+      <div className="flex items-start justify-between">
+        <div className="flex items-start gap-4">
+          <Skeleton className="w-12 h-12 rounded-lg" />
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-4 w-24" />
+            <div className="flex gap-2 mt-2">
+              <Skeleton className="h-5 w-16 rounded-full" />
+              <Skeleton className="h-5 w-20 rounded-full" />
+            </div>
+          </div>
+        </div>
+        <Skeleton className="h-8 w-8 rounded-md" />
+      </div>
+      <div className="mt-4 pt-4 border-t border-border">
+        <div className="flex justify-between">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-4 w-24" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Controller Card Component
+ */
+interface ControllerCardProps {
+  controller: ControllerWithRoom;
+  onEdit: () => void;
+  onDelete: () => void;
+  onRefresh: () => void;
+}
+
+function ControllerCard({ controller, onEdit, onDelete, onRefresh }: ControllerCardProps) {
+  const brandConfig = BRAND_CONFIG[controller.brand] || BRAND_CONFIG.custom;
+  const BrandIcon = brandConfig.icon;
 
   return (
     <div className="bg-card rounded-xl border border-border p-5 hover:shadow-md transition-shadow">
@@ -55,10 +135,10 @@ function ControllerCard({ controller }: { controller: Controller }) {
           <div
             className={cn(
               "w-12 h-12 rounded-lg flex items-center justify-center",
-              controller.isOnline ? "bg-success/10" : "bg-muted"
+              controller.is_online ? "bg-success/10" : "bg-muted"
             )}
           >
-            {controller.isOnline ? (
+            {controller.is_online ? (
               <Wifi className="w-6 h-6 text-success" />
             ) : (
               <WifiOff className="w-6 h-6 text-muted-foreground" />
@@ -66,22 +146,27 @@ function ControllerCard({ controller }: { controller: Controller }) {
           </div>
           <div>
             <h3 className="font-semibold text-foreground">{controller.name}</h3>
-            <p className="text-sm text-muted-foreground">{brandInfo?.name}</p>
-            <div className="flex items-center gap-2 mt-2">
+            <p className={cn("text-sm", brandConfig.color)}>{brandConfig.name}</p>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
               <Badge
                 variant="secondary"
                 className={cn(
                   "text-xs",
-                  controller.isOnline
+                  controller.is_online
                     ? "bg-success/10 text-success"
                     : "bg-muted text-muted-foreground"
                 )}
               >
-                {controller.isOnline ? "Online" : "Offline"}
+                {controller.is_online ? "Online" : "Offline"}
               </Badge>
-              {controller.roomName && (
+              {controller.room?.name && (
                 <Badge variant="outline" className="text-xs">
-                  {controller.roomName}
+                  {controller.room.name}
+                </Badge>
+              )}
+              {controller.model && (
+                <Badge variant="outline" className="text-xs">
+                  {controller.model}
                 </Badge>
               )}
             </div>
@@ -92,51 +177,269 @@ function ControllerCard({ controller }: { controller: Controller }) {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8">
               <MoreVertical className="h-4 w-4" />
+              <span className="sr-only">Open menu</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem>Edit</DropdownMenuItem>
-            <DropdownMenuItem>Assign to Room</DropdownMenuItem>
-            <DropdownMenuItem className="text-destructive">
+            <DropdownMenuItem onClick={onEdit}>
+              <Pencil className="h-4 w-4 mr-2" />
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onRefresh}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Test Connection
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onDelete} className="text-destructive">
               <Trash2 className="h-4 w-4 mr-2" />
-              Remove
+              Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
 
+      {/* Last error warning */}
+      {controller.last_error && (
+        <div className="mt-3 flex items-start gap-2 p-2 bg-destructive/10 rounded-lg text-destructive">
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+          <p className="text-xs line-clamp-2">{controller.last_error}</p>
+        </div>
+      )}
+
       <div className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground">
         <div className="flex justify-between">
-          <span>ID: {controller.controllerId}</span>
-          <span>Last seen: {controller.lastSeen}</span>
+          <span className="truncate max-w-[50%]" title={controller.controller_id}>
+            ID: {controller.controller_id}
+          </span>
+          <span>Last seen: {formatLastSeen(controller.last_seen)}</span>
         </div>
       </div>
     </div>
   );
 }
 
+/**
+ * Empty State Component
+ */
+interface EmptyStateProps {
+  onAddController: () => void;
+}
+
+function EmptyState({ onAddController }: EmptyStateProps) {
+  return (
+    <div className="text-center py-16 px-4">
+      <div className="max-w-md mx-auto">
+        <div className="w-20 h-20 bg-muted rounded-full flex items-center justify-center mx-auto mb-6">
+          <Cpu className="w-10 h-10 text-muted-foreground" />
+        </div>
+        <h3 className="text-xl font-semibold text-foreground mb-2">
+          No controllers yet
+        </h3>
+        <p className="text-muted-foreground mb-6">
+          Connect your first controller to start monitoring and automating your
+          environment. We support AC Infinity, Inkbird, and CSV imports.
+        </p>
+        <Button onClick={onAddController} size="lg">
+          <Plus className="h-4 w-4 mr-2" />
+          Add Your First Controller
+        </Button>
+
+        <div className="mt-8 grid grid-cols-3 gap-4 text-center">
+          <div className="p-4">
+            <div className="text-2xl font-bold text-primary mb-1">40%</div>
+            <div className="text-xs text-muted-foreground">Market share</div>
+            <div className="text-sm font-medium mt-1">AC Infinity</div>
+          </div>
+          <div className="p-4">
+            <div className="text-2xl font-bold text-primary mb-1">25%</div>
+            <div className="text-xs text-muted-foreground">Market share</div>
+            <div className="text-sm font-medium mt-1">Inkbird</div>
+          </div>
+          <div className="p-4">
+            <div className="text-2xl font-bold text-primary mb-1">Any</div>
+            <div className="text-xs text-muted-foreground">Brand via</div>
+            <div className="text-sm font-medium mt-1">CSV Upload</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Error State Component
+ */
+interface ErrorStateProps {
+  error: string;
+  onRetry: () => void;
+}
+
+function ErrorState({ error, onRetry }: ErrorStateProps) {
+  return (
+    <div className="text-center py-16 px-4">
+      <div className="max-w-md mx-auto">
+        <div className="w-20 h-20 bg-destructive/10 rounded-full flex items-center justify-center mx-auto mb-6">
+          <AlertCircle className="w-10 h-10 text-destructive" />
+        </div>
+        <h3 className="text-xl font-semibold text-foreground mb-2">
+          Failed to load controllers
+        </h3>
+        <p className="text-muted-foreground mb-6">{error}</p>
+        <Button onClick={onRetry} variant="outline">
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Try Again
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Controllers Page - Main Component
+ */
 export default function ControllersPage() {
+  // Controllers hook
+  const {
+    controllers,
+    loading,
+    error,
+    brands,
+    rooms,
+    refresh,
+    addController,
+    updateController,
+    deleteController,
+    testConnection,
+    getAssociatedWorkflows,
+  } = useControllers();
+
+  // Toast notifications
+  const { toast } = useToast();
+
+  // Dialog states
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [selectedBrand, setSelectedBrand] = useState<string | null>(null);
-  const [step, setStep] = useState(1);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [selectedController, setSelectedController] = useState<ControllerWithRoom | null>(null);
 
-  const handleBrandSelect = (brandId: string) => {
-    setSelectedBrand(brandId);
-    setStep(2);
-  };
+  /**
+   * Handle add controller
+   */
+  const handleAddController = useCallback(
+    async (data: {
+      brand: ControllerBrand;
+      name: string;
+      credentials?: { email?: string; password?: string };
+      room_id?: string | null;
+    }) => {
+      const result = await addController(data);
 
-  const handleCloseDialog = () => {
-    setIsAddDialogOpen(false);
-    setSelectedBrand(null);
-    setStep(1);
-  };
+      if (result.success) {
+        toast({
+          title: "Controller added",
+          description: `${data.name} has been added successfully.`,
+        });
+      } else {
+        toast({
+          title: "Failed to add controller",
+          description: result.error,
+          variant: "destructive",
+        });
+      }
+
+      return result;
+    },
+    [addController, toast]
+  );
+
+  /**
+   * Handle edit controller
+   */
+  const handleEditController = useCallback((controller: ControllerWithRoom) => {
+    setSelectedController(controller);
+    setIsEditDialogOpen(true);
+  }, []);
+
+  /**
+   * Handle update controller
+   */
+  const handleUpdateController = useCallback(
+    async (id: string, data: Parameters<typeof updateController>[1]) => {
+      const result = await updateController(id, data);
+
+      if (result.success) {
+        toast({
+          title: "Controller updated",
+          description: "Your changes have been saved.",
+        });
+      } else {
+        toast({
+          title: "Failed to update controller",
+          description: result.error,
+          variant: "destructive",
+        });
+      }
+
+      return result;
+    },
+    [updateController, toast]
+  );
+
+  /**
+   * Handle delete controller click
+   */
+  const handleDeleteClick = useCallback((controller: ControllerWithRoom) => {
+    setSelectedController(controller);
+    setIsDeleteDialogOpen(true);
+  }, []);
+
+  /**
+   * Handle delete controller
+   */
+  const handleDeleteSuccess = useCallback(() => {
+    toast({
+      title: "Controller deleted",
+      description: "The controller has been removed.",
+    });
+  }, [toast]);
+
+  /**
+   * Handle test connection
+   */
+  const handleTestConnection = useCallback(
+    async (controller: ControllerWithRoom) => {
+      toast({
+        title: "Testing connection...",
+        description: `Checking ${controller.name}`,
+      });
+
+      const result = await testConnection(controller.id);
+
+      if (result.success) {
+        toast({
+          title: result.data?.isOnline ? "Connection successful" : "Connection failed",
+          description: result.data?.isOnline
+            ? `${controller.name} is online and responding.`
+            : `${controller.name} could not be reached.`,
+          variant: result.data?.isOnline ? "default" : "destructive",
+        });
+      } else {
+        toast({
+          title: "Connection test failed",
+          description: result.error,
+          variant: "destructive",
+        });
+      }
+    },
+    [testConnection, toast]
+  );
 
   return (
     <AppLayout>
       <div className="min-h-screen">
         <PageHeader
           title="Controllers"
-          description="Manage your connected controllers"
+          description="Manage your connected environmental controllers"
           actions={
             <Button onClick={() => setIsAddDialogOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
@@ -146,91 +449,89 @@ export default function ControllersPage() {
         />
 
         <div className="p-6 lg:p-8">
-          {mockControllers.length > 0 ? (
+          {/* Loading State */}
+          {loading && (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {mockControllers.map((controller) => (
-                <ControllerCard key={controller.id} controller={controller} />
+              {[1, 2, 3].map((i) => (
+                <ControllerCardSkeleton key={i} />
               ))}
             </div>
-          ) : (
-            <div className="text-center py-16">
-              <Cpu className="w-16 h-16 mx-auto text-muted-foreground/50 mb-4" />
-              <h3 className="text-lg font-medium text-foreground mb-2">
-                No controllers yet
-              </h3>
-              <p className="text-sm text-muted-foreground mb-6">
-                Get started by adding your first controller
-              </p>
-              <Button onClick={() => setIsAddDialogOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Controller
-              </Button>
-            </div>
+          )}
+
+          {/* Error State */}
+          {!loading && error && <ErrorState error={error} onRetry={refresh} />}
+
+          {/* Empty State */}
+          {!loading && !error && controllers.length === 0 && (
+            <EmptyState onAddController={() => setIsAddDialogOpen(true)} />
+          )}
+
+          {/* Controllers Grid */}
+          {!loading && !error && controllers.length > 0 && (
+            <>
+              {/* Stats Header */}
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-4">
+                  <div className="text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">{controllers.length}</span>{" "}
+                    controller{controllers.length !== 1 ? "s" : ""}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    <span className="font-medium text-success">
+                      {controllers.filter((c) => c.is_online).length}
+                    </span>{" "}
+                    online
+                  </div>
+                </div>
+                <Button variant="ghost" size="sm" onClick={refresh}>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Refresh
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {controllers.map((controller) => (
+                  <ControllerCard
+                    key={controller.id}
+                    controller={controller}
+                    onEdit={() => handleEditController(controller)}
+                    onDelete={() => handleDeleteClick(controller)}
+                    onRefresh={() => handleTestConnection(controller)}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </div>
 
         {/* Add Controller Dialog */}
-        <Dialog open={isAddDialogOpen} onOpenChange={handleCloseDialog}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>
-                {step === 1 ? "Add Controller" : "Enter Credentials"}
-              </DialogTitle>
-              <DialogDescription>
-                {step === 1
-                  ? "Select your controller brand to get started"
-                  : "Enter your controller credentials"}
-              </DialogDescription>
-            </DialogHeader>
+        <AddControllerDialog
+          open={isAddDialogOpen}
+          onOpenChange={setIsAddDialogOpen}
+          brands={brands}
+          rooms={rooms}
+          onAdd={handleAddController}
+        />
 
-            {step === 1 ? (
-              <div className="space-y-3 py-4">
-                {brands.map((brand) => (
-                  <button
-                    key={brand.id}
-                    onClick={() => handleBrandSelect(brand.id)}
-                    className="w-full flex items-center gap-3 p-4 border-2 border-border rounded-lg hover:border-primary hover:bg-primary/5 transition-colors text-left"
-                  >
-                    <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center">
-                      <brand.icon className="w-6 h-6 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <div className="font-medium text-foreground">
-                        {brand.name}
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        {brand.description}
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="controller-name">Controller Name</Label>
-                  <Input id="controller-name" placeholder="My Controller" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="api-key">API Key / Token</Label>
-                  <Input
-                    id="api-key"
-                    type="password"
-                    placeholder="Enter your API key"
-                  />
-                </div>
-                <div className="flex gap-3 pt-4">
-                  <Button variant="outline" onClick={() => setStep(1)} className="flex-1">
-                    Back
-                  </Button>
-                  <Button onClick={handleCloseDialog} className="flex-1">
-                    Add Controller
-                  </Button>
-                </div>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
+        {/* Edit Controller Dialog */}
+        <EditControllerDialog
+          open={isEditDialogOpen}
+          onOpenChange={setIsEditDialogOpen}
+          controller={selectedController}
+          rooms={rooms}
+          onUpdate={handleUpdateController}
+          onTestConnection={testConnection}
+        />
+
+        {/* Delete Controller Dialog */}
+        <DeleteControllerDialog
+          open={isDeleteDialogOpen}
+          onOpenChange={setIsDeleteDialogOpen}
+          controller={selectedController}
+          onDelete={deleteController}
+          onGetAssociatedWorkflows={getAssociatedWorkflows}
+          onSuccess={handleDeleteSuccess}
+        />
       </div>
     </AppLayout>
   );

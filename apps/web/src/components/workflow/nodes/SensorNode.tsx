@@ -1,0 +1,254 @@
+"use client";
+
+import * as React from "react";
+import { Handle, Position, type NodeProps } from "@xyflow/react";
+import {
+  Thermometer,
+  Droplets,
+  Wind,
+  Sun,
+  Leaf,
+  FlaskConical,
+  Zap,
+  Activity,
+  X,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import type { SensorNodeData, SensorType } from "../types";
+
+/**
+ * SensorNode - Reads sensor data from a controller
+ *
+ * This node monitors sensor readings from connected controllers and evaluates
+ * whether the current value meets the configured threshold condition.
+ *
+ * Features:
+ * - Select controller and sensor type
+ * - Configure threshold with comparison operator
+ * - Configure reset threshold for hysteresis (prevents rapid toggling)
+ * - Shows current sensor value in real-time
+ *
+ * Visual Design:
+ * - Blue border to indicate "data/input" semantics
+ * - Sensor-specific icon in header
+ * - Real-time value display with conditional coloring
+ */
+
+/** Icons for different sensor types */
+const SENSOR_ICONS: Record<SensorType, React.ComponentType<{ className?: string }>> = {
+  temperature: Thermometer,
+  humidity: Droplets,
+  vpd: Wind,
+  co2: Activity,
+  light: Sun,
+  soil_moisture: Leaf,
+  ph: FlaskConical,
+  ec: Zap,
+};
+
+/** Human-readable labels for sensor types */
+const TYPE_LABELS: Record<SensorType, string> = {
+  temperature: "Temperature",
+  humidity: "Humidity",
+  vpd: "VPD",
+  co2: "CO2",
+  light: "Light Intensity",
+  soil_moisture: "Soil Moisture",
+  ph: "pH",
+  ec: "EC",
+};
+
+/** Default units for sensor types */
+const TYPE_UNITS: Record<SensorType, string> = {
+  temperature: "°F",
+  humidity: "%",
+  vpd: "kPa",
+  co2: "ppm",
+  light: "PPFD",
+  soil_moisture: "%",
+  ph: "",
+  ec: "mS/cm",
+};
+
+/** Operator display symbols */
+const OPERATOR_DISPLAY: Record<string, string> = {
+  ">": ">",
+  "<": "<",
+  "=": "=",
+  ">=": ">=",
+  "<=": "<=",
+};
+
+interface SensorNodeProps {
+  data: SensorNodeData;
+  selected?: boolean;
+  id: string;
+}
+
+export function SensorNode({ data, selected, id }: SensorNodeProps) {
+  const { config, currentValue } = data;
+  const sensorType = config.sensorType;
+  const SensorIcon = sensorType ? SENSOR_ICONS[sensorType] : Thermometer;
+
+  /**
+   * Evaluates whether the current sensor value meets the threshold condition.
+   * Returns null if not enough data to evaluate, true if condition is met.
+   */
+  const evaluateCondition = (): boolean | null => {
+    if (currentValue === undefined || config.threshold === undefined || !config.operator) {
+      return null;
+    }
+
+    switch (config.operator) {
+      case ">":
+        return currentValue > config.threshold;
+      case "<":
+        return currentValue < config.threshold;
+      case "=":
+        return currentValue === config.threshold;
+      case ">=":
+        return currentValue >= config.threshold;
+      case "<=":
+        return currentValue <= config.threshold;
+      default:
+        return null;
+    }
+  };
+
+  const conditionMet = evaluateCondition();
+
+  /**
+   * Gets the display color for the current value based on condition state.
+   */
+  const getValueColor = (): string => {
+    if (conditionMet === null) return "text-muted-foreground";
+    return conditionMet ? "text-green-600 dark:text-green-400" : "text-blue-600 dark:text-blue-400";
+  };
+
+  /**
+   * Formats the configuration for display in the node body.
+   */
+  const getConfigSummary = (): string => {
+    if (!sensorType) {
+      return "Select sensor type";
+    }
+
+    const label = TYPE_LABELS[sensorType];
+    const unit = config.unit || TYPE_UNITS[sensorType];
+
+    if (!config.operator || config.threshold === undefined) {
+      return `${label} - configure threshold`;
+    }
+
+    return `${label} ${OPERATOR_DISPLAY[config.operator]} ${config.threshold}${unit}`;
+  };
+
+  /**
+   * Formats the current value with unit for display.
+   */
+  const formatCurrentValue = (): string => {
+    if (currentValue === undefined) return "--";
+    const unit = config.unit || (sensorType ? TYPE_UNITS[sensorType] : "");
+    return `${currentValue.toFixed(1)}${unit}`;
+  };
+
+  return (
+    <div
+      className={cn(
+        "group min-w-[220px] rounded-lg border-2 bg-card shadow-md transition-all",
+        "border-blue-500 dark:border-blue-400",
+        selected && "ring-2 ring-blue-500/50 ring-offset-2 ring-offset-background"
+      )}
+    >
+      {/* Input Handle - positioned on the left side */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="input"
+        className={cn(
+          "!h-3 !w-3 !border-2 !border-blue-500 !bg-background",
+          "dark:!border-blue-400"
+        )}
+      />
+
+      {/* Node Header */}
+      <div className="flex items-center gap-2 rounded-t-md bg-blue-500/10 px-3 py-2 dark:bg-blue-400/10">
+        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-500 text-white dark:bg-blue-400">
+          <SensorIcon className="h-3.5 w-3.5" />
+        </div>
+        <span className="flex-1 text-sm font-semibold text-foreground">
+          {data.label || "Sensor"}
+        </span>
+        {/* Delete button visible on hover */}
+        <button
+          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+          aria-label="Delete node"
+          data-delete-node={id}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {/* Node Body */}
+      <div className="px-3 py-2">
+        {/* Controller Info */}
+        {config.controllerName && (
+          <p className="mb-1 text-xs text-muted-foreground">
+            {config.controllerName}
+          </p>
+        )}
+
+        {/* Configuration Summary */}
+        <p className="mb-2 text-xs font-medium text-foreground">
+          {getConfigSummary()}
+        </p>
+
+        {/* Current Value Display */}
+        <div className="flex items-center justify-between rounded bg-muted/50 px-2 py-1">
+          <span className="text-xs text-muted-foreground">Current:</span>
+          <span className={cn("text-sm font-semibold", getValueColor())}>
+            {formatCurrentValue()}
+          </span>
+        </div>
+
+        {/* Hysteresis Info */}
+        {config.resetThreshold !== undefined && (
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            Reset at: {config.resetThreshold}
+            {config.unit || (sensorType ? TYPE_UNITS[sensorType] : "")}
+          </p>
+        )}
+
+        {/* Condition Status Indicator */}
+        {conditionMet !== null && (
+          <div className="mt-2 flex items-center gap-1.5">
+            <div
+              className={cn(
+                "h-2 w-2 rounded-full",
+                conditionMet ? "bg-green-500" : "bg-muted-foreground/30"
+              )}
+            />
+            <span className="text-[10px] text-muted-foreground">
+              {conditionMet ? "Condition met" : "Condition not met"}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Output Handle - positioned on the right side */}
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="output"
+        className={cn(
+          "!h-3 !w-3 !border-2 !border-blue-500 !bg-background",
+          "dark:!border-blue-400"
+        )}
+      />
+    </div>
+  );
+}
+
+SensorNode.displayName = "SensorNode";
+
+export default SensorNode;
