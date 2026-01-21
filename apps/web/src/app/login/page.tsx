@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -39,8 +39,29 @@ type LoginFormData = z.infer<typeof loginSchema>;
  *
  * Handles user authentication via Supabase Auth.
  * Redirects authenticated users to the dashboard.
+ * Wrapped in Suspense for useSearchParams support.
  */
 export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <LoginContent />
+    </Suspense>
+  );
+}
+
+/**
+ * Login Content Component
+ *
+ * Contains the actual login form logic.
+ * Separated to allow useSearchParams within Suspense boundary.
+ */
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { signIn, user, loading: authLoading } = useAuth();
