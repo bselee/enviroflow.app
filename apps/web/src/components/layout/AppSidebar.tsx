@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Workflow,
@@ -15,6 +15,8 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "@/hooks/use-toast";
 
 interface AppSidebarProps {
   isOpen: boolean;
@@ -30,6 +32,35 @@ const navigation = [
 
 export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, signOut } = useAuth();
+
+  // Get user display info
+  const userEmail = user?.email || "user@example.com";
+  const userName = user?.user_metadata?.name || userEmail.split("@")[0];
+  const userInitials = userName
+    .split(" ")
+    .map((n: string) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+
+  const handleSignOut = async () => {
+    const result = await signOut();
+    if (result.success) {
+      toast({
+        title: "Signed out",
+        description: "You have been signed out successfully.",
+      });
+      router.push("/login");
+    } else {
+      toast({
+        title: "Error",
+        description: result.error || "Failed to sign out",
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <>
@@ -96,19 +127,21 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
           <div className="flex items-center gap-3">
             <Avatar className="h-9 w-9">
               <AvatarFallback className="bg-sidebar-accent text-sidebar-accent-foreground">
-                JD
+                {userInitials}
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">John Doe</p>
+              <p className="text-sm font-medium truncate">{userName}</p>
               <p className="text-xs text-sidebar-foreground/60 truncate">
-                john@example.com
+                {userEmail}
               </p>
             </div>
             <Button
               variant="ghost"
               size="icon"
               className="text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+              onClick={handleSignOut}
+              title="Sign out"
             >
               <LogOut className="h-4 w-4" />
             </Button>

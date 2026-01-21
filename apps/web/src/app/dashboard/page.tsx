@@ -1,24 +1,31 @@
 "use client";
 
-import { Plus } from "lucide-react";
+import { Plus, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { RoomCard } from "@/components/dashboard/RoomCard";
 import { AddRoomCard } from "@/components/dashboard/AddRoomCard";
 import { ActivityLog } from "@/components/dashboard/ActivityLog";
 import { Button } from "@/components/ui/button";
-import { mockRooms } from "@/data/mockData";
 import { AppLayout } from "@/components/layout/AppLayout";
-
-const mockLogs = [
-  { id: "1", timestamp: "2 min ago", type: "success" as const, message: "VPD adjusted to optimal range (1.0-1.2 kPa)", roomName: "Veg Room A" },
-  { id: "2", timestamp: "5 min ago", type: "info" as const, message: "Fan speed increased to 65%", roomName: "Flower Room 1" },
-  { id: "3", timestamp: "12 min ago", type: "warning" as const, message: "Humidity approaching upper threshold (68%)", roomName: "Clone Tent" },
-  { id: "4", timestamp: "25 min ago", type: "info" as const, message: "Lights dimmed to 90% for evening transition", roomName: "Flower Room 1" },
-  { id: "5", timestamp: "1 hour ago", type: "error" as const, message: "Sensor connection lost temporarily", roomName: "Drying Room" },
-  { id: "6", timestamp: "2 hours ago", type: "success" as const, message: "Temperature stabilized at target range", roomName: "Veg Room A" },
-];
+import { useRooms } from "@/hooks/use-rooms";
+import { useActivityLogs } from "@/hooks/use-activity-logs";
+import { AddRoomDialog } from "@/components/dashboard/AddRoomDialog";
+import { useState } from "react";
 
 export default function DashboardPage() {
+  const { rooms, isLoading: roomsLoading, refetch } = useRooms();
+  const { formattedLogs, isLoading: logsLoading } = useActivityLogs({ limit: 10 });
+  const [isAddRoomOpen, setIsAddRoomOpen] = useState(false);
+
+  // Transform activity logs to the format expected by ActivityLog component
+  const displayLogs = formattedLogs.map(log => ({
+    id: log.id,
+    timestamp: log.timestamp,
+    type: log.type,
+    message: log.message,
+    roomName: log.roomName || "Unknown Room",
+  }));
+
   return (
     <AppLayout>
       <div className="min-h-screen">
@@ -26,36 +33,63 @@ export default function DashboardPage() {
           title="Dashboard"
           description="Monitor and control your grow rooms"
           actions={
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Room
-            </Button>
+            <>
+              <Button onClick={() => setIsAddRoomOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Room
+              </Button>
+              <AddRoomDialog
+                open={isAddRoomOpen}
+                onOpenChange={setIsAddRoomOpen}
+                onRoomCreated={refetch}
+              />
+            </>
           }
         />
 
         <div className="p-6 lg:p-8 space-y-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {mockRooms.map((room) => (
-              <RoomCard key={room.id} room={room} />
-            ))}
-            <AddRoomCard />
-          </div>
+          {/* Rooms Grid */}
+          {roomsLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : rooms.length === 0 ? (
+            <div className="text-center py-12">
+              <h3 className="text-lg font-medium text-foreground mb-2">No rooms yet</h3>
+              <p className="text-muted-foreground mb-4">
+                Get started by creating your first grow room.
+              </p>
+              <AddRoomCard onRoomCreated={refetch} />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {rooms.map((room) => (
+                <RoomCard key={room.id} room={room} />
+              ))}
+              <AddRoomCard onRoomCreated={refetch} />
+            </div>
+          )}
 
-          <div className="max-w-2xl">
-            <ActivityLog 
-              logs={mockLogs} 
-              roomData={mockRooms.map(r => ({
-                name: r.name,
-                temperature: r.temperature,
-                humidity: r.humidity,
-                vpd: r.vpd,
-                fanSpeed: r.fanSpeed,
-                lightLevel: r.lightLevel,
-              }))} 
-            />
-          </div>
+          {/* Activity Log */}
+          {!roomsLoading && rooms.length > 0 && (
+            <div className="max-w-2xl">
+              <ActivityLog
+                logs={displayLogs.length > 0 ? displayLogs : []}
+                roomData={rooms.map(r => ({
+                  name: r.name,
+                  temperature: undefined,
+                  humidity: undefined,
+                  vpd: undefined,
+                  fanSpeed: undefined,
+                  lightLevel: undefined,
+                }))}
+                isLoading={logsLoading}
+              />
+            </div>
+          )}
         </div>
       </div>
+
     </AppLayout>
   );
 }

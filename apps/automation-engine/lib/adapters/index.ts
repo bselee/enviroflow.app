@@ -1,19 +1,20 @@
 /**
  * EnviroFlow Controller Adapter Factory
- * 
- * Supported brands (MVP):
+ *
+ * Supported brands:
  * - AC Infinity (Controller 69, UIS series)
  * - Inkbird (ITC-308, ITC-310T, IHC-200)
  * - CSV Upload (Manual data for any brand)
- * 
+ * - MQTT (Generic MQTT devices - Tasmota, ESPHome, etc.)
+ *
  * Coming soon:
  * - Govee (BLE - mobile only)
- * - MQTT (Generic)
  */
 
 import { ACInfinityAdapter } from './ACInfinityAdapter'
 import { InkbirdAdapter } from './InkbirdAdapter'
 import { CSVUploadAdapter, generateCSVTemplate, validateCSVHeaders } from './CSVUploadAdapter'
+import { MQTTAdapter, handleMQTTMessage, clearMessageStore } from './MQTTAdapter'
 import type {
   ControllerAdapter,
   ControllerBrand,
@@ -48,10 +49,7 @@ export function getAdapter(brand: ControllerBrand): ControllerAdapter {
       )
     
     case 'mqtt':
-      throw new Error(
-        'MQTT adapter is coming in Phase 2. ' +
-        'Use CSV Upload as a fallback.'
-      )
+      return new MQTTAdapter()
     
     case 'custom':
       throw new Error(
@@ -71,7 +69,8 @@ export function isBrandSupported(brand: string): brand is ControllerBrand {
   const supportedBrands: ControllerBrand[] = [
     'ac_infinity',
     'inkbird',
-    'csv_upload'
+    'csv_upload',
+    'mqtt'
   ]
   return supportedBrands.includes(brand as ControllerBrand)
 }
@@ -155,7 +154,8 @@ export function getSupportedBrands() {
         supportsDimming: false
       },
       marketShare: '25%',
-      status: 'available'
+      status: 'coming_soon',
+      note: 'Uses Tuya platform - cloud integration pending. Use CSV Upload as fallback.'
     },
     {
       id: 'csv_upload',
@@ -190,13 +190,13 @@ export function getSupportedBrands() {
     {
       id: 'mqtt',
       name: 'MQTT Generic',
-      description: 'Any MQTT-compatible controller or sensor',
+      description: 'Tasmota, ESPHome, or any MQTT-compatible device',
       requiresCredentials: true,
       credentialFields: [
-        { name: 'brokerUrl', label: 'Broker URL', type: 'text', required: true, placeholder: 'mqtt://localhost:1883' },
+        { name: 'brokerUrl', label: 'Broker URL', type: 'text', required: true, placeholder: 'ws://broker.example.com:8083' },
         { name: 'username', label: 'Username', type: 'text', required: false },
         { name: 'password', label: 'Password', type: 'password', required: false },
-        { name: 'topic', label: 'Topic', type: 'text', required: true, placeholder: 'sensors/room1' }
+        { name: 'topic', label: 'Topic', type: 'text', required: true, placeholder: 'tasmota/living_room' }
       ],
       capabilities: {
         sensors: ['temperature', 'humidity', 'vpd', 'co2', 'light'],
@@ -204,7 +204,8 @@ export function getSupportedBrands() {
         supportsDimming: true
       },
       marketShare: '5%',
-      status: 'coming_soon'
+      status: 'available',
+      note: 'Requires WebSocket-enabled MQTT broker'
     }
   ]
 }
@@ -217,3 +218,26 @@ export * from './types'
 export { ACInfinityAdapter } from './ACInfinityAdapter'
 export { InkbirdAdapter } from './InkbirdAdapter'
 export { CSVUploadAdapter, generateCSVTemplate, validateCSVHeaders } from './CSVUploadAdapter'
+export { MQTTAdapter, handleMQTTMessage, clearMessageStore } from './MQTTAdapter'
+
+// Retry utilities
+export {
+  fetchWithRetry,
+  adapterFetch,
+  getCircuitBreaker,
+  recordFailure,
+  recordSuccess,
+  canMakeRequest,
+  resetCircuitBreaker,
+  classifyError,
+  calculateDelay,
+  DEFAULT_RETRY_CONFIG,
+  DEFAULT_CIRCUIT_BREAKER_CONFIG,
+  type RetryConfig,
+  type CircuitBreakerConfig,
+  type CircuitState,
+  type CircuitBreakerState,
+  type RetryResult,
+  type ErrorType,
+  type ClassifiedError,
+} from './retry'

@@ -1,53 +1,56 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Cpu, Wifi, WifiOff, MoreVertical, Trash2 } from "lucide-react";
+import { Plus, Cpu, Wifi, WifiOff, MoreVertical, Trash2, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import { mockControllers, MockController as Controller } from "@/data/mockData";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { useControllers } from "@/hooks/use-controllers";
+import { AddControllerDialog } from "@/components/controllers/AddControllerDialog";
+import { toast } from "@/hooks/use-toast";
+import type { ControllerWithRoom } from "@/types";
 
-const brands = [
-  {
-    id: "ac_infinity",
-    name: "AC Infinity",
-    description: "Controller 69, UIS Series",
-    icon: Cpu,
-  },
-  {
-    id: "inkbird",
-    name: "Inkbird",
-    description: "WiFi Controllers",
-    icon: Cpu,
-  },
-  {
-    id: "generic_wifi",
-    name: "Generic WiFi",
-    description: "Other brands",
-    icon: Cpu,
-  },
-] as const;
+function formatRelativeTime(timestamp: string | null): string {
+  if (!timestamp) return "Never";
+  const now = new Date();
+  const then = new Date(timestamp);
+  const diffMs = now.getTime() - then.getTime();
+  const diffMinutes = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
 
-function ControllerCard({ controller }: { controller: Controller }) {
-  const brandInfo = brands.find((b) => b.id === controller.brand);
+  if (diffMinutes < 1) return "Just now";
+  if (diffMinutes < 60) return `${diffMinutes} min ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
+  if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
+  return then.toLocaleDateString();
+}
 
+function ControllerCard({
+  controller,
+  onDelete,
+}: {
+  controller: ControllerWithRoom;
+  onDelete: (id: string) => void;
+}) {
   return (
     <div className="bg-card rounded-xl border border-border p-5 hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between">
@@ -55,10 +58,10 @@ function ControllerCard({ controller }: { controller: Controller }) {
           <div
             className={cn(
               "w-12 h-12 rounded-lg flex items-center justify-center",
-              controller.isOnline ? "bg-success/10" : "bg-muted"
+              controller.is_online ? "bg-success/10" : "bg-muted"
             )}
           >
-            {controller.isOnline ? (
+            {controller.is_online ? (
               <Wifi className="w-6 h-6 text-success" />
             ) : (
               <WifiOff className="w-6 h-6 text-muted-foreground" />
@@ -66,22 +69,22 @@ function ControllerCard({ controller }: { controller: Controller }) {
           </div>
           <div>
             <h3 className="font-semibold text-foreground">{controller.name}</h3>
-            <p className="text-sm text-muted-foreground">{brandInfo?.name}</p>
+            <p className="text-sm text-muted-foreground capitalize">{controller.brand.replace("_", " ")}</p>
             <div className="flex items-center gap-2 mt-2">
               <Badge
                 variant="secondary"
                 className={cn(
                   "text-xs",
-                  controller.isOnline
+                  controller.is_online
                     ? "bg-success/10 text-success"
                     : "bg-muted text-muted-foreground"
                 )}
               >
-                {controller.isOnline ? "Online" : "Offline"}
+                {controller.is_online ? "Online" : "Offline"}
               </Badge>
-              {controller.roomName && (
+              {controller.room && (
                 <Badge variant="outline" className="text-xs">
-                  {controller.roomName}
+                  {controller.room.name}
                 </Badge>
               )}
             </div>
@@ -97,7 +100,10 @@ function ControllerCard({ controller }: { controller: Controller }) {
           <DropdownMenuContent align="end">
             <DropdownMenuItem>Edit</DropdownMenuItem>
             <DropdownMenuItem>Assign to Room</DropdownMenuItem>
-            <DropdownMenuItem className="text-destructive">
+            <DropdownMenuItem
+              className="text-destructive"
+              onClick={() => onDelete(controller.id)}
+            >
               <Trash2 className="h-4 w-4 mr-2" />
               Remove
             </DropdownMenuItem>
@@ -107,8 +113,8 @@ function ControllerCard({ controller }: { controller: Controller }) {
 
       <div className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground">
         <div className="flex justify-between">
-          <span>ID: {controller.controllerId}</span>
-          <span>Last seen: {controller.lastSeen}</span>
+          <span>ID: {controller.controller_id}</span>
+          <span>Last seen: {formatRelativeTime(controller.last_seen)}</span>
         </div>
       </div>
     </div>
@@ -116,19 +122,41 @@ function ControllerCard({ controller }: { controller: Controller }) {
 }
 
 export default function ControllersPage() {
+  const {
+    controllers,
+    loading,
+    error,
+    refresh,
+    deleteController,
+    addController,
+    brands,
+    rooms,
+  } = useControllers();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [selectedBrand, setSelectedBrand] = useState<string | null>(null);
-  const [step, setStep] = useState(1);
+  const [controllerToDelete, setControllerToDelete] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  const handleBrandSelect = (brandId: string) => {
-    setSelectedBrand(brandId);
-    setStep(2);
-  };
+  const handleDelete = async () => {
+    if (!controllerToDelete) return;
 
-  const handleCloseDialog = () => {
-    setIsAddDialogOpen(false);
-    setSelectedBrand(null);
-    setStep(1);
+    setIsDeleting(true);
+    const result = await deleteController(controllerToDelete);
+
+    if (result.success) {
+      toast({
+        title: "Controller removed",
+        description: "The controller has been removed successfully.",
+      });
+    } else {
+      toast({
+        title: "Error",
+        description: result.error || "Failed to remove controller",
+        variant: "destructive",
+      });
+    }
+
+    setIsDeleting(false);
+    setControllerToDelete(null);
   };
 
   return (
@@ -146,10 +174,25 @@ export default function ControllersPage() {
         />
 
         <div className="p-6 lg:p-8">
-          {mockControllers.length > 0 ? (
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : error ? (
+            <div className="text-center py-16">
+              <p className="text-destructive mb-4">{error}</p>
+              <Button variant="outline" onClick={refresh}>
+                Try Again
+              </Button>
+            </div>
+          ) : controllers.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {mockControllers.map((controller) => (
-                <ControllerCard key={controller.id} controller={controller} />
+              {controllers.map((controller) => (
+                <ControllerCard
+                  key={controller.id}
+                  controller={controller}
+                  onDelete={setControllerToDelete}
+                />
               ))}
             </div>
           ) : (
@@ -170,67 +213,60 @@ export default function ControllersPage() {
         </div>
 
         {/* Add Controller Dialog */}
-        <Dialog open={isAddDialogOpen} onOpenChange={handleCloseDialog}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>
-                {step === 1 ? "Add Controller" : "Enter Credentials"}
-              </DialogTitle>
-              <DialogDescription>
-                {step === 1
-                  ? "Select your controller brand to get started"
-                  : "Enter your controller credentials"}
-              </DialogDescription>
-            </DialogHeader>
+        <AddControllerDialog
+          open={isAddDialogOpen}
+          onOpenChange={setIsAddDialogOpen}
+          brands={brands}
+          rooms={rooms.map(r => ({ id: r.id, name: r.name }))}
+          onAdd={async (data) => {
+            const result = await addController({
+              brand: data.brand,
+              name: data.name,
+              credentials: data.credentials,
+              room_id: data.room_id || undefined,
+            });
+            if (result.success) {
+              toast({
+                title: "Controller added",
+                description: `${data.name} has been added successfully.`,
+              });
+            }
+            return result;
+          }}
+        />
 
-            {step === 1 ? (
-              <div className="space-y-3 py-4">
-                {brands.map((brand) => (
-                  <button
-                    key={brand.id}
-                    onClick={() => handleBrandSelect(brand.id)}
-                    className="w-full flex items-center gap-3 p-4 border-2 border-border rounded-lg hover:border-primary hover:bg-primary/5 transition-colors text-left"
-                  >
-                    <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center">
-                      <brand.icon className="w-6 h-6 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <div className="font-medium text-foreground">
-                        {brand.name}
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        {brand.description}
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="controller-name">Controller Name</Label>
-                  <Input id="controller-name" placeholder="My Controller" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="api-key">API Key / Token</Label>
-                  <Input
-                    id="api-key"
-                    type="password"
-                    placeholder="Enter your API key"
-                  />
-                </div>
-                <div className="flex gap-3 pt-4">
-                  <Button variant="outline" onClick={() => setStep(1)} className="flex-1">
-                    Back
-                  </Button>
-                  <Button onClick={handleCloseDialog} className="flex-1">
-                    Add Controller
-                  </Button>
-                </div>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog
+          open={!!controllerToDelete}
+          onOpenChange={(open) => !open && setControllerToDelete(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove Controller</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to remove this controller? This action cannot be undone.
+                Any automations using this controller will stop working.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Removing...
+                  </>
+                ) : (
+                  "Remove"
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AppLayout>
   );

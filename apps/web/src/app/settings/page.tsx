@@ -1,6 +1,7 @@
 "use client";
 
-import { User, Bell, Shield, Palette, Database } from "lucide-react";
+import { useState } from "react";
+import { User, Bell, Shield, Palette, Database, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,8 +16,37 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/lib/supabase";
 
 export default function SettingsPage() {
+  const { user } = useAuth();
+  const [name, setName] = useState(user?.user_metadata?.name || "");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSaveProfile = async () => {
+    if (!user) return;
+
+    setIsSaving(true);
+    const { error } = await supabase.auth.updateUser({
+      data: { name },
+    });
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Profile updated",
+        description: "Your profile has been saved.",
+      });
+    }
+    setIsSaving(false);
+  };
   return (
     <AppLayout>
       <div className="min-h-screen">
@@ -36,15 +66,35 @@ export default function SettingsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="name">Full Name</Label>
-                  <Input id="name" defaultValue="John Doe" />
+                  <Input
+                    id="name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Enter your name"
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>
-                  <Input id="email" type="email" defaultValue="john@example.com" />
+                  <Input
+                    id="email"
+                    type="email"
+                    value={user?.email || ""}
+                    disabled
+                    className="bg-muted"
+                  />
                 </div>
               </div>
               <div className="flex justify-end">
-                <Button>Save Changes</Button>
+                <Button onClick={handleSaveProfile} disabled={isSaving}>
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Changes"
+                  )}
+                </Button>
               </div>
             </div>
           </section>

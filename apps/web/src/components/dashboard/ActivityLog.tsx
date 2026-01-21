@@ -20,12 +20,13 @@ interface ActivityLogProps {
   logs: LogEntry[];
   roomData?: {
     name: string;
-    temperature: number;
-    humidity: number;
-    vpd: number;
-    fanSpeed: number;
-    lightLevel: number;
+    temperature?: number;
+    humidity?: number;
+    vpd?: number;
+    fanSpeed?: number;
+    lightLevel?: number;
   }[];
+  isLoading?: boolean;
 }
 
 export function ActivityLog({ logs, roomData }: ActivityLogProps) {

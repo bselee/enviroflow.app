@@ -1,14 +1,24 @@
 /**
  * AC Infinity Controller Adapter
- * 
+ *
  * Supports:
  * - Controller 69 (flagship model)
  * - Controller 67 (budget model)
  * - UIS series inline fans
  * - UIS series LED lights with dimming
- * 
- * API: Reverse-engineered REST API
- * Base URL: https://www.acinfinityserver.com
+ *
+ * API: Reverse-engineered REST API based on I8Beef.ACInfinity and homeassistant-acinfinity
+ * Base URL: http://www.acinfinityserver.com (HTTP, not HTTPS - no SSL cert on their API)
+ *
+ * Authentication Flow:
+ * 1. POST /api/user/appUserLogin with AppEmail and AppPasswordL
+ * 2. Receive AppId (token) in response
+ * 3. Use token in 'token' header for subsequent requests
+ *
+ * Features:
+ * - Exponential backoff with jitter
+ * - Circuit breaker pattern
+ * - Detailed error logging
  */
 
 import type {
@@ -30,11 +40,30 @@ import type {
   DiscoveryResult,
   DiscoveredDevice,
 } from './types'
+import {
+  adapterFetch,
+  getCircuitBreaker,
+  resetCircuitBreaker,
+} from './retry'
 
-const API_BASE = 'https://www.acinfinityserver.com'
+// AC Infinity API configuration
+// IMPORTANT: AC Infinity API uses HTTP (no SSL certificate!)
+// This has been verified against I8Beef.ACInfinity and homeassistant-acinfinity implementations
+const API_BASE = 'http://www.acinfinityserver.com'
+const ADAPTER_NAME = 'ac_infinity'
 
-// Token storage (in production, use proper session management)
-const tokenStore = new Map<string, { token: string; expiresAt: Date }>()
+// User-Agent string from official AC Infinity iOS app (required for API access)
+const USER_AGENT = 'ACController/1.8.2 (com.acinfinity.humiture; build:489; iOS 16.5.1) Alamofire/5.4.4'
+
+// Default request timeout
+const REQUEST_TIMEOUT = 100000 // 100 seconds, matching official client
+
+// Token storage (in production, consider Redis or similar for multi-instance)
+const tokenStore = new Map<string, {
+  token: string
+  userId: string
+  expiresAt: Date
+}>()
 
 // ============================================
 // AC Infinity API Response Types
@@ -44,9 +73,12 @@ interface ACLoginResponse {
   code: number
   msg: string
   data?: {
-    token: string
-    userId: string
-    email: string
+    // The AppId is returned as the authentication token
+    appId: string
+    // Alternative field name sometimes used
+    token?: string
+    userId?: string
+    email?: string
   }
 }
 
@@ -64,6 +96,7 @@ interface ACDevice {
   firmwareVersion?: string
   online: boolean
   lastOnlineTime?: number
+  macAddr?: string
 }
 
 interface ACDeviceSettingResponse {
@@ -71,28 +104,63 @@ interface ACDeviceSettingResponse {
   msg: string
   data?: {
     devId: string
+    devName: string
+    devType: number
     portData: ACPort[]
     sensorData?: ACSensor[]
+    devModeSettingList?: ACModeSetting[]
   }
 }
 
 interface ACPort {
   portId: number
   portName: string
-  portType: number      // 1=fan, 2=light, 3=outlet
-  devType: number       // Device type on this port
+  portType: number       // 1=fan, 2=light, 3=outlet, etc.
+  devType: number        // Device type on this port
   isSupport: boolean
-  supportDim: number    // 1=supports dimming
-  onOff: number         // 0=off, 1=on
-  speak: number         // Fan speed 0-10
-  surplus: number       // Current level
+  supportDim: number     // 1=supports dimming
+  onOff: number          // 0=off, 1=on
+  speak: number          // Fan speed 0-10
+  surplus: number        // Current level
+  loadType?: number
+  externalPort?: number
 }
 
 interface ACSensor {
-  sensorType: number    // 1=temp, 2=humidity, 3=vpd
+  sensorType: number     // 1=temp, 2=humidity, 3=vpd, 4=co2, 5=light
   sensorName: string
-  value: number
+  sensorValue: number    // Note: API uses sensorValue not value
+  value?: number         // Some responses use this
   unit: string
+}
+
+interface ACModeSetting {
+  modeId: number
+  modeName: string
+  isActive: boolean
+}
+
+interface ACUpdatePortResponse {
+  code: number
+  msg: string
+  data?: unknown
+}
+
+// ============================================
+// Logging Utility
+// ============================================
+
+function log(level: 'info' | 'warn' | 'error', message: string, data?: unknown): void {
+  const timestamp = new Date().toISOString()
+  const prefix = `[ACInfinityAdapter][${timestamp}]`
+
+  if (level === 'error') {
+    console.error(`${prefix} ${message}`, data ? JSON.stringify(data, null, 2) : '')
+  } else if (level === 'warn') {
+    console.warn(`${prefix} ${message}`, data ? JSON.stringify(data, null, 2) : '')
+  } else {
+    console.log(`${prefix} ${message}`, data ? JSON.stringify(data, null, 2) : '')
+  }
 }
 
 // ============================================
@@ -105,65 +173,75 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
    * Discover all AC Infinity devices associated with the given credentials.
    * This queries the AC Infinity cloud API to list all registered devices
    * without connecting to any specific one.
-   *
-   * @param credentials - User's AC Infinity account credentials
-   * @returns Discovery result with list of all devices
    */
   async discoverDevices(credentials: DiscoveryCredentials): Promise<DiscoveryResult> {
     const { email, password } = credentials
 
+    log('info', 'Starting device discovery', { email: email.replace(/(.{2}).*(@.*)/, '$1***$2') })
+
     try {
       // Step 1: Login to get token
-      const loginResponse = await fetch(`${API_BASE}/api/user/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'EnviroFlow/1.0'
-        },
-        body: JSON.stringify({ email, password })
-      })
+      const loginResult = await this.login(email, password)
 
-      if (!loginResponse.ok) {
+      if (!loginResult.success || !loginResult.token) {
+        log('error', 'Discovery login failed', { error: loginResult.error })
         return {
           success: false,
           devices: [],
           totalDevices: 0,
           alreadyRegisteredCount: 0,
-          error: `Login failed: HTTP ${loginResponse.status}`,
+          error: loginResult.error || 'Login failed',
           timestamp: new Date(),
           source: 'cloud_api'
         }
       }
-
-      const loginData: ACLoginResponse = await loginResponse.json()
-
-      if (loginData.code !== 200 || !loginData.data?.token) {
-        return {
-          success: false,
-          devices: [],
-          totalDevices: 0,
-          alreadyRegisteredCount: 0,
-          error: loginData.msg || 'Login failed: Invalid credentials',
-          timestamp: new Date(),
-          source: 'cloud_api'
-        }
-      }
-
-      const token = loginData.data.token
 
       // Step 2: Get all devices for this account
-      const devicesResponse = await fetch(`${API_BASE}/api/user/devInfoListAll`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'User-Agent': 'EnviroFlow/1.0'
+      const devicesResult = await adapterFetch<ACDeviceListResponse>(
+        ADAPTER_NAME,
+        `${API_BASE}/api/user/devInfoListAll`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'User-Agent': USER_AGENT,
+            'token': loginResult.token,
+          },
+          body: new URLSearchParams({ userId: loginResult.token }).toString()
         }
-      })
+      )
 
-      const devicesData: ACDeviceListResponse = await devicesResponse.json()
+      if (!devicesResult.success || !devicesResult.data) {
+        log('error', 'Failed to list devices', { error: devicesResult.error })
+        return {
+          success: false,
+          devices: [],
+          totalDevices: 0,
+          alreadyRegisteredCount: 0,
+          error: devicesResult.error || 'Failed to retrieve device list',
+          timestamp: new Date(),
+          source: 'cloud_api'
+        }
+      }
+
+      const devicesData = devicesResult.data
+
+      if (devicesData.code !== 200) {
+        log('error', 'API returned error code', { code: devicesData.code, msg: devicesData.msg })
+        return {
+          success: false,
+          devices: [],
+          totalDevices: 0,
+          alreadyRegisteredCount: 0,
+          error: devicesData.msg || `API error: ${devicesData.code}`,
+          timestamp: new Date(),
+          source: 'cloud_api'
+        }
+      }
 
       if (!devicesData.data || devicesData.data.length === 0) {
+        log('info', 'No devices found for account')
         return {
           success: true,
           devices: [],
@@ -174,20 +252,22 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
         }
       }
 
+      log('info', `Found ${devicesData.data.length} devices`)
+
       // Step 3: Map AC Infinity devices to DiscoveredDevice format
       const discoveredDevices: DiscoveredDevice[] = await Promise.all(
         devicesData.data.map(async (device) => {
           // Try to get capabilities for each device
           let capabilities: DiscoveredDevice['capabilities'] = undefined
           try {
-            const capabilitiesData = await this.getDeviceCapabilities(device.devId, token)
+            const capabilitiesData = await this.getDeviceCapabilities(device.devId, loginResult.token!)
             capabilities = {
               sensors: capabilitiesData.sensors.map(s => s.type),
               devices: capabilitiesData.devices.map(d => d.type),
               supportsDimming: capabilitiesData.supportsDimming
             }
-          } catch {
-            // Ignore capability fetch errors - device is still discoverable
+          } catch (err) {
+            log('warn', `Failed to get capabilities for device ${device.devId}`, { error: err })
           }
 
           return {
@@ -200,7 +280,8 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
             isOnline: device.online,
             lastSeen: device.lastOnlineTime ? new Date(device.lastOnlineTime * 1000) : undefined,
             firmwareVersion: device.firmwareVersion,
-            isAlreadyRegistered: false, // Will be updated by caller if needed
+            macAddress: device.macAddr,
+            isAlreadyRegistered: false,
             capabilities
           }
         })
@@ -210,18 +291,19 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
         success: true,
         devices: discoveredDevices,
         totalDevices: discoveredDevices.length,
-        alreadyRegisteredCount: 0, // Will be calculated by caller
+        alreadyRegisteredCount: 0,
         timestamp: new Date(),
         source: 'cloud_api'
       }
 
     } catch (error) {
+      log('error', 'Discovery failed with exception', { error })
       return {
         success: false,
         devices: [],
         totalDevices: 0,
         alreadyRegisteredCount: 0,
-        error: error instanceof Error ? error.message : 'Discovery failed due to network error',
+        error: error instanceof Error ? error.message : 'Discovery failed due to unexpected error',
         timestamp: new Date(),
         source: 'cloud_api'
       }
@@ -232,18 +314,104 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
    * Map AC Infinity device type number to human-readable model name
    */
   private mapDeviceTypeToModel(devType: number): string {
-    // AC Infinity device type mappings (based on observation)
     const typeMap: Record<number, string> = {
       1: 'Controller 67',
-      2: 'Controller 69',
-      3: 'Controller 69 Pro',
-      4: 'UIS Inline Fan',
-      5: 'UIS LED Bar',
-      6: 'UIS Oscillating Fan',
-      7: 'USB-C Zone Controller',
-      // Add more mappings as discovered
+      2: 'Controller 67',
+      3: 'Controller 69',
+      4: 'Controller 69',
+      5: 'Controller 69 Pro',
+      6: 'Controller 69 Pro',
+      7: 'Controller 69 Pro+',
+      11: 'UIS Inline Fan',
+      12: 'UIS Inline Fan',
+      13: 'UIS LED Bar',
+      14: 'UIS Oscillating Fan',
+      15: 'UIS Clip Fan',
+      18: 'USB-C Zone Controller',
     }
     return typeMap[devType] || `AC Infinity Device (Type ${devType})`
+  }
+
+  /**
+   * Login to AC Infinity cloud
+   *
+   * Uses the appUserLogin endpoint with form-urlencoded body.
+   * The API returns an AppId which is used as the token for subsequent requests.
+   */
+  private async login(email: string, password: string): Promise<{
+    success: boolean
+    token?: string
+    userId?: string
+    error?: string
+  }> {
+    log('info', 'Attempting login', { email: email.replace(/(.{2}).*(@.*)/, '$1***$2') })
+
+    // Build form-urlencoded body with correct field names
+    // Note: AppPasswordL has an 'L' suffix (not a typo!)
+    const formData = new URLSearchParams()
+    formData.append('appEmail', email)
+    formData.append('appPasswordl', password)
+
+    const result = await adapterFetch<ACLoginResponse>(
+      ADAPTER_NAME,
+      `${API_BASE}/api/user/appUserLogin`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json',
+          'User-Agent': USER_AGENT,
+        },
+        body: formData.toString()
+      }
+    )
+
+    if (!result.success || !result.data) {
+      log('error', 'Login request failed', { error: result.error })
+      return {
+        success: false,
+        error: result.error || 'Login request failed'
+      }
+    }
+
+    const loginData = result.data
+
+    // AC Infinity API uses code 200 for success
+    if (loginData.code !== 200) {
+      log('error', 'Login returned error', { code: loginData.code, msg: loginData.msg })
+
+      // Provide user-friendly error messages
+      let errorMessage = loginData.msg || 'Login failed'
+      if (loginData.code === 1002 || loginData.msg?.toLowerCase().includes('password')) {
+        errorMessage = 'Invalid email or password. Please check your AC Infinity account credentials.'
+      } else if (loginData.code === 1001 || loginData.msg?.toLowerCase().includes('email')) {
+        errorMessage = 'Email not found. Please check your AC Infinity account email.'
+      } else if (loginData.msg?.toLowerCase().includes('network')) {
+        errorMessage = 'Network error connecting to AC Infinity servers. Please try again.'
+      }
+
+      return {
+        success: false,
+        error: errorMessage
+      }
+    }
+
+    // Get token from appId or token field
+    const token = loginData.data?.appId || loginData.data?.token
+    if (!token) {
+      log('error', 'Login succeeded but no token/appId in response', { data: loginData.data })
+      return {
+        success: false,
+        error: 'Login succeeded but server did not return authentication token'
+      }
+    }
+
+    log('info', 'Login successful')
+    return {
+      success: true,
+      token,
+      userId: loginData.data?.userId
+    }
   }
 
   /**
@@ -263,83 +431,82 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
 
     try {
       // Step 1: Login to get token
-      const loginResponse = await fetch(`${API_BASE}/api/user/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'EnviroFlow/1.0'
-        },
-        body: JSON.stringify({ email, password })
-      })
+      const loginResult = await this.login(email, password)
 
-      if (!loginResponse.ok) {
+      if (!loginResult.success || !loginResult.token) {
         return {
           success: false,
           controllerId: '',
           metadata: this.emptyMetadata(),
-          error: `Login failed: HTTP ${loginResponse.status}`
+          error: loginResult.error || 'Login failed'
         }
       }
-
-      const loginData: ACLoginResponse = await loginResponse.json()
-
-      if (loginData.code !== 200 || !loginData.data?.token) {
-        return {
-          success: false,
-          controllerId: '',
-          metadata: this.emptyMetadata(),
-          error: loginData.msg || 'Login failed: No token received'
-        }
-      }
-
-      const token = loginData.data.token
 
       // Step 2: Get device list
-      const devicesResponse = await fetch(`${API_BASE}/api/user/devInfoListAll`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'User-Agent': 'EnviroFlow/1.0'
+      const devicesResult = await adapterFetch<ACDeviceListResponse>(
+        ADAPTER_NAME,
+        `${API_BASE}/api/user/devInfoListAll`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'User-Agent': USER_AGENT,
+            'token': loginResult.token,
+          },
+          body: new URLSearchParams({ userId: loginResult.token }).toString()
         }
-      })
+      )
 
-      const devicesData: ACDeviceListResponse = await devicesResponse.json()
-
-      if (!devicesData.data || devicesData.data.length === 0) {
+      if (!devicesResult.success || !devicesResult.data) {
         return {
           success: false,
           controllerId: '',
           metadata: this.emptyMetadata(),
-          error: 'No AC Infinity devices found for this account'
+          error: devicesResult.error || 'Failed to retrieve devices'
         }
       }
 
-      // Use the first device (future: support multiple devices)
+      const devicesData = devicesResult.data
+
+      if (devicesData.code !== 200 || !devicesData.data || devicesData.data.length === 0) {
+        return {
+          success: false,
+          controllerId: '',
+          metadata: this.emptyMetadata(),
+          error: devicesData.msg || 'No AC Infinity devices found for this account. Make sure you have registered devices in the AC Infinity app.'
+        }
+      }
+
+      // Use the first device (future: support device selection)
       const device = devicesData.data[0]
       const controllerId = device.devId
 
       // Store token with 24-hour expiry
       tokenStore.set(controllerId, {
-        token,
+        token: loginResult.token,
+        userId: loginResult.userId || '',
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
       })
 
+      log('info', `Connected to device: ${device.devName} (${controllerId})`)
+
       // Step 3: Get device capabilities
-      const capabilities = await this.getDeviceCapabilities(controllerId, token)
+      const capabilities = await this.getDeviceCapabilities(controllerId, loginResult.token)
 
       return {
         success: true,
         controllerId,
         metadata: {
           brand: 'ac_infinity',
-          model: device.devName || 'Controller 69',
+          model: device.devName || this.mapDeviceTypeToModel(device.devType),
           firmwareVersion: device.firmwareVersion,
           capabilities
         }
       }
 
     } catch (error) {
+      log('error', 'Connection failed with exception', { error })
       return {
         success: false,
         controllerId: '',
@@ -353,64 +520,78 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
    * Read all sensor values from controller
    */
   async readSensors(controllerId: string): Promise<SensorReading[]> {
-    const token = this.getToken(controllerId)
-    if (!token) {
+    const stored = tokenStore.get(controllerId)
+    if (!stored) {
       throw new Error('Controller not connected. Call connect() first.')
     }
 
-    try {
-      const response = await fetch(`${API_BASE}/api/dev/getDevSetting`, {
+    // Check if token is expired
+    if (stored.expiresAt < new Date()) {
+      tokenStore.delete(controllerId)
+      throw new Error('Authentication token expired. Please reconnect.')
+    }
+
+    // Use getdevModeSettingList endpoint for sensor and device data
+    const result = await adapterFetch<ACDeviceSettingResponse>(
+      ADAPTER_NAME,
+      `${API_BASE}/api/dev/getdevModeSettingList`,
+      {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'User-Agent': 'EnviroFlow/1.0'
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json',
+          'User-Agent': USER_AGENT,
+          'token': stored.token,
         },
-        body: JSON.stringify({ devId: controllerId })
-      })
-
-      const data: ACDeviceSettingResponse = await response.json()
-
-      if (!data.data) {
-        return []
+        body: new URLSearchParams({ devId: controllerId, port: '0' }).toString()
       }
+    )
 
-      const readings: SensorReading[] = []
-      const now = new Date()
-
-      // Process sensor probes
-      if (data.data.sensorData) {
-        for (const sensor of data.data.sensorData) {
-          readings.push({
-            port: 0, // Sensors don't have port numbers in AC Infinity
-            type: this.mapSensorType(sensor.sensorType),
-            value: this.convertSensorValue(sensor.value, sensor.sensorType),
-            unit: this.mapSensorUnit(sensor.sensorType),
-            timestamp: now,
-            isStale: false
-          })
-        }
-      }
-
-      // Process port-based sensors (some devices report via portData)
-      for (const port of data.data.portData) {
-        if (port.devType === 10) { // Sensor probe type
-          readings.push({
-            port: port.portId,
-            type: 'temperature', // Default, would need more data to determine
-            value: port.surplus,
-            unit: 'F',
-            timestamp: now,
-            isStale: false
-          })
-        }
-      }
-
-      return readings
-
-    } catch (error) {
-      throw new Error(`Failed to read sensors: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    if (!result.success || !result.data) {
+      throw new Error(result.error || 'Failed to read sensor data')
     }
+
+    const data = result.data
+
+    if (data.code !== 200 || !data.data) {
+      throw new Error(data.msg || 'Failed to get device settings')
+    }
+
+    const readings: SensorReading[] = []
+    const now = new Date()
+
+    // Process sensor probes
+    if (data.data.sensorData) {
+      for (const sensor of data.data.sensorData) {
+        // Handle both "sensorValue" and "value" field names
+        const rawValue = sensor.sensorValue ?? sensor.value ?? 0
+        readings.push({
+          port: 0,
+          type: this.mapSensorType(sensor.sensorType),
+          value: this.convertSensorValue(rawValue, sensor.sensorType),
+          unit: this.mapSensorUnit(sensor.sensorType),
+          timestamp: now,
+          isStale: false
+        })
+      }
+    }
+
+    // Process port-based sensors (some devices report temp/humidity via portData)
+    for (const port of data.data.portData || []) {
+      if (port.devType === 10 || port.portType === 10) {
+        readings.push({
+          port: port.portId,
+          type: 'temperature',
+          value: port.surplus,
+          unit: 'F',
+          timestamp: now,
+          isStale: false
+        })
+      }
+    }
+
+    log('info', `Read ${readings.length} sensor values from ${controllerId}`)
+    return readings
   }
 
   /**
@@ -421,8 +602,8 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
     port: number,
     command: DeviceCommand
   ): Promise<CommandResult> {
-    const token = this.getToken(controllerId)
-    if (!token) {
+    const stored = tokenStore.get(controllerId)
+    if (!stored) {
       return {
         success: false,
         error: 'Controller not connected',
@@ -447,37 +628,54 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
           power = Math.max(0, Math.min(10, power))
           break
         case 'toggle':
-          // Would need current state - default to on
           power = 10
           break
         default:
           power = 0
       }
 
-      const response = await fetch(`${API_BASE}/api/dev/updateDevPort`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'User-Agent': 'EnviroFlow/1.0'
-        },
-        body: JSON.stringify({
-          devId: controllerId,
-          portId: port,
-          power
-        })
-      })
+      log('info', `Sending command to ${controllerId}:${port}`, { command: command.type, power })
 
-      const result = await response.json()
+      // Use addDevMode endpoint to set device port settings
+      const result = await adapterFetch<ACUpdatePortResponse>(
+        ADAPTER_NAME,
+        `${API_BASE}/api/dev/addDevMode`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'User-Agent': USER_AGENT,
+            'token': stored.token,
+          },
+          body: new URLSearchParams({
+            devId: controllerId,
+            port: String(port),
+            speak: String(power),
+            onOff: power > 0 ? '1' : '0'
+          }).toString()
+        }
+      )
+
+      if (!result.success || !result.data) {
+        return {
+          success: false,
+          error: result.error || 'Command failed',
+          timestamp: new Date()
+        }
+      }
+
+      const responseData = result.data
 
       return {
-        success: result.code === 200,
-        error: result.code !== 200 ? result.msg : undefined,
-        actualValue: power * 10, // Convert back to 0-100
+        success: responseData.code === 200,
+        error: responseData.code !== 200 ? responseData.msg : undefined,
+        actualValue: power * 10,
         timestamp: new Date()
       }
 
     } catch (error) {
+      log('error', 'Control command failed', { error })
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Command failed',
@@ -490,9 +688,9 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
    * Get current controller status
    */
   async getStatus(controllerId: string): Promise<ControllerStatus> {
-    const token = this.getToken(controllerId)
-    
-    if (!token) {
+    const stored = tokenStore.get(controllerId)
+
+    if (!stored) {
       return {
         isOnline: false,
         lastSeen: new Date()
@@ -500,20 +698,24 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
     }
 
     try {
-      const response = await fetch(`${API_BASE}/api/dev/getDevSetting`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'User-Agent': 'EnviroFlow/1.0'
+      const result = await adapterFetch<ACDeviceSettingResponse>(
+        ADAPTER_NAME,
+        `${API_BASE}/api/dev/getdevModeSettingList`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'User-Agent': USER_AGENT,
+            'token': stored.token,
+          },
+          body: new URLSearchParams({ devId: controllerId, port: '0' }).toString()
         },
-        body: JSON.stringify({ devId: controllerId })
-      })
-
-      const isOnline = response.ok
+        { maxRetries: 1, timeoutMs: 5000 }
+      )
 
       return {
-        isOnline,
+        isOnline: result.success && result.data?.code === 200,
         lastSeen: new Date()
       }
 
@@ -530,6 +732,21 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
    */
   async disconnect(controllerId: string): Promise<void> {
     tokenStore.delete(controllerId)
+    log('info', `Disconnected from ${controllerId}`)
+  }
+
+  /**
+   * Reset circuit breaker for this adapter
+   */
+  resetCircuitBreaker(): void {
+    resetCircuitBreaker(`adapter:${ADAPTER_NAME}`)
+  }
+
+  /**
+   * Get circuit breaker state
+   */
+  getCircuitBreakerState() {
+    return getCircuitBreaker(`adapter:${ADAPTER_NAME}`)
   }
 
   // ============================================
@@ -540,36 +757,34 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
     return 'type' in creds && creds.type === 'ac_infinity'
   }
 
-  private getToken(controllerId: string): string | null {
-    const stored = tokenStore.get(controllerId)
-    if (!stored) return null
-    if (stored.expiresAt < new Date()) {
-      tokenStore.delete(controllerId)
-      return null
-    }
-    return stored.token
-  }
-
   private async getDeviceCapabilities(controllerId: string, token: string) {
     try {
-      const response = await fetch(`${API_BASE}/api/dev/getDevSetting`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'User-Agent': 'EnviroFlow/1.0'
-        },
-        body: JSON.stringify({ devId: controllerId })
-      })
+      const result = await adapterFetch<ACDeviceSettingResponse>(
+        ADAPTER_NAME,
+        `${API_BASE}/api/dev/getdevModeSettingList`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'User-Agent': USER_AGENT,
+            'token': token,
+          },
+          body: new URLSearchParams({ devId: controllerId, port: '0' }).toString()
+        }
+      )
 
-      const data: ACDeviceSettingResponse = await response.json()
-      
+      if (!result.success || !result.data || result.data.code !== 200) {
+        return this.emptyCapabilities()
+      }
+
+      const data = result.data.data!
       const sensors: SensorCapability[] = []
       const devices: DeviceCapability[] = []
       let supportsDimming = false
 
-      if (data.data?.sensorData) {
-        for (const sensor of data.data.sensorData) {
+      if (data.sensorData) {
+        for (const sensor of data.sensorData) {
           sensors.push({
             port: 0,
             name: sensor.sensorName,
@@ -579,9 +794,9 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
         }
       }
 
-      if (data.data?.portData) {
-        for (const port of data.data.portData) {
-          if (port.devType !== 10) { // Not a sensor probe
+      if (data.portData) {
+        for (const port of data.portData) {
+          if (port.devType !== 10 && port.portType !== 10) {
             const hasDimming = port.supportDim === 1
             if (hasDimming) supportsDimming = true
 
@@ -604,10 +819,11 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
         devices,
         supportsDimming,
         supportsScheduling: true,
-        maxPorts: data.data?.portData?.length || 4
+        maxPorts: data.portData?.length || 4
       }
 
-    } catch {
+    } catch (err) {
+      log('warn', 'Failed to get device capabilities', { error: err })
       return this.emptyCapabilities()
     }
   }
