@@ -1,71 +1,65 @@
 /**
  * Supabase Client Configuration
  *
- * This module provides two Supabase clients:
- * 1. Browser client - for client-side operations (uses anon key)
+ * This module provides Supabase clients for the application:
+ * 1. Browser client - for client-side operations (uses anon key with cookies)
  * 2. Server client - for server-side operations (uses service role key)
  *
- * Security: The service role key bypasses RLS and should ONLY be used
- * in server-side code (API routes, server components, middleware).
+ * Uses @supabase/ssr for proper cookie-based session management.
  */
 
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
+import { createClient as createSupabaseClient, SupabaseClient } from "@supabase/supabase-js";
 
 // Environment variable validation
-const rawSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const rawSupabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!rawSupabaseUrl) {
+if (!supabaseUrl) {
   throw new Error(
     "Missing NEXT_PUBLIC_SUPABASE_URL environment variable. " +
       "Please add it to your .env.local file."
   );
 }
 
-if (!rawSupabaseAnonKey) {
+if (!supabaseAnonKey) {
   throw new Error(
     "Missing NEXT_PUBLIC_SUPABASE_ANON_KEY environment variable. " +
       "Please add it to your .env.local file."
   );
 }
 
-// TypeScript-safe assignments after validation
-const supabaseUrl: string = rawSupabaseUrl;
-const supabaseAnonKey: string = rawSupabaseAnonKey;
+/**
+ * Singleton browser client instance
+ * Uses cookie-based storage via @supabase/ssr for proper SSR support
+ */
+let browserClient: SupabaseClient | null = null;
+
+/**
+ * Get the browser Supabase client (singleton)
+ * Uses cookie-based session storage for SSR compatibility
+ */
+export function createClient(): SupabaseClient {
+  if (browserClient) {
+    return browserClient;
+  }
+
+  browserClient = createBrowserClient(supabaseUrl!, supabaseAnonKey!);
+  return browserClient;
+}
 
 /**
  * Browser Supabase client for client-side operations.
  * Uses the anonymous key which respects Row Level Security (RLS) policies.
  *
- * Usage:
- * - Authentication (signIn, signUp, signOut)
- * - Client-side data fetching with RLS
- * - Real-time subscriptions
+ * @deprecated Use createClient() instead for new code
  */
-export const supabase: SupabaseClient = createClient(
-  supabaseUrl,
-  supabaseAnonKey,
-  {
-    auth: {
-      // Persist session in localStorage for browser client
-      persistSession: true,
-      // Automatically refresh token before expiry
-      autoRefreshToken: true,
-      // Detect session from URL (for OAuth callbacks)
-      detectSessionInUrl: true,
-    },
-  }
-);
+export const supabase: SupabaseClient = createClient();
 
 /**
  * Creates a Supabase client with service role privileges.
  * SECURITY WARNING: This client bypasses RLS - use ONLY in server-side code.
- *
- * Usage:
- * - API routes that need admin access
- * - Server-side data operations
- * - Cron jobs and background tasks
  *
  * @returns Supabase client with service role privileges, or null if key is missing
  */
@@ -78,11 +72,9 @@ export function createServerClient(): SupabaseClient | null {
     return null;
   }
 
-  return createClient(supabaseUrl, supabaseServiceRoleKey, {
+  return createSupabaseClient(supabaseUrl!, supabaseServiceRoleKey, {
     auth: {
-      // Don't persist session for server client
       persistSession: false,
-      // Don't auto-refresh for server client
       autoRefreshToken: false,
     },
   });
@@ -94,21 +86,6 @@ export function createServerClient(): SupabaseClient | null {
 
 /**
  * Subscribe to changes on a specific table with optional filtering
- *
- * @param table - The table name to subscribe to
- * @param callback - Callback function to handle changes
- * @param filter - Optional filter string (e.g., 'user_id=eq.xxx')
- * @returns Cleanup function to unsubscribe
- *
- * @example
- * const unsubscribe = subscribeToTable('rooms', (payload) => {
- *   if (payload.eventType === 'INSERT') {
- *     // Handle new room
- *   }
- * }, `user_id=eq.${userId}`);
- *
- * // Later, to cleanup:
- * unsubscribe();
  */
 export function subscribeToTable<T extends Record<string, unknown>>(
   table: string,
@@ -119,7 +96,8 @@ export function subscribeToTable<T extends Record<string, unknown>>(
   }) => void,
   filter?: string
 ): () => void {
-  // Build channel config
+  const client = createClient();
+
   const channelConfig: {
     event: "*";
     schema: "public";
@@ -135,10 +113,9 @@ export function subscribeToTable<T extends Record<string, unknown>>(
     channelConfig.filter = filter;
   }
 
-  // Generate unique channel name to avoid conflicts
   const channelName = `${table}_changes_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
-  const channel = supabase
+  const channel = client
     .channel(channelName)
     .on(
       "postgres_changes",
@@ -157,9 +134,8 @@ export function subscribeToTable<T extends Record<string, unknown>>(
     )
     .subscribe();
 
-  // Return cleanup function
   return () => {
-    supabase.removeChannel(channel);
+    client.removeChannel(channel);
   };
 }
 
@@ -169,14 +145,13 @@ export function subscribeToTable<T extends Record<string, unknown>>(
 
 /**
  * Get the current authenticated user
- *
- * @returns The current user or null if not authenticated
  */
 export async function getCurrentUser() {
+  const client = createClient();
   const {
     data: { user },
     error,
-  } = await supabase.auth.getUser();
+  } = await client.auth.getUser();
 
   if (error) {
     console.error("Error getting current user:", error.message);
@@ -188,14 +163,13 @@ export async function getCurrentUser() {
 
 /**
  * Get the current session
- *
- * @returns The current session or null if not authenticated
  */
 export async function getCurrentSession() {
+  const client = createClient();
   const {
     data: { session },
     error,
-  } = await supabase.auth.getSession();
+  } = await client.auth.getSession();
 
   if (error) {
     console.error("Error getting current session:", error.message);
@@ -204,9 +178,5 @@ export async function getCurrentSession() {
 
   return session;
 }
-
-// =============================================================================
-// Type Exports
-// =============================================================================
 
 export type { SupabaseClient };

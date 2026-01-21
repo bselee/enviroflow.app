@@ -17,8 +17,8 @@ import {
   useMemo,
   type ReactNode,
 } from "react";
-import type { User, Session, AuthError, SupabaseClient } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase-browser";
+import type { User, Session, AuthError } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase";
 
 /**
  * Result type for auth operations
@@ -81,7 +81,6 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [supabase] = useState<SupabaseClient>(() => createClient());
 
   // Initialize auth state and subscribe to changes
   useEffect(() => {
@@ -131,7 +130,7 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
     return () => {
       subscription.unsubscribe();
     };
-  }, [supabase]);
+  }, []);
 
   /**
    * Sign in with email and password
@@ -160,7 +159,7 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
         };
       }
     },
-    [supabase]
+    []
   );
 
   /**
@@ -201,7 +200,7 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
         };
       }
     },
-    [supabase]
+    []
   );
 
   /**
@@ -226,7 +225,7 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
         error: "An unexpected error occurred. Please try again.",
       };
     }
-  }, [supabase]);
+  }, []);
 
   /**
    * Send password reset email
@@ -254,7 +253,7 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
         };
       }
     },
-    [supabase]
+    []
   );
 
   // Memoize context value to prevent unnecessary re-renders
