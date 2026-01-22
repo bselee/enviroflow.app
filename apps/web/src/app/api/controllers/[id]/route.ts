@@ -506,7 +506,7 @@ export async function PUT(
             updates.model = connectionResult.metadata.model
             updates.firmware_version = connectionResult.metadata.firmwareVersion
           }
-          updates.status = 'online'
+          updates.is_online = true
           updates.last_seen = new Date().toISOString()
           updates.last_error = null
 
@@ -546,7 +546,7 @@ export async function PUT(
         controller_id,
         name,
         capabilities,
-        status,
+        is_online,
         last_seen,
         last_error,
         firmware_version,
@@ -566,11 +566,8 @@ export async function PUT(
       )
     }
 
-    // Map database 'status' to frontend 'is_online'
-    const responseController = {
-      ...updatedController,
-      is_online: updatedController.status === 'online',
-    }
+    // is_online is already a boolean in the database
+    const responseController = updatedController
 
     // Log activity
     await client.from('activity_logs').insert({

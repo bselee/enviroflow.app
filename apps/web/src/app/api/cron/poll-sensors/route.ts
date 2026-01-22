@@ -65,7 +65,6 @@ interface DBController {
   controller_id: string
   name: string
   credentials: string | Record<string, unknown>
-  status: string
   is_online: boolean
   last_seen: string | null
   last_error: string | null
@@ -194,7 +193,7 @@ export async function GET(request: NextRequest) {
     const { data: controllers, error: fetchError } = await supabase
       .from('controllers')
       .select('*')
-      .or(`status.eq.online,last_seen.gt.${cutoffTime},last_error.is.null`)
+      .or(`is_online.eq.true,last_seen.gt.${cutoffTime},last_error.is.null`)
 
     if (fetchError) {
       log('error', 'Failed to fetch controllers', { error: fetchError.message })
@@ -331,7 +330,7 @@ async function pollController(
       await supabase
         .from('controllers')
         .update({
-          status: 'offline',
+          is_online: false,
           last_error: 'Credentials cannot be decrypted',
           updated_at: new Date().toISOString()
         })
@@ -379,7 +378,7 @@ async function pollController(
     await supabase
       .from('controllers')
       .update({
-        status: 'offline',
+        is_online: false,
         last_error: connectionResult.error || 'Connection failed',
         updated_at: new Date().toISOString()
       })
@@ -442,7 +441,7 @@ async function pollController(
     await supabase
       .from('controllers')
       .update({
-        status: 'online',
+        is_online: true,
         last_seen: now,
         last_error: null,
         updated_at: now

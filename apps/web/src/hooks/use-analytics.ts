@@ -204,7 +204,7 @@ export function useAnalytics(options: UseAnalyticsOptions = {}): UseAnalyticsRet
         : controllerId
         ? controllers.filter((c) => c.id === controllerId)
         : controllers;
-      const onlineCount = relevantControllers.filter((c) => c.status === 'online').length;
+      const onlineCount = relevantControllers.filter((c) => c.is_online).length;
       const uptime =
         relevantControllers.length > 0
           ? (onlineCount / relevantControllers.length) * 100

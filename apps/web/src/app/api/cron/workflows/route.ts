@@ -827,7 +827,7 @@ async function executeDeviceControl(
     await supabase
       .from('controllers')
       .update({
-        status: 'offline',
+        is_online: false,
         last_error: connectionResult.error || 'Connection failed',
         updated_at: new Date().toISOString(),
       })
@@ -854,7 +854,7 @@ async function executeDeviceControl(
     }
 
     if (commandResult.success) {
-      updateData.status = 'online'
+      updateData.is_online = true
       updateData.last_error = null
 
       console.log(
@@ -879,7 +879,7 @@ async function executeDeviceControl(
       })
     } else {
       // Command failed but connection was successful
-      updateData.status = 'online'
+      updateData.is_online = true
       updateData.last_error = commandResult.error || 'Command failed'
 
       console.warn(

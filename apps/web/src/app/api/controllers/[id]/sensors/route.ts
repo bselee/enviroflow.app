@@ -384,7 +384,7 @@ export async function GET(
           await client
             .from('controllers')
             .update({
-              status: 'offline',
+              is_online: false,
               last_error: connectionResult.error || 'Connection failed',
               updated_at: new Date().toISOString(),
             })
@@ -395,7 +395,7 @@ export async function GET(
             controller_id: id,
             readings: cachedResponse,
             timestamp: new Date().toISOString(),
-            status: 'offline',
+            is_online: false,
             is_cached: true,
             warnings: [
               'Controller is offline. Returning cached readings.',
@@ -408,7 +408,7 @@ export async function GET(
         await client
           .from('controllers')
           .update({
-            status: 'offline',
+            is_online: false,
             last_error: connectionResult.error || 'Connection failed',
             updated_at: new Date().toISOString(),
           })
@@ -420,7 +420,7 @@ export async function GET(
             controller_id: id,
             readings: [],
             timestamp: new Date().toISOString(),
-            status: 'offline',
+            is_online: false,
             error: 'Controller offline and no cached data available',
             details: connectionResult.error,
           },
@@ -439,7 +439,7 @@ export async function GET(
       await client
         .from('controllers')
         .update({
-          status: 'online',
+          is_online: true,
           last_seen: new Date().toISOString(),
           last_error: null,
           updated_at: new Date().toISOString(),
@@ -457,7 +457,7 @@ export async function GET(
       await client
         .from('controllers')
         .update({
-          status: 'offline',
+          is_online: false,
           last_error: errorMessage,
           updated_at: new Date().toISOString(),
         })

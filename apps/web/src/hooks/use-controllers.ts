@@ -117,7 +117,7 @@ export function useControllers(): UseControllersState {
           controller_id,
           name,
           capabilities,
-          status,
+          is_online,
           last_seen,
           last_error,
           firmware_version,
@@ -139,7 +139,7 @@ export function useControllers(): UseControllersState {
       }
 
       if (isMounted.current) {
-        // Transform data to include room as a flat object and map status to is_online
+        // Transform data to include room as a flat object
         // Supabase returns rooms as an array, we need the first element or null
         const controllersWithRooms = (data || []).map(
           (controller) => {
@@ -151,12 +151,11 @@ export function useControllers(): UseControllersState {
                 ? { id: roomsArray.id, name: roomsArray.name }
                 : null;
             // Omit the 'rooms' property and add 'room'
-            // Map database 'status' to frontend 'is_online' boolean
+            // is_online is already a boolean in the database
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const { rooms: _rooms, status, ...controllerData } = controller;
+            const { rooms: _rooms, ...controllerData } = controller;
             return {
               ...controllerData,
-              is_online: status === 'online',
               room,
             };
           }
@@ -413,7 +412,7 @@ export function useControllers(): UseControllersState {
         await supabase
           .from("controllers")
           .update({
-            status: isOnline ? 'online' : 'offline',
+            is_online: isOnline,
             last_seen: new Date().toISOString(),
             last_error: null,
           })

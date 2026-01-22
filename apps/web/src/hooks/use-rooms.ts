@@ -75,7 +75,7 @@ export function useRooms(): UseRoomsReturn {
             brand,
             controller_id,
             name,
-            status,
+            is_online,
             last_seen,
             room_id,
             model,
@@ -88,14 +88,8 @@ export function useRooms(): UseRoomsReturn {
         throw new Error(fetchError.message);
       }
 
-      // Map database 'status' to frontend 'is_online' for controllers
-      const roomsWithMappedControllers = (roomsData || []).map(room => ({
-        ...room,
-        controllers: (room.controllers || []).map((c: { status?: string }) => ({
-          ...c,
-          is_online: c.status === 'online',
-        })),
-      }));
+      // is_online is already a boolean in the database
+      const roomsWithMappedControllers = roomsData || [];
 
       setRooms(roomsWithMappedControllers);
     } catch (err) {

@@ -210,7 +210,7 @@ export async function GET(
           controller_id,
           name,
           capabilities,
-          status,
+          is_online,
           last_seen,
           last_error,
           firmware_version,
@@ -223,11 +223,8 @@ export async function GET(
         .order('created_at', { ascending: false })
 
       if (!controllersError) {
-        // Map database 'status' to frontend 'is_online' boolean
-        response.controllers = (controllers || []).map(c => ({
-          ...c,
-          is_online: c.status === 'online',
-        }))
+        // is_online is already a boolean in the database
+        response.controllers = controllers || []
       }
     }
 

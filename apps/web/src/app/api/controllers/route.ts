@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
         controller_id,
         name,
         capabilities,
-        status,
+        is_online,
         last_seen,
         last_error,
         firmware_version,
@@ -155,11 +155,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Map database 'status' field to frontend 'is_online' boolean
-    const controllers = (data || []).map(controller => ({
-      ...controller,
-      is_online: controller.status === 'online',
-    }))
+    // is_online is already a boolean in the database
+    const controllers = data || []
 
     return NextResponse.json({
       controllers,
@@ -327,9 +324,20 @@ export async function POST(request: NextRequest) {
           connectionResult = await adapter.connect(adapterCredentials)
 
           if (!connectionResult.success) {
-            // Connection failed - return appropriate error
-            // Common reasons: invalid credentials, no devices found, API unavailable
-            console.warn(`[Controllers POST] Connection failed for ${brand}:`, connectionResult.error)
+            // Connection failed - log detailed info for dev team
+            console.error(`[Controllers POST] CONNECTION FAILED`, {
+              timestamp: new Date().toISOString(),
+              brand,
+              userId,
+              email: credentials.email,
+              error: connectionResult.error,
+              metadata: connectionResult.metadata,
+              // Log request context for debugging
+              context: {
+                hasDiscoveredDevice: !!discoveredDevice,
+                controllerName: name,
+              }
+            })
 
             return NextResponse.json(
               {
@@ -451,7 +459,7 @@ export async function POST(request: NextRequest) {
         capabilities,
         model,
         firmware_version: firmwareVersion,
-        status: brand !== 'csv_upload' ? 'online' : 'offline',
+        is_online: brand !== 'csv_upload',
         last_seen: new Date().toISOString(),
         room_id: room_id || null
       })
