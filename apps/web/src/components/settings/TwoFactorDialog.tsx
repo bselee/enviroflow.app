@@ -478,7 +478,7 @@ export function TwoFactorDialog({
       )}
 
       <Button onClick={() => setStep("verify")} className="w-full">
-        I've Scanned the Code
+        I&apos;ve Scanned the Code
       </Button>
     </div>
   );
@@ -600,11 +600,11 @@ export function TwoFactorDialog({
 
       <div className="text-center text-sm text-muted-foreground">
         <strong>Important:</strong> Store these codes in a safe place. You
-        won't be able to see them again.
+        won&apos;t be able to see them again.
       </div>
 
       <Button onClick={() => setStep("complete")} className="w-full">
-        I've Saved My Codes
+        I&apos;ve Saved My Codes
       </Button>
     </div>
   );
@@ -623,7 +623,7 @@ export function TwoFactorDialog({
       <div className="text-center space-y-2">
         <h3 className="font-semibold text-lg">2FA Enabled Successfully!</h3>
         <p className="text-sm text-muted-foreground">
-          Your account is now protected with two-factor authentication. You'll
+          Your account is now protected with two-factor authentication. You&apos;ll
           need to enter a verification code from your authenticator app each
           time you sign in.
         </p>

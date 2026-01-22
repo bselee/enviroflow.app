@@ -37,8 +37,62 @@ export { useActivityLogs } from "./use-activity-logs";
 // Analytics hook
 export { useAnalytics } from "./use-analytics";
 
+// Dashboard data hook (consolidated)
+export {
+  useDashboardData,
+  calculateVPD,
+} from "./use-dashboard-data";
+export type {
+  DashboardDataOptions,
+  TrendData,
+  LatestSensorData,
+  RoomSummary,
+  DashboardMetrics,
+  EnvironmentSnapshotData,
+  UseDashboardDataReturn,
+} from "./use-dashboard-data";
+
 // Toast notifications
 export { useToast, toast } from "./use-toast";
+
+// User preferences hook
+export {
+  useUserPreferences,
+  DEFAULT_USER_PREFERENCES,
+  DEFAULT_ROOM_PREFERENCES,
+  calculateVPDStatus,
+  calculateTempStatus,
+  calculateHumidityStatus,
+  getStatusColorClass,
+  getStatusBgClass,
+} from "./use-user-preferences";
+export type {
+  UserPreferences,
+  RoomPreferences,
+  TemperatureUnit,
+  ViewMode,
+  AnimationQuality,
+  PrimaryMetric,
+  TimelineMetric,
+  MetricTolerance,
+  MetricStatus,
+  UseUserPreferencesReturn,
+} from "./use-user-preferences";
+
+// Animation tier (performance optimization)
+export {
+  useAnimationTier,
+  useAnimationEnabled,
+  usePulseEnabled,
+  useComplexEasingEnabled,
+  useAnimationTierContext,
+  AnimationTierProvider,
+} from "./use-animation-tier";
+export type {
+  AnimationTier,
+  UseAnimationTierReturn,
+  AnimationTierProviderProps,
+} from "./use-animation-tier";
 
 // Re-export commonly used types from @/types for backwards compatibility
 // Prefer importing directly from @/types for new code

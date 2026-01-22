@@ -80,7 +80,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   }
 
   // Create response to potentially modify
-  let response = NextResponse.next({
+  const response = NextResponse.next({
     request: {
       headers: request.headers,
     },

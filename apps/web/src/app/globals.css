@@ -138,3 +138,384 @@
     text-wrap: balance;
   }
 }
+
+/* ============================================
+   EnviroFlow Dashboard Design System
+   Premium dark theme tokens for the new dashboard
+   ============================================ */
+
+@layer base {
+  :root {
+    /* Dashboard Background & Surface Colors */
+    --env-bg: #1a1f2e;
+    --env-surface: #242938;
+    --env-border: rgba(255, 255, 255, 0.08);
+
+    /* Status Colors - Optimal (Green) */
+    --status-optimal: #10b981;
+    --status-optimal-from: #10b981;
+    --status-optimal-to: #059669;
+
+    /* Status Colors - Warning (Amber) */
+    --status-warning: #f59e0b;
+    --status-warning-from: #f59e0b;
+    --status-warning-to: #d97706;
+
+    /* Status Colors - Alert (Red) */
+    --status-alert: #ef4444;
+    --status-alert-from: #ef4444;
+    --status-alert-to: #dc2626;
+
+    /* Accent Blue */
+    --accent-blue: #3b82f6;
+
+    /* Text Hierarchy */
+    --text-primary: #ffffff;
+    --text-secondary: rgba(255, 255, 255, 0.6);
+    --text-tertiary: rgba(255, 255, 255, 0.4);
+
+    /* Animation color for pulse-glow (can be overridden inline) */
+    --pulse-glow-color: rgba(16, 185, 129, 0.4);
+  }
+
+  /* Dark mode inherits these values (dashboard is always dark-themed) */
+  .dark {
+    --env-bg: #1a1f2e;
+    --env-surface: #242938;
+    --env-border: rgba(255, 255, 255, 0.08);
+
+    --status-optimal: #10b981;
+    --status-optimal-from: #10b981;
+    --status-optimal-to: #059669;
+
+    --status-warning: #f59e0b;
+    --status-warning-from: #f59e0b;
+    --status-warning-to: #d97706;
+
+    --status-alert: #ef4444;
+    --status-alert-from: #ef4444;
+    --status-alert-to: #dc2626;
+
+    --accent-blue: #3b82f6;
+
+    --text-primary: #ffffff;
+    --text-secondary: rgba(255, 255, 255, 0.6);
+    --text-tertiary: rgba(255, 255, 255, 0.4);
+
+    --pulse-glow-color: rgba(16, 185, 129, 0.4);
+  }
+}
+
+/* ============================================
+   Animation Performance Tier System
+   Tier-based animation classes for performance optimization
+   ============================================ */
+
+@layer base {
+  :root {
+    /* Animation Timing Variables - Defaults (Full Tier) */
+    --animation-duration-fast: 150ms;
+    --animation-duration-normal: 300ms;
+    --animation-duration-slow: 500ms;
+    --animation-easing: cubic-bezier(0.4, 0, 0.2, 1);
+    --animation-easing-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --animation-tier: full;
+  }
+}
+
+@layer components {
+  /* ===========================================
+     Animation Tier: FULL (>55 FPS)
+     All animations enabled
+     =========================================== */
+  .animation-tier-full {
+    --animation-duration-fast: 150ms;
+    --animation-duration-normal: 300ms;
+    --animation-duration-slow: 500ms;
+    --animation-easing: cubic-bezier(0.4, 0, 0.2, 1);
+    --animation-easing-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .animation-tier-full .animate-pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  .animation-tier-full .animate-breathe {
+    animation: breathe 3s ease-in-out infinite;
+  }
+
+  .animation-tier-full .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+
+  /* ===========================================
+     Animation Tier: SIMPLIFIED (40-55 FPS)
+     Disable pulse glows, use simpler easing
+     =========================================== */
+  .animation-tier-simplified {
+    --animation-duration-fast: 100ms;
+    --animation-duration-normal: 200ms;
+    --animation-duration-slow: 300ms;
+    --animation-easing: ease-out;
+    --animation-easing-bounce: ease-out;
+  }
+
+  /* Disable glow animations */
+  .animation-tier-simplified .animate-pulse-glow {
+    animation: none;
+  }
+
+  /* Simplify breathing to opacity only */
+  .animation-tier-simplified .animate-breathe {
+    animation: breathe-simple 3s ease-in-out infinite;
+  }
+
+  /* Disable float animation */
+  .animation-tier-simplified .animate-float {
+    animation: none;
+  }
+
+  /* Reduce transition complexity */
+  .animation-tier-simplified .transition-all {
+    transition-timing-function: ease-out;
+    transition-duration: var(--animation-duration-normal);
+  }
+
+  /* ===========================================
+     Animation Tier: MINIMAL (<40 FPS)
+     Only essential data updates, no decorative animations
+     =========================================== */
+  .animation-tier-minimal {
+    --animation-duration-fast: 0ms;
+    --animation-duration-normal: 0ms;
+    --animation-duration-slow: 100ms;
+    --animation-easing: linear;
+    --animation-easing-bounce: linear;
+  }
+
+  /* Disable all decorative animations */
+  .animation-tier-minimal .animate-pulse-glow,
+  .animation-tier-minimal .animate-breathe,
+  .animation-tier-minimal .animate-float,
+  .animation-tier-minimal .animate-spin,
+  .animation-tier-minimal .animate-bounce {
+    animation: none !important;
+  }
+
+  /* Remove transitions on non-essential elements */
+  .animation-tier-minimal .transition-all:not(.transition-essential) {
+    transition: none;
+  }
+
+  /* Keep essential transitions but make them instant */
+  .animation-tier-minimal .transition-essential {
+    transition-duration: 100ms;
+    transition-timing-function: linear;
+  }
+
+  /* Remove shadows and glows for performance */
+  .animation-tier-minimal .status-glow-optimal,
+  .animation-tier-minimal .status-glow-warning,
+  .animation-tier-minimal .status-glow-alert {
+    box-shadow: none !important;
+  }
+
+  /* ===========================================
+     Prefers Reduced Motion Override
+     Always respect user accessibility preferences
+     =========================================== */
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --animation-duration-fast: 0ms;
+      --animation-duration-normal: 0ms;
+      --animation-duration-slow: 0ms;
+      --animation-tier: minimal;
+    }
+
+    /* Force minimal tier styles */
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+
+    .animate-pulse-glow,
+    .animate-breathe,
+    .animate-float,
+    .animate-spin,
+    .animate-bounce,
+    .animate-pulse {
+      animation: none !important;
+    }
+  }
+
+  /* ===========================================
+     Animation Type Classes
+     Type-specific styling based on animation category
+     =========================================== */
+  .animation-type-pulse.animation-enabled {
+    /* Pulse animations use dedicated timing */
+  }
+
+  .animation-type-glow.animation-enabled {
+    /* Glow effects can apply shadows */
+  }
+
+  .animation-type-transition.animation-enabled {
+    /* Standard transitions */
+    transition-timing-function: var(--animation-easing);
+    transition-duration: var(--animation-duration-normal);
+  }
+
+  .animation-type-count.animation-enabled {
+    /* Number counting animations */
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Disabled animation types get static styling */
+  .animation-type-pulse.animation-disabled,
+  .animation-type-glow.animation-disabled {
+    animation: none;
+    transition: none;
+  }
+
+  /* ===========================================
+     Keyframe Animations
+     =========================================== */
+  @keyframes pulse-glow {
+    0%, 100% {
+      box-shadow: 0 0 20px var(--pulse-glow-color, rgba(16, 185, 129, 0.4));
+    }
+    50% {
+      box-shadow: 0 0 40px var(--pulse-glow-color, rgba(16, 185, 129, 0.6));
+    }
+  }
+
+  @keyframes breathe {
+    0%, 100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.85;
+      transform: scale(0.98);
+    }
+  }
+
+  @keyframes breathe-simple {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.85;
+    }
+  }
+
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-5px);
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+}
+
+/* ============================================
+   Dashboard Component Utilities
+   Pre-built patterns for common dashboard elements
+   ============================================ */
+
+@layer components {
+  /* Glass morphism card effect */
+  .glass-card {
+    background: var(--env-surface);
+    border: 1px solid var(--env-border);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* Status gradient backgrounds */
+  .status-gradient-optimal {
+    background: linear-gradient(135deg, var(--status-optimal-from), var(--status-optimal-to));
+  }
+
+  .status-gradient-warning {
+    background: linear-gradient(135deg, var(--status-warning-from), var(--status-warning-to));
+  }
+
+  .status-gradient-alert {
+    background: linear-gradient(135deg, var(--status-alert-from), var(--status-alert-to));
+  }
+
+  /* Status glow effects for indicators */
+  .status-glow-optimal {
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+  }
+
+  .status-glow-warning {
+    box-shadow: 0 0 20px rgba(245, 158, 11, 0.4);
+  }
+
+  .status-glow-alert {
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
+  }
+
+  /* Metric display styling */
+  .metric-value {
+    font-size: 64px;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Hero metric for primary dashboard display */
+  .metric-hero {
+    font-size: 72px;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Staggered animation delays for slide-up effects */
+  .slide-up-delay-1 { animation-delay: 0.1s; }
+  .slide-up-delay-2 { animation-delay: 0.2s; }
+  .slide-up-delay-3 { animation-delay: 0.3s; }
+  .slide-up-delay-4 { animation-delay: 0.4s; }
+  .slide-up-delay-5 { animation-delay: 0.5s; }
+}

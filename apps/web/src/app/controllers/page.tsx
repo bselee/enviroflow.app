@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Cpu, Wifi, WifiOff, MoreVertical, Trash2, Loader2, AlertTriangle } from "lucide-react";
+import { Plus, Cpu, Wifi, WifiOff, MoreVertical, Trash2, Loader2, AlertTriangle, Home } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useControllers } from "@/hooks/use-controllers";
 import { AddControllerDialog } from "@/components/controllers/AddControllerDialog";
+import { AssignRoomDialog } from "@/components/controllers/AssignRoomDialog";
 import { ErrorGuidance } from "@/components/ui/error-guidance";
 import { toast } from "@/hooks/use-toast";
 import type { ControllerWithRoom, ControllerBrand } from "@/types";
@@ -48,9 +49,11 @@ function formatRelativeTime(timestamp: string | null): string {
 function ControllerCard({
   controller,
   onDelete,
+  onAssignRoom,
 }: {
   controller: ControllerWithRoom;
   onDelete: (id: string) => void;
+  onAssignRoom: (controller: ControllerWithRoom) => void;
 }) {
   // Check if controller has been offline for a while
   const lastSeenDate = controller.last_seen ? new Date(controller.last_seen) : null;
@@ -111,7 +114,10 @@ function ControllerCard({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem>Edit</DropdownMenuItem>
-            <DropdownMenuItem>Assign to Room</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onAssignRoom(controller)}>
+              <Home className="h-4 w-4 mr-2" />
+              Assign to Room
+            </DropdownMenuItem>
             <DropdownMenuItem
               className="text-destructive"
               onClick={() => onDelete(controller.id)}
@@ -164,12 +170,14 @@ export default function ControllersPage() {
     refresh,
     deleteController,
     addController,
+    updateController,
     brands,
     rooms,
   } = useControllers();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [controllerToDelete, setControllerToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [controllerToAssign, setControllerToAssign] = useState<ControllerWithRoom | null>(null);
 
   const handleDelete = async () => {
     if (!controllerToDelete) return;
@@ -192,6 +200,27 @@ export default function ControllersPage() {
 
     setIsDeleting(false);
     setControllerToDelete(null);
+  };
+
+  const handleAssignRoom = async (controllerId: string, roomId: string | null) => {
+    const result = await updateController(controllerId, { room_id: roomId });
+
+    if (result.success) {
+      toast({
+        title: roomId ? "Room assigned" : "Removed from room",
+        description: roomId
+          ? "The controller has been assigned to the room."
+          : "The controller has been removed from its room.",
+      });
+    } else {
+      toast({
+        title: "Error",
+        description: result.error || "Failed to update room assignment",
+        variant: "destructive",
+      });
+    }
+
+    return result;
   };
 
   return (
@@ -229,6 +258,7 @@ export default function ControllersPage() {
                   key={controller.id}
                   controller={controller}
                   onDelete={setControllerToDelete}
+                  onAssignRoom={setControllerToAssign}
                 />
               ))}
             </div>
@@ -306,6 +336,15 @@ export default function ControllersPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Assign Room Dialog */}
+        <AssignRoomDialog
+          open={!!controllerToAssign}
+          onOpenChange={(open) => !open && setControllerToAssign(null)}
+          controller={controllerToAssign}
+          rooms={rooms}
+          onAssign={handleAssignRoom}
+        />
       </div>
     </AppLayout>
   );

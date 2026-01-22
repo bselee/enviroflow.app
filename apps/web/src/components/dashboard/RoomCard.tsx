@@ -429,16 +429,16 @@ export function RoomCard({ room, isLoading }: RoomCardProps) {
         )}
 
         {/* Sensor Readings */}
-        {sensorsLoading ? (
+        {controllers.length === 0 ? (
+          <div className="py-6 text-center text-sm text-muted-foreground">
+            <p>No controllers assigned</p>
+            <p className="text-xs mt-1">Add a controller to see sensor data</p>
+          </div>
+        ) : sensorsLoading ? (
           <div className="space-y-3">
             <Skeleton className="h-6 w-full" />
             <Skeleton className="h-6 w-full" />
             <Skeleton className="h-6 w-full" />
-          </div>
-        ) : controllers.length === 0 ? (
-          <div className="py-6 text-center text-sm text-muted-foreground">
-            <p>No controllers assigned</p>
-            <p className="text-xs mt-1">Add a controller to see sensor data</p>
           </div>
         ) : (
           <div className="space-y-3">

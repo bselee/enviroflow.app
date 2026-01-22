@@ -21,6 +21,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
+// Force dynamic rendering since this route uses request headers
+export const dynamic = "force-dynamic";
+
 // Valid export types
 const VALID_TYPES = ["sensor_readings", "activity_logs"] as const;
 type ExportType = (typeof VALID_TYPES)[number];

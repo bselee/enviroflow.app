@@ -44,7 +44,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   // Create response - we'll set cookies on this
-  let response = NextResponse.redirect(`${origin}/dashboard`);
+  const response = NextResponse.redirect(`${origin}/dashboard`);
 
   // Track cookies being set for debugging
   const cookiesSet: string[] = [];

@@ -1,0 +1,1197 @@
+"use client";
+
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { supabase } from "@/lib/supabase";
+import type {
+  Room,
+  RoomWithControllers,
+  Controller,
+  SensorReading,
+  TimeSeriesPoint,
+} from "@/types";
+import type { TimeSeriesData } from "@/components/dashboard/IntelligentTimeline";
+import type {
+  Alert,
+  Automation,
+  ControllerSummary,
+  ScheduledEvent,
+} from "@/components/dashboard/SmartActionCards";
+import { useDemoDataUpdater } from "@/lib/demo-data";
+
+// =============================================================================
+// Type Definitions
+// =============================================================================
+
+/**
+ * Configuration options for the dashboard data hook.
+ */
+export interface DashboardDataOptions {
+  /** Interval in milliseconds for automatic data refresh. Default: 60000 (60s) */
+  refreshInterval?: number;
+  /** Time range in hours for sensor data queries. Default: 24 (was 6) */
+  sensorTimeRangeHours?: number;
+}
+
+/**
+ * Trend information showing change over a time period.
+ * Used for displaying delta indicators (e.g., "+2.5 from 1h ago").
+ */
+export interface TrendData {
+  /** Change in value (positive = increase, negative = decrease) */
+  delta: number;
+  /** Human-readable period description (e.g., "1h ago") */
+  period: string;
+}
+
+/**
+ * Aggregated sensor data for the latest readings.
+ * Null values indicate no data available for that sensor type.
+ */
+export interface LatestSensorData {
+  temperature: number | null;
+  humidity: number | null;
+  vpd: number | null;
+}
+
+/**
+ * Summary data for a single room, including controllers and sensor aggregations.
+ * This is the primary data structure used by dashboard room cards.
+ */
+export interface RoomSummary {
+  /** The room entity */
+  room: Room;
+  /** Controllers assigned to this room */
+  controllers: Controller[];
+  /** Count of online controllers in the room */
+  onlineCount: number;
+  /** Count of offline controllers in the room */
+  offlineCount: number;
+  /** Latest sensor readings aggregated across all controllers */
+  latestSensorData: LatestSensorData;
+  /** Trend data comparing current values to ~1 hour ago */
+  trends: {
+    temperature?: TrendData;
+    humidity?: TrendData;
+    vpd?: TrendData;
+  };
+  /** True if the most recent sensor data is older than 5 minutes */
+  hasStaleData: boolean;
+  /** ISO timestamp of the most recent sensor reading, or null if none */
+  lastUpdateTimestamp: string | null;
+  /** Temperature time series for charting (sorted ascending by timestamp) */
+  temperatureTimeSeries: TimeSeriesPoint[];
+}
+
+/**
+ * Aggregate metrics across all rooms and controllers.
+ * Displayed in the dashboard header section.
+ */
+export interface DashboardMetrics {
+  /** Total number of controllers across all rooms */
+  totalControllers: number;
+  /** Number of controllers currently online */
+  onlineControllers: number;
+  /** Number of controllers currently offline */
+  offlineControllers: number;
+  /** Percentage of controllers online (0-100) */
+  controllerUptime: number;
+  /** Total number of rooms */
+  totalRooms: number;
+  /** Average temperature across all rooms, or null if no data */
+  averageTemperature: number | null;
+  /** Average humidity across all rooms, or null if no data */
+  averageHumidity: number | null;
+  /** Average VPD across all rooms, or null if no data */
+  averageVPD: number | null;
+}
+
+/**
+ * Environment snapshot data for the dashboard hero section.
+ */
+export interface EnvironmentSnapshotData {
+  /** Current VPD in kPa */
+  vpd: number | null;
+  /** Current temperature in Fahrenheit */
+  temperature: number | null;
+  /** Current humidity percentage */
+  humidity: number | null;
+  /** Whether at least one controller is connected */
+  isConnected: boolean;
+  /** Trend data for temperature, humidity, and VPD */
+  trends: {
+    temperature?: TrendData;
+    humidity?: TrendData;
+    vpd?: TrendData;
+  };
+  /** Historical VPD data for the dial background (24h) */
+  historicalVpd: TimeSeriesPoint[];
+}
+
+/**
+ * Return type for the useDashboardData hook.
+ */
+export interface UseDashboardDataReturn {
+  /** All rooms (raw data from database or demo data) */
+  rooms: Room[];
+  /** All controllers (raw data from database or demo data) */
+  controllers: Controller[];
+  /** Computed room summaries with sensor data and trends */
+  roomSummaries: RoomSummary[];
+  /** Aggregate dashboard metrics */
+  metrics: DashboardMetrics;
+  /** Controllers that are currently offline */
+  offlineControllers: Controller[];
+  /** True during initial data fetch */
+  isLoading: boolean;
+  /** True during background refresh */
+  isRefreshing: boolean;
+  /** Error message from the last failed operation, or null */
+  error: string | null;
+  /** Manually trigger a data refresh */
+  refetch: () => Promise<void>;
+  /** Get the summary for a specific room by ID */
+  getRoomSummary: (roomId: string) => RoomSummary | undefined;
+
+  // New properties for updated dashboard components
+  /** Aggregated environment data for the EnvironmentSnapshot component */
+  environmentSnapshot: EnvironmentSnapshotData;
+  /** Time series data for the IntelligentTimeline component (24h) */
+  timelineData: TimeSeriesData[];
+  /** Alerts for the SmartActionCards component */
+  alerts: Alert[];
+  /** Active automations for the SmartActionCards component */
+  automations: Automation[];
+  /** Offline controller summaries for SmartActionCards */
+  offlineControllerSummaries: ControllerSummary[];
+  /** Next scheduled event (dimmer schedules, etc.) */
+  nextScheduledEvent: ScheduledEvent | undefined;
+  /** Dismiss an alert by ID */
+  dismissAlert: (alertId: string) => void;
+  /** Toggle automation active state */
+  toggleAutomation: (automationId: string) => Promise<void>;
+
+  // Demo mode properties
+  /** True when displaying demo data (no real controllers connected) */
+  isDemoMode: boolean;
+  /** True when transitioning from demo to real mode */
+  isTransitioningFromDemo: boolean;
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+/**
+ * Calculates Vapor Pressure Deficit (VPD) from temperature and humidity.
+ * VPD is a key metric for plant health, representing the difference between
+ * the amount of moisture in the air and the maximum moisture the air can hold.
+ *
+ * Formula: VPD = SVP * (1 - RH/100)
+ * Where SVP (Saturation Vapor Pressure) = 0.6108 * exp(17.27 * T / (T + 237.3))
+ *
+ * @param temperatureCelsius - Temperature in Celsius
+ * @param humidityPercent - Relative humidity as percentage (0-100)
+ * @returns VPD in kPa, rounded to 2 decimal places
+ */
+function calculateVPD(temperatureCelsius: number, humidityPercent: number): number {
+  // Magnus-Tetens approximation for saturation vapor pressure
+  const svp = 0.6108 * Math.exp((17.27 * temperatureCelsius) / (temperatureCelsius + 237.3));
+  const vpd = svp * (1 - humidityPercent / 100);
+  return Math.round(vpd * 100) / 100;
+}
+
+/**
+ * Gets the latest reading for a specific sensor type from a list of readings.
+ * Assumes readings are already sorted by timestamp descending.
+ *
+ * @param readings - Array of sensor readings
+ * @param sensorType - Type of sensor to filter for
+ * @returns The latest reading value, or null if none found
+ */
+function getLatestReading(
+  readings: SensorReading[],
+  sensorType: string
+): number | null {
+  const reading = readings.find((r) => r.sensor_type === sensorType);
+  return reading?.value ?? null;
+}
+
+/**
+ * Gets a reading value from approximately 1 hour ago for trend calculation.
+ * Looks for readings within a 15-minute window around the 1-hour mark.
+ *
+ * @param readings - Array of sensor readings sorted by timestamp descending
+ * @param sensorType - Type of sensor to filter for
+ * @returns The reading value from ~1h ago, or null if not found
+ */
+function getReadingFromOneHourAgo(
+  readings: SensorReading[],
+  sensorType: string
+): number | null {
+  const now = Date.now();
+  const oneHourAgo = now - 60 * 60 * 1000;
+  const windowStart = oneHourAgo - 15 * 60 * 1000; // 15 min before
+  const windowEnd = oneHourAgo + 15 * 60 * 1000; // 15 min after
+
+  const reading = readings.find((r) => {
+    if (r.sensor_type !== sensorType) return false;
+    const timestamp = new Date(r.timestamp).getTime();
+    return timestamp >= windowStart && timestamp <= windowEnd;
+  });
+
+  return reading?.value ?? null;
+}
+
+/**
+ * Calculates trend data by comparing current value to value from 1 hour ago.
+ *
+ * @param currentValue - Current sensor value
+ * @param pastValue - Value from 1 hour ago
+ * @returns TrendData object with delta and period, or undefined if trend cannot be calculated
+ */
+function calculateTrend(
+  currentValue: number | null,
+  pastValue: number | null
+): TrendData | undefined {
+  if (currentValue === null || pastValue === null) {
+    return undefined;
+  }
+  return {
+    delta: Math.round((currentValue - pastValue) * 100) / 100,
+    period: "1h ago",
+  };
+}
+
+/**
+ * Checks if sensor data is stale (older than threshold).
+ *
+ * @param latestTimestamp - ISO timestamp of the latest reading
+ * @param thresholdMinutes - Number of minutes after which data is considered stale. Default: 5
+ * @returns True if data is stale or no timestamp provided
+ */
+function isDataStale(
+  latestTimestamp: string | null,
+  thresholdMinutes: number = 5
+): boolean {
+  if (!latestTimestamp) return true;
+  const readingTime = new Date(latestTimestamp).getTime();
+  const thresholdMs = thresholdMinutes * 60 * 1000;
+  return Date.now() - readingTime > thresholdMs;
+}
+
+/**
+ * Calculates the average of an array of numbers, ignoring null values.
+ *
+ * @param values - Array of numbers that may include nulls
+ * @returns The average, or null if no valid values
+ */
+function calculateAverage(values: (number | null)[]): number | null {
+  const validValues = values.filter((v): v is number => v !== null);
+  if (validValues.length === 0) return null;
+  const sum = validValues.reduce((acc, val) => acc + val, 0);
+  return Math.round((sum / validValues.length) * 100) / 100;
+}
+
+/**
+ * Converts sensor readings to TimeSeriesData format for the IntelligentTimeline.
+ *
+ * @param readings - Array of sensor readings
+ * @returns Array of TimeSeriesData points grouped by timestamp
+ */
+function convertToTimeSeriesData(readings: SensorReading[]): TimeSeriesData[] {
+  // Group readings by timestamp (rounded to nearest minute for better grouping)
+  const byTimestamp = new Map<string, Partial<TimeSeriesData>>();
+
+  for (const reading of readings) {
+    // Round timestamp to nearest minute for grouping
+    const date = new Date(reading.timestamp);
+    date.setSeconds(0, 0);
+    const roundedTimestamp = date.toISOString();
+
+    const existing = byTimestamp.get(roundedTimestamp) || {
+      timestamp: roundedTimestamp,
+    };
+
+    switch (reading.sensor_type) {
+      case "temperature":
+        existing.temperature = reading.value;
+        break;
+      case "humidity":
+        existing.humidity = reading.value;
+        break;
+      case "vpd":
+        existing.vpd = reading.value;
+        break;
+    }
+
+    byTimestamp.set(roundedTimestamp, existing);
+  }
+
+  // Convert to array and sort ascending
+  return Array.from(byTimestamp.values())
+    .filter((d): d is TimeSeriesData => d.timestamp !== undefined)
+    .sort(
+      (a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+}
+
+/**
+ * Generates alerts based on environmental conditions and controller status.
+ *
+ * @param metrics - Dashboard metrics
+ * @param roomSummaries - Room summaries with sensor data
+ * @returns Array of alerts sorted by severity
+ */
+function generateAlerts(
+  metrics: DashboardMetrics,
+  roomSummaries: RoomSummary[]
+): Alert[] {
+  const alerts: Alert[] = [];
+
+  // Check for high VPD across rooms
+  for (const summary of roomSummaries) {
+    const vpd = summary.latestSensorData.vpd;
+    if (vpd !== null && vpd > 1.5) {
+      alerts.push({
+        id: `vpd-high-${summary.room.id}`,
+        severity: "warning",
+        title: `VPD High in ${summary.room.name}`,
+        message: `VPD is ${vpd} kPa. Consider increasing humidity or decreasing temperature.`,
+        timestamp: new Date().toISOString(),
+        actionable: true,
+      });
+    } else if (vpd !== null && vpd < 0.4) {
+      alerts.push({
+        id: `vpd-low-${summary.room.id}`,
+        severity: "warning",
+        title: `VPD Low in ${summary.room.name}`,
+        message: `VPD is ${vpd} kPa. Consider decreasing humidity or increasing temperature.`,
+        timestamp: new Date().toISOString(),
+        actionable: true,
+      });
+    }
+  }
+
+  // Check for temperature extremes
+  for (const summary of roomSummaries) {
+    const temp = summary.latestSensorData.temperature;
+    if (temp !== null && temp > 90) {
+      alerts.push({
+        id: `temp-critical-${summary.room.id}`,
+        severity: "critical",
+        title: `Temperature Critical in ${summary.room.name}`,
+        message: `Temperature is ${temp}°F. Immediate attention required.`,
+        timestamp: new Date().toISOString(),
+        actionable: true,
+      });
+    } else if (temp !== null && temp < 60) {
+      alerts.push({
+        id: `temp-low-${summary.room.id}`,
+        severity: "warning",
+        title: `Temperature Low in ${summary.room.name}`,
+        message: `Temperature is ${temp}°F. Consider increasing heat.`,
+        timestamp: new Date().toISOString(),
+        actionable: true,
+      });
+    }
+  }
+
+  // Check for stale data
+  const roomsWithStaleData = roomSummaries.filter(
+    (s) => s.hasStaleData && s.controllers.length > 0
+  );
+  if (roomsWithStaleData.length > 0) {
+    alerts.push({
+      id: "stale-data",
+      severity: "info",
+      title: "Data May Be Outdated",
+      message: `${roomsWithStaleData.length} room(s) have not reported recent data.`,
+      timestamp: new Date().toISOString(),
+      actionable: false,
+    });
+  }
+
+  // All controllers offline alert
+  if (metrics.totalControllers > 0 && metrics.onlineControllers === 0) {
+    alerts.push({
+      id: "all-offline",
+      severity: "critical",
+      title: "All Controllers Offline",
+      message: "No controllers are reporting data. Check network and power connections.",
+      timestamp: new Date().toISOString(),
+      actionable: true,
+    });
+  }
+
+  // Sort by severity (critical first, then warning, then info)
+  const severityOrder = { critical: 0, warning: 1, info: 2 };
+  return alerts.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+}
+
+// =============================================================================
+// Main Hook
+// =============================================================================
+
+/**
+ * Consolidated dashboard data hook that fetches and aggregates all data needed
+ * for the main dashboard view.
+ *
+ * This hook efficiently fetches rooms, controllers, and sensor readings in parallel,
+ * then computes derived data (room summaries, metrics, trends) using memoization.
+ * It also sets up real-time subscriptions for live updates.
+ *
+ * @param options - Configuration options for refresh interval and time range
+ * @returns Dashboard data, computed summaries, loading states, and utilities
+ *
+ * @example
+ * ```tsx
+ * const {
+ *   roomSummaries,
+ *   metrics,
+ *   offlineControllers,
+ *   isLoading,
+ *   refetch
+ * } = useDashboardData({ refreshInterval: 30000 });
+ *
+ * // Display room cards with pre-computed data
+ * roomSummaries.map(summary => (
+ *   <RoomCard
+ *     key={summary.room.id}
+ *     room={summary.room}
+ *     temperature={summary.latestSensorData.temperature}
+ *     trend={summary.trends.temperature}
+ *   />
+ * ));
+ * ```
+ */
+/**
+ * Partial workflow data fetched for dashboard display.
+ * Only includes fields needed for automation status cards.
+ */
+interface DashboardWorkflow {
+  id: string;
+  name: string;
+  is_active: boolean;
+  last_run: string | null;
+  room_id: string | null;
+  last_error: string | null;
+}
+
+export function useDashboardData(
+  options: DashboardDataOptions = {}
+): UseDashboardDataReturn {
+  const {
+    refreshInterval = 60000,
+    sensorTimeRangeHours = 24, // Changed default to 24h for timeline
+  } = options;
+
+  // Raw data state
+  const [roomsWithControllers, setRoomsWithControllers] = useState<RoomWithControllers[]>([]);
+  const [sensorReadings, setSensorReadings] = useState<SensorReading[]>([]);
+  const [workflows, setWorkflows] = useState<DashboardWorkflow[]>([]);
+
+  // Loading and error state
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Alert dismissal tracking
+  const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(new Set());
+
+  // Track mounted state to prevent state updates after unmount
+  const isMounted = useRef(true);
+
+  // Track refresh interval ID for cleanup
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Demo mode transition state
+  const [isTransitioningFromDemo, setIsTransitioningFromDemo] = useState(false);
+  const previousControllersCountRef = useRef<number | null>(null);
+
+  /**
+   * Fetches all dashboard data in parallel.
+   * Uses Promise.all to minimize total fetch time.
+   */
+  const fetchDashboardData = useCallback(async (isBackgroundRefresh = false) => {
+    try {
+      if (!isMounted.current) return;
+
+      if (isBackgroundRefresh) {
+        setIsRefreshing(true);
+      } else {
+        setIsLoading(true);
+      }
+      setError(null);
+
+      // Calculate time range for sensor readings query
+      const startTime = new Date();
+      startTime.setHours(startTime.getHours() - sensorTimeRangeHours);
+
+      // Fetch rooms with controllers, sensor readings, and workflows in parallel
+      const [roomsResult, sensorsResult, workflowsResult] = await Promise.all([
+        // Fetch rooms with controllers using Supabase relations
+        supabase
+          .from("rooms")
+          .select(`
+            *,
+            controllers (
+              id,
+              user_id,
+              brand,
+              controller_id,
+              name,
+              is_online,
+              last_seen,
+              room_id,
+              model,
+              firmware_version,
+              capabilities,
+              last_error
+            )
+          `)
+          .order("created_at", { ascending: false }),
+
+        // Fetch sensor readings for the time range
+        supabase
+          .from("sensor_readings")
+          .select("*")
+          .gte("timestamp", startTime.toISOString())
+          .order("timestamp", { ascending: false })
+          .limit(2000), // Increased limit for 24h timeline
+
+        // Fetch active workflows for automations display
+        supabase
+          .from("workflows")
+          .select("id, name, is_active, last_run, room_id, last_error")
+          .order("updated_at", { ascending: false })
+          .limit(20),
+      ]);
+
+      // Handle errors from either query
+      if (roomsResult.error) {
+        throw new Error(`Failed to fetch rooms: ${roomsResult.error.message}`);
+      }
+      if (sensorsResult.error) {
+        throw new Error(`Failed to fetch sensor readings: ${sensorsResult.error.message}`);
+      }
+      // Workflows are non-critical, don't throw on error
+      if (workflowsResult.error) {
+        console.warn("Failed to fetch workflows:", workflowsResult.error.message);
+      }
+
+      if (isMounted.current) {
+        setRoomsWithControllers(roomsResult.data || []);
+        setSensorReadings(sensorsResult.data || []);
+        setWorkflows(workflowsResult.data || []);
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to fetch dashboard data";
+      console.error("useDashboardData fetch error:", err);
+      if (isMounted.current) {
+        setError(errorMessage);
+      }
+    } finally {
+      if (isMounted.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    }
+  }, [sensorTimeRangeHours]);
+
+  /**
+   * Public refetch function for manual refresh triggers.
+   */
+  const refetch = useCallback(async () => {
+    await fetchDashboardData(true);
+  }, [fetchDashboardData]);
+
+  // ==========================================================================
+  // Derived Data (Memoized)
+  // ==========================================================================
+
+  /**
+   * Extract flat list of rooms from rooms with controllers.
+   */
+  const rooms = useMemo((): Room[] => {
+    return roomsWithControllers.map(({ controllers: _controllers, ...room }) => room);
+  }, [roomsWithControllers]);
+
+  /**
+   * Extract flat list of all controllers across all rooms.
+   */
+  const controllers = useMemo((): Controller[] => {
+    return roomsWithControllers.flatMap((room) => room.controllers || []);
+  }, [roomsWithControllers]);
+
+  /**
+   * Filter controllers that are currently offline.
+   */
+  const offlineControllers = useMemo((): Controller[] => {
+    return controllers.filter((c) => !c.is_online);
+  }, [controllers]);
+
+  // ==========================================================================
+  // Demo Mode Logic
+  // ==========================================================================
+
+  /**
+   * Determine if we should show demo mode.
+   * Demo mode is active when:
+   * - Initial loading is complete (not isLoading)
+   * - No real controllers are registered
+   */
+  const shouldShowDemoMode = useMemo(() => {
+    // Don't show demo during initial load
+    if (isLoading) return false;
+    // Show demo only when no controllers exist
+    return controllers.length === 0;
+  }, [isLoading, controllers.length]);
+
+  /**
+   * Use the demo data updater hook.
+   * This provides auto-updating demo data every 3 seconds when enabled.
+   */
+  const demoData = useDemoDataUpdater(shouldShowDemoMode);
+
+  /**
+   * Handle transition from demo mode to real mode.
+   * Triggers a smooth 500ms fade-out when first real controller connects.
+   */
+  useEffect(() => {
+    const currentCount = controllers.length;
+    const previousCount = previousControllersCountRef.current;
+
+    // Detect transition: had 0 controllers (demo mode), now have 1+
+    if (previousCount === 0 && currentCount > 0) {
+      setIsTransitioningFromDemo(true);
+      // Clear transition state after animation completes
+      const timer = setTimeout(() => {
+        setIsTransitioningFromDemo(false);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+
+    // Update ref for next comparison
+    previousControllersCountRef.current = currentCount;
+  }, [controllers.length]);
+
+  /**
+   * Compute room summaries with aggregated sensor data and trends.
+   * This is the main computed data structure used by dashboard components.
+   */
+  const roomSummaries = useMemo((): RoomSummary[] => {
+    return roomsWithControllers.map((roomWithControllers) => {
+      const { controllers: roomControllers = [], ...room } = roomWithControllers;
+
+      // Get controller IDs for this room
+      const controllerIds = roomControllers.map((c) => c.id);
+
+      // Filter sensor readings for controllers in this room
+      const roomReadings = sensorReadings.filter((r) =>
+        controllerIds.includes(r.controller_id)
+      );
+
+      // Calculate online/offline counts
+      const onlineCount = roomControllers.filter((c) => c.is_online).length;
+      const offlineCount = roomControllers.length - onlineCount;
+
+      // Get latest sensor values across all controllers in the room
+      const latestTemp = getLatestReading(roomReadings, "temperature");
+      const latestHumidity = getLatestReading(roomReadings, "humidity");
+
+      // Calculate VPD from temperature and humidity if both available
+      // Otherwise try to get stored VPD value
+      let latestVPD: number | null = null;
+      if (latestTemp !== null && latestHumidity !== null) {
+        latestVPD = calculateVPD(latestTemp, latestHumidity);
+      } else {
+        latestVPD = getLatestReading(roomReadings, "vpd");
+      }
+
+      // Calculate trends by comparing to values from ~1 hour ago
+      const pastTemp = getReadingFromOneHourAgo(roomReadings, "temperature");
+      const pastHumidity = getReadingFromOneHourAgo(roomReadings, "humidity");
+      const pastVPD = getReadingFromOneHourAgo(roomReadings, "vpd");
+
+      // Determine last update timestamp and staleness
+      const latestReadingTimestamp = roomReadings.length > 0
+        ? roomReadings[0].timestamp
+        : null;
+
+      // Build temperature time series for charting
+      const temperatureTimeSeries: TimeSeriesPoint[] = roomReadings
+        .filter((r) => r.sensor_type === "temperature")
+        .map((r) => ({
+          timestamp: r.timestamp,
+          value: r.value,
+        }))
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+      return {
+        room,
+        controllers: roomControllers,
+        onlineCount,
+        offlineCount,
+        latestSensorData: {
+          temperature: latestTemp,
+          humidity: latestHumidity,
+          vpd: latestVPD,
+        },
+        trends: {
+          temperature: calculateTrend(latestTemp, pastTemp),
+          humidity: calculateTrend(latestHumidity, pastHumidity),
+          vpd: calculateTrend(latestVPD, pastVPD),
+        },
+        hasStaleData: isDataStale(latestReadingTimestamp),
+        lastUpdateTimestamp: latestReadingTimestamp,
+        temperatureTimeSeries,
+      };
+    });
+  }, [roomsWithControllers, sensorReadings]);
+
+  /**
+   * Compute aggregate dashboard metrics across all rooms and controllers.
+   */
+  const metrics = useMemo((): DashboardMetrics => {
+    const totalControllers = controllers.length;
+    const onlineControllers = controllers.filter((c) => c.is_online).length;
+    const offlineCount = totalControllers - onlineControllers;
+
+    // Calculate uptime percentage, handle division by zero
+    const controllerUptime = totalControllers > 0
+      ? Math.round((onlineControllers / totalControllers) * 100)
+      : 0;
+
+    // Calculate average sensor values across all room summaries
+    const temperatures = roomSummaries.map((s) => s.latestSensorData.temperature);
+    const humidities = roomSummaries.map((s) => s.latestSensorData.humidity);
+    const vpds = roomSummaries.map((s) => s.latestSensorData.vpd);
+
+    return {
+      totalControllers,
+      onlineControllers,
+      offlineControllers: offlineCount,
+      controllerUptime,
+      totalRooms: rooms.length,
+      averageTemperature: calculateAverage(temperatures),
+      averageHumidity: calculateAverage(humidities),
+      averageVPD: calculateAverage(vpds),
+    };
+  }, [controllers, rooms.length, roomSummaries]);
+
+  /**
+   * Utility function to get a specific room's summary by ID.
+   */
+  const getRoomSummary = useCallback(
+    (roomId: string): RoomSummary | undefined => {
+      return roomSummaries.find((s) => s.room.id === roomId);
+    },
+    [roomSummaries]
+  );
+
+  // ==========================================================================
+  // Effects
+  // ==========================================================================
+
+  /**
+   * Initial data fetch on mount.
+   */
+  useEffect(() => {
+    isMounted.current = true;
+    fetchDashboardData(false);
+
+    return () => {
+      isMounted.current = false;
+    };
+  }, [fetchDashboardData]);
+
+  /**
+   * Set up periodic refresh interval.
+   */
+  useEffect(() => {
+    if (refreshInterval > 0) {
+      refreshIntervalRef.current = setInterval(() => {
+        fetchDashboardData(true);
+      }, refreshInterval);
+    }
+
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
+      }
+    };
+  }, [refreshInterval, fetchDashboardData]);
+
+  /**
+   * Set up real-time subscriptions for rooms, controllers, and sensor_readings.
+   * Uses a single channel with multiple table subscriptions for efficiency.
+   */
+  useEffect(() => {
+    const channel = supabase
+      .channel("dashboard_changes")
+      // Subscribe to room changes (INSERT, UPDATE, DELETE)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "rooms",
+        },
+        () => {
+          // Refetch all data to ensure consistency with relations
+          fetchDashboardData(true);
+        }
+      )
+      // Subscribe to controller changes
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "controllers",
+        },
+        () => {
+          fetchDashboardData(true);
+        }
+      )
+      // Subscribe to new sensor readings (INSERT only for performance)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "sensor_readings",
+        },
+        (payload) => {
+          // Optimistically add new reading to state instead of full refetch
+          const newReading = payload.new as SensorReading;
+          if (isMounted.current) {
+            setSensorReadings((prev) => {
+              // Prepend new reading and limit array size
+              const updated = [newReading, ...prev];
+              return updated.slice(0, 1000);
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchDashboardData]);
+
+  // ==========================================================================
+  // New Computed Values for Dashboard Components
+  // ==========================================================================
+
+  /**
+   * Aggregated environment snapshot data for the EnvironmentSnapshot component.
+   * Averages data across all rooms for a global view.
+   */
+  const environmentSnapshot = useMemo((): EnvironmentSnapshotData => {
+    const isConnected = metrics.onlineControllers > 0;
+
+    // Build historical VPD data from sensor readings
+    // Group by 5-minute intervals and calculate VPD for each
+    const intervalMs = 5 * 60 * 1000;
+    const tempByInterval = new Map<number, number[]>();
+    const humByInterval = new Map<number, number[]>();
+
+    for (const reading of sensorReadings) {
+      const time = Math.floor(new Date(reading.timestamp).getTime() / intervalMs) * intervalMs;
+      if (reading.sensor_type === "temperature") {
+        const arr = tempByInterval.get(time) || [];
+        arr.push(reading.value);
+        tempByInterval.set(time, arr);
+      } else if (reading.sensor_type === "humidity") {
+        const arr = humByInterval.get(time) || [];
+        arr.push(reading.value);
+        humByInterval.set(time, arr);
+      }
+    }
+
+    const historicalVpd: TimeSeriesPoint[] = [];
+    for (const [time, temps] of tempByInterval) {
+      const hums = humByInterval.get(time);
+      if (hums && hums.length > 0) {
+        const avgTemp = temps.reduce((a, b) => a + b, 0) / temps.length;
+        const avgHum = hums.reduce((a, b) => a + b, 0) / hums.length;
+        const vpd = calculateVPD(avgTemp, avgHum);
+        historicalVpd.push({
+          timestamp: new Date(time).toISOString(),
+          value: vpd,
+        });
+      }
+    }
+
+    // Sort by timestamp ascending
+    historicalVpd.sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    // Calculate aggregated trends across all rooms
+    const tempTrends = roomSummaries
+      .map((s) => s.trends.temperature)
+      .filter((t): t is TrendData => t !== undefined);
+    const humTrends = roomSummaries
+      .map((s) => s.trends.humidity)
+      .filter((t): t is TrendData => t !== undefined);
+    const vpdTrends = roomSummaries
+      .map((s) => s.trends.vpd)
+      .filter((t): t is TrendData => t !== undefined);
+
+    const avgTempTrend = tempTrends.length > 0
+      ? {
+          delta: Math.round((tempTrends.reduce((acc, t) => acc + t.delta, 0) / tempTrends.length) * 10) / 10,
+          period: "1h",
+        }
+      : undefined;
+
+    const avgHumTrend = humTrends.length > 0
+      ? {
+          delta: Math.round((humTrends.reduce((acc, t) => acc + t.delta, 0) / humTrends.length) * 10) / 10,
+          period: "1h",
+        }
+      : undefined;
+
+    const avgVpdTrend = vpdTrends.length > 0
+      ? {
+          delta: Math.round((vpdTrends.reduce((acc, t) => acc + t.delta, 0) / vpdTrends.length) * 100) / 100,
+          period: "1h",
+        }
+      : undefined;
+
+    return {
+      vpd: metrics.averageVPD,
+      temperature: metrics.averageTemperature,
+      humidity: metrics.averageHumidity,
+      isConnected,
+      trends: {
+        temperature: avgTempTrend,
+        humidity: avgHumTrend,
+        vpd: avgVpdTrend,
+      },
+      historicalVpd,
+    };
+  }, [metrics, roomSummaries, sensorReadings]);
+
+  /**
+   * Time series data for the IntelligentTimeline component.
+   */
+  const timelineData = useMemo((): TimeSeriesData[] => {
+    return convertToTimeSeriesData(sensorReadings);
+  }, [sensorReadings]);
+
+  /**
+   * Alerts generated from environmental conditions.
+   * Filtered to exclude dismissed alerts.
+   */
+  const alerts = useMemo((): Alert[] => {
+    const allAlerts = generateAlerts(metrics, roomSummaries);
+    return allAlerts.filter((a) => !dismissedAlerts.has(a.id));
+  }, [metrics, roomSummaries, dismissedAlerts]);
+
+  /**
+   * Automation data from workflows.
+   */
+  const automations = useMemo((): Automation[] => {
+    return workflows.map((w) => ({
+      id: w.id,
+      name: w.name,
+      status: w.last_error ? "error" : w.is_active ? "active" : "paused",
+      lastRun: w.last_run || undefined,
+      roomName: rooms.find((r) => r.id === w.room_id)?.name,
+    }));
+  }, [workflows, rooms]);
+
+  /**
+   * Offline controller summaries for SmartActionCards.
+   */
+  const offlineControllerSummaries = useMemo((): ControllerSummary[] => {
+    return offlineControllers.map((c) => ({
+      id: c.id,
+      name: c.name,
+      lastSeen: c.last_seen || new Date().toISOString(),
+    }));
+  }, [offlineControllers]);
+
+  /**
+   * Dismiss an alert by ID.
+   */
+  const dismissAlert = useCallback((alertId: string) => {
+    setDismissedAlerts((prev) => new Set(prev).add(alertId));
+  }, []);
+
+  /**
+   * Toggle automation (workflow) active state.
+   */
+  const toggleAutomation = useCallback(async (automationId: string) => {
+    try {
+      const workflow = workflows.find((w) => w.id === automationId);
+      if (!workflow) return;
+
+      const newStatus = !workflow.is_active;
+
+      const { error: updateError } = await supabase
+        .from("workflows")
+        .update({ is_active: newStatus })
+        .eq("id", automationId);
+
+      if (updateError) {
+        console.error("Failed to toggle automation:", updateError.message);
+        return;
+      }
+
+      // Optimistic update
+      setWorkflows((prev) =>
+        prev.map((w) =>
+          w.id === automationId ? { ...w, is_active: newStatus } : w
+        )
+      );
+    } catch (err) {
+      console.error("Error toggling automation:", err);
+    }
+  }, [workflows]);
+
+  // Next scheduled event would come from dimmer_schedules table
+  // For now, return undefined (can be enhanced later)
+  const nextScheduledEvent: ScheduledEvent | undefined = undefined;
+
+  // ==========================================================================
+  // Demo Mode Data Merging
+  // ==========================================================================
+
+  /**
+   * Final room summaries - uses demo data when in demo mode.
+   */
+  const finalRoomSummaries = useMemo((): RoomSummary[] => {
+    if (shouldShowDemoMode) {
+      return demoData.roomSummaries;
+    }
+    return roomSummaries;
+  }, [shouldShowDemoMode, demoData.roomSummaries, roomSummaries]);
+
+  /**
+   * Final rooms - uses demo data when in demo mode.
+   */
+  const finalRooms = useMemo((): Room[] => {
+    if (shouldShowDemoMode) {
+      return demoData.rooms;
+    }
+    return rooms;
+  }, [shouldShowDemoMode, demoData.rooms, rooms]);
+
+  /**
+   * Final controllers - uses demo data when in demo mode.
+   */
+  const finalControllers = useMemo((): Controller[] => {
+    if (shouldShowDemoMode) {
+      return demoData.controllers;
+    }
+    return controllers;
+  }, [shouldShowDemoMode, demoData.controllers, controllers]);
+
+  /**
+   * Final environment snapshot - uses demo data when in demo mode.
+   */
+  const finalEnvironmentSnapshot = useMemo((): EnvironmentSnapshotData => {
+    if (shouldShowDemoMode) {
+      return {
+        vpd: demoData.averageVPD,
+        temperature: demoData.averageTemperature,
+        humidity: demoData.averageHumidity,
+        isConnected: true, // Demo shows as "connected" for display purposes
+        trends: demoData.trends,
+        historicalVpd: demoData.historicalVpd,
+      };
+    }
+    return environmentSnapshot;
+  }, [shouldShowDemoMode, demoData, environmentSnapshot]);
+
+  /**
+   * Final timeline data - uses demo data when in demo mode.
+   */
+  const finalTimelineData = useMemo((): TimeSeriesData[] => {
+    if (shouldShowDemoMode) {
+      return demoData.timelineData;
+    }
+    return timelineData;
+  }, [shouldShowDemoMode, demoData.timelineData, timelineData]);
+
+  /**
+   * Final metrics - uses demo data when in demo mode.
+   */
+  const finalMetrics = useMemo((): DashboardMetrics => {
+    if (shouldShowDemoMode) {
+      return {
+        totalControllers: demoData.controllers.length,
+        onlineControllers: demoData.controllers.length,
+        offlineControllers: 0,
+        controllerUptime: 100,
+        totalRooms: demoData.rooms.length,
+        averageTemperature: demoData.averageTemperature,
+        averageHumidity: demoData.averageHumidity,
+        averageVPD: demoData.averageVPD,
+      };
+    }
+    return metrics;
+  }, [shouldShowDemoMode, demoData, metrics]);
+
+  /**
+   * Get room summary by ID - searches demo data when in demo mode.
+   */
+  const finalGetRoomSummary = useCallback(
+    (roomId: string): RoomSummary | undefined => {
+      if (shouldShowDemoMode) {
+        return demoData.roomSummaries.find((s) => s.room.id === roomId);
+      }
+      return roomSummaries.find((s) => s.room.id === roomId);
+    },
+    [shouldShowDemoMode, demoData.roomSummaries, roomSummaries]
+  );
+
+  // ==========================================================================
+  // Return
+  // ==========================================================================
+
+  return {
+    // Core data (uses demo data when in demo mode)
+    rooms: finalRooms,
+    controllers: finalControllers,
+    roomSummaries: finalRoomSummaries,
+    metrics: finalMetrics,
+    offlineControllers: shouldShowDemoMode ? [] : offlineControllers,
+    isLoading,
+    isRefreshing,
+    error,
+    refetch,
+    getRoomSummary: finalGetRoomSummary,
+
+    // Dashboard components data (uses demo data when in demo mode)
+    environmentSnapshot: finalEnvironmentSnapshot,
+    timelineData: finalTimelineData,
+    alerts: shouldShowDemoMode ? [] : alerts, // No alerts in demo mode
+    automations: shouldShowDemoMode ? [] : automations, // No automations in demo mode
+    offlineControllerSummaries: shouldShowDemoMode ? [] : offlineControllerSummaries,
+    nextScheduledEvent,
+    dismissAlert,
+    toggleAutomation,
+
+    // Demo mode state
+    isDemoMode: shouldShowDemoMode,
+    isTransitioningFromDemo,
+  };
+}
+
+/**
+ * Export VPD calculation utility for use in other components.
+ * This allows consistent VPD calculation across the application.
+ *
+ * @param temperatureCelsius - Temperature in Celsius
+ * @param humidityPercent - Relative humidity as percentage (0-100)
+ * @returns VPD in kPa
+ */
+export { calculateVPD };

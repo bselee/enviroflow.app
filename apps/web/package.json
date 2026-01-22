@@ -72,6 +72,8 @@
     "@types/react-dom": "^18",
     "@types/suncalc": "^1.9.2",
     "@types/web-push": "^3.6.4",
+    "@typescript-eslint/eslint-plugin": "^8.53.1",
+    "@typescript-eslint/parser": "^8.53.1",
     "autoprefixer": "^10.4.0",
     "eslint": "^8",
     "eslint-config-next": "14.2.0",
