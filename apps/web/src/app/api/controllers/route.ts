@@ -539,13 +539,13 @@ export async function POST(request: NextRequest) {
         })
       } catch (error) {
         if (error instanceof EncryptionError) {
-          console.error('[Controllers POST] Encryption configuration error')
+          console.error('[Controllers POST] Encryption configuration error:', error.message)
           return NextResponse.json(
             {
               error: 'Server configuration error',
               errorType: 'configuration',
-              message: 'Credential encryption is not properly configured.',
-              guidance: 'This is a server configuration issue. Please contact support or check the ENCRYPTION_KEY environment variable.',
+              message: error.message || 'Credential encryption is not properly configured.',
+              guidance: 'Check ENCRYPTION_KEY in Vercel environment variables. It must be exactly 64 hex characters with no quotes or spaces.',
             },
             { status: 500 }
           )

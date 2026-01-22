@@ -60,20 +60,30 @@ function getEncryptionKey(): Buffer {
   const keyHex = process.env.ENCRYPTION_KEY
 
   if (!keyHex) {
+    console.error('[Encryption] ENCRYPTION_KEY is not set in environment')
     throw new EncryptionError(
       'ENCRYPTION_KEY environment variable is not set. ' +
         'Generate one with: openssl rand -hex 32'
     )
   }
 
+  // Trim any whitespace that might have been added
+  const trimmedKey = keyHex.trim()
+
   // Validate hex format
-  if (!/^[0-9a-fA-F]{64}$/.test(keyHex)) {
+  if (!/^[0-9a-fA-F]{64}$/.test(trimmedKey)) {
+    console.error('[Encryption] ENCRYPTION_KEY invalid format', {
+      length: trimmedKey.length,
+      expectedLength: 64,
+      startsWithQuote: trimmedKey.startsWith('"') || trimmedKey.startsWith("'"),
+      endsWithQuote: trimmedKey.endsWith('"') || trimmedKey.endsWith("'"),
+    })
     throw new EncryptionError(
       'ENCRYPTION_KEY must be exactly 64 hexadecimal characters (32 bytes)'
     )
   }
 
-  return Buffer.from(keyHex, 'hex')
+  return Buffer.from(trimmedKey, 'hex')
 }
 
 /**
