@@ -96,7 +96,7 @@ export function useAnalytics(options: UseAnalyticsOptions = {}): UseAnalyticsRet
           .select("id, name, is_active, last_run, run_count"),
 
         // Controllers for uptime calculation
-        supabase.from("controllers").select("id, status, room_id"),
+        supabase.from("controllers").select("id, is_online, room_id"),
 
         // Sensor readings for trends and compliance
         supabase
