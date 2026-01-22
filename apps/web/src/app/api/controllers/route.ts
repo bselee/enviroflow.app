@@ -98,6 +98,94 @@ function buildAdapterCredentials(
 const SUPPORTED_BRANDS = getSupportedBrands()
 
 /**
+ * Convert simplified capabilities (from discovery) to proper ControllerCapabilities format.
+ *
+ * Discovery returns simplified capabilities like: { sensors: ["temperature", "humidity"], devices: ["fan"] }
+ * Database expects full objects like: { sensors: [{port: 0, type: "temperature", unit: "F"}], ... }
+ *
+ * @param simplified - Simplified capabilities from discovered device
+ * @param brand - Controller brand for defaults
+ * @returns Properly structured ControllerCapabilities
+ */
+function buildCapabilitiesFromDiscovered(
+  simplified: { sensors?: string[]; devices?: string[]; supportsDimming?: boolean } | undefined,
+  brand: ControllerBrand
+): ControllerCapabilities {
+  // Valid sensor types from SensorType union
+  type ValidSensorType = 'temperature' | 'humidity' | 'vpd' | 'co2' | 'light' | 'ph' | 'ec' | 'soil_moisture' | 'pressure'
+  const validSensorTypes = new Set<string>(['temperature', 'humidity', 'vpd', 'co2', 'light', 'ph', 'ec', 'soil_moisture', 'pressure'])
+
+  // Default sensor unit mappings
+  const sensorUnits: Record<string, string> = {
+    temperature: '°F',
+    humidity: '%',
+    vpd: 'kPa',
+    co2: 'ppm',
+    pressure: 'hPa',
+    light: 'lux',
+    ph: 'pH',
+    ec: 'μS/cm',
+    soil_moisture: '%',
+  }
+
+  // Valid device types from DeviceType union
+  type ValidDeviceType = 'fan' | 'light' | 'heater' | 'cooler' | 'humidifier' | 'dehumidifier' | 'outlet' | 'pump' | 'valve'
+  const validDeviceTypes = new Set<string>(['fan', 'light', 'heater', 'cooler', 'humidifier', 'dehumidifier', 'outlet', 'pump', 'valve'])
+
+  // Default device info
+  const deviceDefaults: Record<string, { supportsDimming: boolean; minLevel: number; maxLevel: number }> = {
+    fan: { supportsDimming: true, minLevel: 0, maxLevel: 10 },
+    light: { supportsDimming: true, minLevel: 0, maxLevel: 10 },
+    heater: { supportsDimming: false, minLevel: 0, maxLevel: 1 },
+    cooler: { supportsDimming: true, minLevel: 0, maxLevel: 10 },
+    humidifier: { supportsDimming: false, minLevel: 0, maxLevel: 1 },
+    dehumidifier: { supportsDimming: false, minLevel: 0, maxLevel: 1 },
+    outlet: { supportsDimming: false, minLevel: 0, maxLevel: 1 },
+    pump: { supportsDimming: false, minLevel: 0, maxLevel: 1 },
+    valve: { supportsDimming: false, minLevel: 0, maxLevel: 1 },
+  }
+
+  // Build sensors array from simplified types (filter to valid types only)
+  const sensors = (simplified?.sensors || [])
+    .filter(sensorType => validSensorTypes.has(sensorType))
+    .map((sensorType, index) => ({
+      port: index,
+      type: sensorType as ValidSensorType,
+      unit: sensorUnits[sensorType] || '',
+      name: sensorType.charAt(0).toUpperCase() + sensorType.slice(1).replace('_', ' '),
+    }))
+
+  // Build devices array from simplified types (filter to valid types only)
+  const devices = (simplified?.devices || [])
+    .filter(deviceType => validDeviceTypes.has(deviceType))
+    .map((deviceType, index) => {
+      const defaults = deviceDefaults[deviceType] || { supportsDimming: false, minLevel: 0, maxLevel: 1 }
+      return {
+        port: index + 1,
+        type: deviceType as ValidDeviceType,
+        name: deviceType.charAt(0).toUpperCase() + deviceType.slice(1).replace('_', ' '),
+        supportsDimming: defaults.supportsDimming,
+        minLevel: defaults.minLevel,
+        maxLevel: defaults.maxLevel,
+      }
+    })
+
+  // Check if any device supports dimming
+  const supportsDimming = simplified?.supportsDimming || devices.some(d => d.supportsDimming)
+
+  // Brand-specific defaults
+  const maxPorts = brand === 'ac_infinity' ? 4 : brand === 'inkbird' ? 2 : 4
+
+  return {
+    sensors,
+    devices,
+    supportsDimming,
+    supportsScheduling: true,
+    maxPorts,
+  }
+}
+
+/**
  * GET /api/controllers
  * List all controllers for the authenticated user
  *
@@ -293,20 +381,12 @@ export async function POST(request: NextRequest) {
         model = discoveredDevice.model || undefined
         firmwareVersion = discoveredDevice.firmwareVersion || undefined
 
-        // Use capabilities from discovered device if available, otherwise fall back to brand defaults
-        // Note: Discovered device has simplified capabilities (string arrays)
-        // We store them as-is since the database capabilities column accepts JSON
-        if (discoveredDevice.capabilities) {
-          capabilities = {
-            sensors: discoveredDevice.capabilities.sensors || [],
-            devices: discoveredDevice.capabilities.devices || [],
-            supportsDimming: discoveredDevice.capabilities.supportsDimming || false,
-            supportsScheduling: true,
-            maxPorts: 4
-          }
-        } else {
-          capabilities = brandInfo.capabilities || {}
-        }
+        // Convert simplified capabilities from discovery to proper ControllerCapabilities format
+        // Discovery returns string arrays like ["temperature", "humidity"] but database needs full objects
+        capabilities = buildCapabilitiesFromDiscovered(
+          discoveredDevice.capabilities,
+          brand as ControllerBrand
+        )
       } else {
         // No discovered device - perform connection test via adapter
         try {
