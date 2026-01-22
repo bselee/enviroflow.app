@@ -463,7 +463,9 @@ export async function POST(request: NextRequest) {
           return NextResponse.json(
             {
               error: 'Server configuration error',
-              message: 'Credential encryption is not properly configured. Contact administrator.',
+              errorType: 'configuration',
+              message: 'Credential encryption is not properly configured.',
+              guidance: 'This is a server configuration issue. Please contact support or check the ENCRYPTION_KEY environment variable.',
             },
             { status: 500 }
           )
@@ -505,16 +507,26 @@ export async function POST(request: NextRequest) {
     
     if (error) {
       console.error('Database insert error:', error)
-      
+
       if (error.code === '23505') { // Unique violation
         return NextResponse.json(
-          { error: 'A controller with this ID already exists' },
+          {
+            error: 'Controller already exists',
+            errorType: 'validation',
+            message: 'A controller with this ID is already registered to your account.',
+            guidance: 'This device may have already been added. Check your controllers list.',
+          },
           { status: 409 }
         )
       }
-      
+
       return NextResponse.json(
-        { error: 'Failed to save controller', details: error.message },
+        {
+          error: 'Failed to save controller',
+          errorType: 'server',
+          message: 'Could not save the controller to the database.',
+          guidance: 'Please try again. If this persists, contact support.',
+        },
         { status: 500 }
       )
     }

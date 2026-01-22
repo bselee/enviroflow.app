@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Cpu, Wifi, WifiOff, MoreVertical, Trash2, Loader2 } from "lucide-react";
+import { Plus, Cpu, Wifi, WifiOff, MoreVertical, Trash2, Loader2, AlertTriangle } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,8 +25,9 @@ import { cn } from "@/lib/utils";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useControllers } from "@/hooks/use-controllers";
 import { AddControllerDialog } from "@/components/controllers/AddControllerDialog";
+import { ErrorGuidance } from "@/components/ui/error-guidance";
 import { toast } from "@/hooks/use-toast";
-import type { ControllerWithRoom } from "@/types";
+import type { ControllerWithRoom, ControllerBrand } from "@/types";
 
 function formatRelativeTime(timestamp: string | null): string {
   if (!timestamp) return "Never";
@@ -51,8 +52,19 @@ function ControllerCard({
   controller: ControllerWithRoom;
   onDelete: (id: string) => void;
 }) {
+  // Check if controller has been offline for a while
+  const lastSeenDate = controller.last_seen ? new Date(controller.last_seen) : null;
+  const offlineForLong = lastSeenDate
+    ? (Date.now() - lastSeenDate.getTime()) > 24 * 60 * 60 * 1000 // > 24 hours
+    : false;
+
   return (
-    <div className="bg-card rounded-xl border border-border p-5 hover:shadow-md transition-shadow">
+    <div className={cn(
+      "bg-card rounded-xl border p-5 hover:shadow-md transition-shadow",
+      !controller.is_online && controller.last_error
+        ? "border-destructive/30"
+        : "border-border"
+    )}>
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-4">
           <div
@@ -70,7 +82,7 @@ function ControllerCard({
           <div>
             <h3 className="font-semibold text-foreground">{controller.name}</h3>
             <p className="text-sm text-muted-foreground capitalize">{controller.brand.replace("_", " ")}</p>
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
               <Badge
                 variant="secondary"
                 className={cn(
@@ -110,6 +122,29 @@ function ControllerCard({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {/* Offline warning with troubleshooting hint */}
+      {!controller.is_online && (controller.last_error || offlineForLong) && (
+        <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-900">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+            <div className="text-xs text-amber-700 dark:text-amber-300">
+              {controller.last_error ? (
+                <p>{controller.last_error}</p>
+              ) : offlineForLong ? (
+                <p>This controller has been offline for over 24 hours.</p>
+              ) : null}
+              <p className="mt-1 text-amber-600 dark:text-amber-400">
+                {controller.brand === "ac_infinity"
+                  ? "Check that the controller is powered on and connected to 2.4GHz WiFi."
+                  : controller.brand === "inkbird"
+                    ? "Verify the device is powered on and connected to WiFi."
+                    : "Check the device power and network connection."}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground">
         <div className="flex justify-between">
@@ -179,11 +214,13 @@ export default function ControllersPage() {
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
           ) : error ? (
-            <div className="text-center py-16">
-              <p className="text-destructive mb-4">{error}</p>
-              <Button variant="outline" onClick={refresh}>
-                Try Again
-              </Button>
+            <div className="max-w-md mx-auto py-16">
+              <ErrorGuidance
+                error={error}
+                context="general"
+                onRetry={refresh}
+                defaultExpanded={true}
+              />
             </div>
           ) : controllers.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">

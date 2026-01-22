@@ -11,6 +11,7 @@ import {
   Bot,
   Cpu,
   Clock,
+  AlertTriangle,
 } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
@@ -411,6 +412,21 @@ export function RoomCard({ room, isLoading }: RoomCardProps) {
             {controllers.length} controller{controllers.length !== 1 ? "s" : ""}
           </span>
         </div>
+
+        {/* Offline Warning with Quick Tips */}
+        {!aggregatedData.isOnline && controllers.length > 0 && (
+          <div className="mb-3 p-2.5 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200/50 dark:border-amber-900/50">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+              <div className="text-xs text-amber-700 dark:text-amber-300">
+                <p className="font-medium">All controllers offline</p>
+                <p className="mt-0.5 text-amber-600 dark:text-amber-400">
+                  Check power and WiFi connections
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Sensor Readings */}
         {sensorsLoading ? (

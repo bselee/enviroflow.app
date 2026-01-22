@@ -59,6 +59,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { NetworkDiscovery, type DeviceSelectionResult } from "@/components/controllers/NetworkDiscovery";
 import { supportsDiscovery } from "@/lib/network-discovery";
+import { ErrorGuidance } from "@/components/ui/error-guidance";
 import type { Brand, ControllerBrand, Controller, DiscoveredDevice } from "@/types";
 
 // Form validation schemas
@@ -899,31 +900,19 @@ export function AddControllerDialog({
             )}
 
             {connectionStatus === "error" && (
-              <div className="text-center space-y-4">
-                <XCircle className="w-12 h-12 mx-auto text-destructive" />
-                <div>
-                  <p className="font-medium text-destructive">Connection Failed</p>
-                  <p className="text-sm text-muted-foreground">{connectionError}</p>
-                </div>
-
-                <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950 rounded-lg text-left">
-                  <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                  <div className="text-sm">
-                    <p className="font-medium text-amber-800 dark:text-amber-200">
-                      Troubleshooting Tips:
-                    </p>
-                    <ul className="text-amber-700 dark:text-amber-300 mt-1 space-y-1">
-                      <li>Check your email and password</li>
-                      <li>Ensure your controller is powered on</li>
-                      <li>Verify your controller is connected to WiFi</li>
-                    </ul>
-                  </div>
-                </div>
+              <div className="space-y-4">
+                <ErrorGuidance
+                  error={connectionError || "Connection failed"}
+                  brand={selectedBrand?.id}
+                  context="connection"
+                  onRetry={handleRetry}
+                  defaultExpanded={true}
+                />
 
                 <DialogFooter className="gap-2">
-                  <Button variant="outline" onClick={() => setStep(2)}>
+                  <Button variant="outline" onClick={() => setStep(addMode === "discover" ? 1 : 2)}>
                     <ArrowLeft className="w-4 h-4 mr-2" />
-                    Edit Credentials
+                    {addMode === "discover" ? "Back to Discovery" : "Edit Credentials"}
                   </Button>
                   <Button onClick={handleRetry}>
                     <Loader2 className="w-4 h-4 mr-2" />
