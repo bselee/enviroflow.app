@@ -135,7 +135,7 @@ export async function GET(request: NextRequest) {
         controller_id,
         name,
         capabilities,
-        is_online,
+        status,
         last_seen,
         last_error,
         firmware_version,
@@ -154,10 +154,16 @@ export async function GET(request: NextRequest) {
         { status: 500 }
       )
     }
-    
+
+    // Map database 'status' field to frontend 'is_online' boolean
+    const controllers = (data || []).map(controller => ({
+      ...controller,
+      is_online: controller.status === 'online',
+    }))
+
     return NextResponse.json({
-      controllers: data || [],
-      count: data?.length || 0
+      controllers,
+      count: controllers.length
     })
     
   } catch (error) {
@@ -445,7 +451,7 @@ export async function POST(request: NextRequest) {
         capabilities,
         model,
         firmware_version: firmwareVersion,
-        is_online: brand !== 'csv_upload', // CSV is "offline" until data uploaded
+        status: brand !== 'csv_upload' ? 'online' : 'offline',
         last_seen: new Date().toISOString(),
         room_id: room_id || null
       })

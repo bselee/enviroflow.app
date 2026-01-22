@@ -194,7 +194,7 @@ export async function GET(request: NextRequest) {
     const { data: controllers, error: fetchError } = await supabase
       .from('controllers')
       .select('*')
-      .or(`is_online.eq.true,last_seen.gt.${cutoffTime},last_error.is.null`)
+      .or(`status.eq.online,last_seen.gt.${cutoffTime},last_error.is.null`)
 
     if (fetchError) {
       log('error', 'Failed to fetch controllers', { error: fetchError.message })
@@ -331,7 +331,7 @@ async function pollController(
       await supabase
         .from('controllers')
         .update({
-          is_online: false,
+          status: 'offline',
           last_error: 'Credentials cannot be decrypted',
           updated_at: new Date().toISOString()
         })
@@ -379,7 +379,6 @@ async function pollController(
     await supabase
       .from('controllers')
       .update({
-        is_online: false,
         status: 'offline',
         last_error: connectionResult.error || 'Connection failed',
         updated_at: new Date().toISOString()
@@ -443,7 +442,6 @@ async function pollController(
     await supabase
       .from('controllers')
       .update({
-        is_online: true,
         status: 'online',
         last_seen: now,
         last_error: null,

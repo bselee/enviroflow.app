@@ -75,7 +75,7 @@ export function useRooms(): UseRoomsReturn {
             brand,
             controller_id,
             name,
-            is_online,
+            status,
             last_seen,
             room_id,
             model,
@@ -88,7 +88,16 @@ export function useRooms(): UseRoomsReturn {
         throw new Error(fetchError.message);
       }
 
-      setRooms(roomsData || []);
+      // Map database 'status' to frontend 'is_online' for controllers
+      const roomsWithMappedControllers = (roomsData || []).map(room => ({
+        ...room,
+        controllers: (room.controllers || []).map((c: { status?: string }) => ({
+          ...c,
+          is_online: c.status === 'online',
+        })),
+      }));
+
+      setRooms(roomsWithMappedControllers);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to fetch rooms";
       setError(errorMessage);

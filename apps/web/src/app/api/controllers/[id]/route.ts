@@ -506,7 +506,7 @@ export async function PUT(
             updates.model = connectionResult.metadata.model
             updates.firmware_version = connectionResult.metadata.firmwareVersion
           }
-          updates.is_online = true
+          updates.status = 'online'
           updates.last_seen = new Date().toISOString()
           updates.last_error = null
 
@@ -546,7 +546,7 @@ export async function PUT(
         controller_id,
         name,
         capabilities,
-        is_online,
+        status,
         last_seen,
         last_error,
         firmware_version,
@@ -566,6 +566,12 @@ export async function PUT(
       )
     }
 
+    // Map database 'status' to frontend 'is_online'
+    const responseController = {
+      ...updatedController,
+      is_online: updatedController.status === 'online',
+    }
+
     // Log activity
     await client.from('activity_logs').insert({
       user_id: userId,
@@ -583,7 +589,7 @@ export async function PUT(
 
     return NextResponse.json({
       success: true,
-      controller: updatedController,
+      controller: responseController,
       message: 'Controller updated successfully',
       credentials_masked: credentials ? maskCredentials(credentials) : undefined,
     })
