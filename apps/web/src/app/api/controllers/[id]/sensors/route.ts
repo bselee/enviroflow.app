@@ -6,10 +6,11 @@
  * Flow:
  * 1. Verify user owns the controller
  * 2. Get adapter based on brand
- * 3. Call adapter.readSensors()
- * 4. Validate readings against acceptable ranges
- * 5. Store in sensor_readings table
- * 6. Return readings
+ * 3. Call adapter.connect() with credentials
+ * 4. Call adapter.readSensors()
+ * 5. Validate readings against acceptable ranges
+ * 6. Store in sensor_readings table
+ * 7. Return readings
  *
  * Validation ranges (per MVP spec):
  * - Temperature: 32-120°F (0-49°C)
@@ -28,19 +29,21 @@ import {
   EncryptionError,
 } from '@/lib/server-encryption'
 
+// Import REAL adapter factory from automation-engine workspace package
+import {
+  getAdapter,
+  type ControllerBrand,
+  type ACInfinityCredentials,
+  type InkbirdCredentials,
+  type CSVUploadCredentials,
+  type SensorReading as AdapterSensorReading,
+} from '@enviroflow/automation-engine/adapters'
+
 // ============================================
-// Inline Adapter Types (avoiding cross-package imports)
+// Local Types (for API response formatting)
 // ============================================
 
-type ControllerBrand = 'ac_infinity' | 'inkbird' | 'govee' | 'csv_upload' | 'mqtt' | 'custom'
 type SensorType = 'temperature' | 'humidity' | 'vpd' | 'co2' | 'light' | 'ph' | 'ec' | 'soil_moisture' | 'pressure'
-
-interface ControllerCredentials {
-  email?: string
-  password?: string
-  apiKey?: string
-  [key: string]: unknown
-}
 
 interface SensorReading {
   type: SensorType
@@ -51,46 +54,36 @@ interface SensorReading {
   isStale?: boolean
 }
 
-interface ConnectionResult {
-  success: boolean
-  error?: string
-  controllerId?: string
-}
-
-interface ControllerAdapter {
-  connect(credentials: ControllerCredentials): Promise<ConnectionResult>
-  disconnect(controllerId: string): Promise<void>
-  readSensors(controllerId: string): Promise<SensorReading[]>
-}
-
 /**
- * Simple adapter factory for sensor reading.
- * Returns mock data for demo purposes - real implementations are in automation-engine.
+ * Build credentials object with proper type discriminator for adapter factory.
+ * The adapter factory uses a discriminated union based on the 'type' field.
  */
-function getAdapter(brand: ControllerBrand): ControllerAdapter {
-  return {
-    async connect(credentials: ControllerCredentials): Promise<ConnectionResult> {
-      if (!credentials.email && !credentials.apiKey) {
-        return { success: false, error: 'Credentials required' }
-      }
+function buildAdapterCredentials(
+  brand: ControllerBrand,
+  credentials: { email?: string; password?: string; type?: string }
+): ACInfinityCredentials | InkbirdCredentials | CSVUploadCredentials {
+  switch (brand) {
+    case 'ac_infinity':
       return {
-        success: true,
-        controllerId: `${brand}_${Date.now()}`
-      }
-    },
-    async disconnect() {
-      // No-op
-    },
-    async readSensors(controllerId: string): Promise<SensorReading[]> {
-      // Return simulated sensor readings for demo
-      // In production, this would make actual API calls to the controller
-      const now = new Date().toISOString()
-      return [
-        { type: 'temperature', value: 72 + Math.random() * 8, unit: '°F', timestamp: now },
-        { type: 'humidity', value: 55 + Math.random() * 15, unit: '%', timestamp: now },
-        { type: 'vpd', value: 0.8 + Math.random() * 0.6, unit: 'kPa', timestamp: now },
-      ]
-    }
+        type: 'ac_infinity',
+        email: credentials.email || '',
+        password: credentials.password || '',
+      } satisfies ACInfinityCredentials
+
+    case 'inkbird':
+      return {
+        type: 'inkbird',
+        email: credentials.email || '',
+        password: credentials.password || '',
+      } satisfies InkbirdCredentials
+
+    case 'csv_upload':
+      return {
+        type: 'csv_upload',
+      } satisfies CSVUploadCredentials
+
+    default:
+      throw new Error(`Cannot build credentials for unsupported brand: ${brand}`)
   }
 }
 
@@ -197,16 +190,31 @@ async function getUserId(request: NextRequest, client: SupabaseClient): Promise<
  * Handles both AES-256-GCM and legacy formats.
  *
  * @param encrypted - Encrypted string from database
- * @returns Decrypted credential object
+ * @returns Object with decrypted credentials and success flag
  */
-function decryptCredentials(encrypted: string | Record<string, unknown>): Record<string, unknown> {
+function decryptCredentials(encrypted: string | Record<string, unknown>): {
+  success: boolean
+  credentials: Record<string, unknown>
+  error?: string
+} {
   try {
-    return decryptCredentialsAES(encrypted)
+    const credentials = decryptCredentialsAES(encrypted)
+    return { success: true, credentials }
   } catch (error) {
     if (error instanceof EncryptionError) {
-      console.error('[Decryption] Failed to decrypt credentials')
+      console.error('[Decryption] Failed to decrypt credentials:', error.message)
+      return {
+        success: false,
+        credentials: {},
+        error: 'Failed to decrypt stored credentials. The encryption key may have changed.',
+      }
     }
-    return {}
+    console.error('[Decryption] Unexpected error:', error)
+    return {
+      success: false,
+      credentials: {},
+      error: 'Unexpected error decrypting credentials.',
+    }
   }
 }
 
@@ -344,14 +352,58 @@ export async function GET(
     try {
       const adapter = getAdapter(brand)
 
-      // Decrypt and prepare credentials
-      const storedCredentials = decryptCredentials(controller.credentials)
+      // Decrypt stored credentials
+      const decryptResult = decryptCredentials(controller.credentials)
 
-      // Build adapter credentials
-      const adapterCredentials: ControllerCredentials = {
+      if (!decryptResult.success) {
+        // Log detailed error server-side only - don't expose to client
+        console.error('[Sensors GET] Credential decryption failed:', decryptResult.error)
+        return NextResponse.json(
+          {
+            success: false,
+            controller_id: id,
+            readings: [],
+            timestamp: new Date().toISOString(),
+            is_online: false,
+            error: 'Failed to access controller credentials. Please re-add the controller.',
+          },
+          { status: 500 }
+        )
+      }
+
+      const storedCredentials = decryptResult.credentials
+
+      // Validate we have required credentials for cloud-connected brands
+      // Use proper type checking instead of unsafe casting
+      if (brand === 'ac_infinity' || brand === 'inkbird') {
+        const email = storedCredentials.email
+        const password = storedCredentials.password
+
+        if (typeof email !== 'string' || !email ||
+            typeof password !== 'string' || !password) {
+          const brandName = brand === 'ac_infinity' ? 'AC Infinity' : 'Inkbird'
+          console.error(`[Sensors GET] Missing/invalid credentials for ${brandName} controller`)
+          return NextResponse.json(
+            {
+              success: false,
+              controller_id: id,
+              readings: [],
+              timestamp: new Date().toISOString(),
+              is_online: false,
+              error: `${brandName} credentials are incomplete or invalid`,
+            },
+            { status: 400 }
+          )
+        }
+      }
+
+      // Build properly typed credentials for the adapter
+      // Type safety ensured by validation above
+      const adapterCredentials = buildAdapterCredentials(brand, {
+        email: storedCredentials.email as string,
+        password: storedCredentials.password as string,
         type: brand,
-        ...storedCredentials,
-      } as ControllerCredentials
+      })
 
       // Connect to get fresh data
       const connectionResult = await adapter.connect(adapterCredentials)
@@ -375,7 +427,7 @@ export async function GET(
             type: r.sensor_type as SensorType,
             value: r.value,
             unit: r.unit,
-            timestamp: new Date(r.timestamp),
+            timestamp: new Date(r.timestamp).toISOString(),
             isStale: true,
             isValid: true,
           }))
@@ -422,18 +474,81 @@ export async function GET(
             timestamp: new Date().toISOString(),
             is_online: false,
             error: 'Controller offline and no cached data available',
-            details: connectionResult.error,
           },
           { status: 503 }
         )
       }
 
-      // Read sensors
+      // Read sensors with auto-reconnect on token expiration
       const controllerId = connectionResult.controllerId || id
-      readings = await adapter.readSensors(controllerId)
 
-      // Disconnect after reading
-      await adapter.disconnect(controllerId)
+      try {
+        const adapterReadings = await adapter.readSensors(controllerId)
+        // Convert adapter readings to local SensorReading type
+        readings = adapterReadings.map((r) => ({
+          type: r.type as SensorType,
+          value: r.value,
+          unit: r.unit,
+          timestamp: r.timestamp instanceof Date ? r.timestamp.toISOString() : String(r.timestamp),
+          port: r.port,
+          isStale: r.isStale,
+        }))
+      } catch (readError) {
+        const errorMsg = readError instanceof Error ? readError.message : String(readError)
+
+        // Handle token expiration - attempt ONE reconnect only
+        if (errorMsg.includes('token expired') || errorMsg.includes('not connected')) {
+          console.log('[Sensors GET] Token expired, attempting reconnect...')
+          warnings.push('Token expired - reconnecting to controller')
+
+          try {
+            // Disconnect previous connection first to prevent resource leaks
+            try {
+              await adapter.disconnect(controllerId)
+            } catch (disconnectErr) {
+              console.warn('[Sensors GET] Error during pre-reconnect disconnect:', disconnectErr)
+            }
+
+            // Reconnect with fresh token
+            const reconnectResult = await adapter.connect(adapterCredentials)
+
+            if (!reconnectResult.success) {
+              throw new Error(`Reconnect failed: ${reconnectResult.error}`)
+            }
+
+            // Retry sensor read with new token
+            const newControllerId = reconnectResult.controllerId || id
+            const adapterReadings = await adapter.readSensors(newControllerId)
+            readings = adapterReadings.map((r) => ({
+              type: r.type as SensorType,
+              value: r.value,
+              unit: r.unit,
+              timestamp: r.timestamp instanceof Date ? r.timestamp.toISOString() : String(r.timestamp),
+              port: r.port,
+              isStale: r.isStale,
+            }))
+
+            // Update controllerId for final disconnect
+            // Note: newControllerId is used for the cleanup below
+          } catch (retryError) {
+            // Retry failed - log and re-throw
+            console.error('[Sensors GET] Reconnect retry failed:', retryError)
+            throw retryError
+          }
+        } else {
+          // Re-throw non-token errors
+          throw readError
+        }
+      }
+
+      // Disconnect after reading - wrap in try-catch for robustness
+      try {
+        if (controllerId) {
+          await adapter.disconnect(controllerId)
+        }
+      } catch (disconnectErr) {
+        console.warn('[Sensors GET] Error during disconnect:', disconnectErr)
+      }
 
       // Update controller status
       await client
@@ -470,8 +585,7 @@ export async function GET(
           readings: [],
           timestamp: new Date().toISOString(),
           is_online: false,
-          error: 'Failed to read sensors',
-          details: errorMessage,
+          error: 'Failed to read sensors. The controller may be offline or unreachable.',
         },
         { status: 503 }
       )
@@ -557,11 +671,11 @@ export async function GET(
       warnings: warnings.length > 0 ? warnings : undefined,
     })
   } catch (error) {
-    console.error('[Sensors GET] Error:', error)
+    // Log detailed error server-side only - don't expose to client
+    console.error('[Sensors GET] Unexpected error:', error)
     return NextResponse.json(
       {
         error: 'Internal server error',
-        message: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     )
