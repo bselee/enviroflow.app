@@ -214,6 +214,15 @@ export async function POST(request: NextRequest) {
     // Parse body
     const body = await request.json()
     const { brand, name, credentials, room_id, discoveredDevice } = body
+
+    console.log('[Controllers POST] Request received:', {
+      brand,
+      name,
+      hasCredentials: !!credentials,
+      room_id,
+      hasDiscoveredDevice: !!discoveredDevice,
+      discoveredDeviceId: discoveredDevice?.deviceId
+    })
     
     // Validate brand
     const brandInfo = SUPPORTED_BRANDS.find(b => b.id === brand)
@@ -269,7 +278,12 @@ export async function POST(request: NextRequest) {
 
       // If discoveredDevice is provided, skip connection test - device was already validated during discovery
       if (discoveredDevice && discoveredDevice.deviceId) {
-        console.log(`[Controllers POST] Using pre-validated discovered device: ${discoveredDevice.name}`)
+        console.log(`[Controllers POST] Using pre-validated discovered device:`, {
+          name: discoveredDevice.name,
+          deviceId: discoveredDevice.deviceId,
+          brand: discoveredDevice.brand,
+          hasCapabilities: !!discoveredDevice.capabilities
+        })
 
         // Use device metadata from discovery
         controllerId = discoveredDevice.deviceId
@@ -277,11 +291,15 @@ export async function POST(request: NextRequest) {
         firmwareVersion = discoveredDevice.firmwareVersion || undefined
 
         // Use capabilities from discovered device if available, otherwise fall back to brand defaults
+        // Note: Discovered device has simplified capabilities (string arrays)
+        // We store them as-is since the database capabilities column accepts JSON
         if (discoveredDevice.capabilities) {
           capabilities = {
-            sensors: discoveredDevice.capabilities.sensors as ControllerCapabilities['sensors'],
-            devices: discoveredDevice.capabilities.devices as ControllerCapabilities['devices'],
-            supportsDimming: discoveredDevice.capabilities.supportsDimming,
+            sensors: discoveredDevice.capabilities.sensors || [],
+            devices: discoveredDevice.capabilities.devices || [],
+            supportsDimming: discoveredDevice.capabilities.supportsDimming || false,
+            supportsScheduling: true,
+            maxPorts: 4
           }
         } else {
           capabilities = brandInfo.capabilities || {}
@@ -404,6 +422,18 @@ export async function POST(request: NextRequest) {
     }
 
     // Insert into database with encrypted credentials
+    console.log('[Controllers POST] Inserting controller:', {
+      user_id: userId,
+      brand,
+      controller_id: controllerId,
+      name: sanitizedName,
+      hasCredentials: !!encryptedCredentials,
+      capabilities: JSON.stringify(capabilities).slice(0, 200),
+      model,
+      firmware_version: firmwareVersion,
+      room_id: room_id || null
+    })
+
     const { data, error } = await supabase
       .from('controllers')
       .insert({
