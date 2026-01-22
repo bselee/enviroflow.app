@@ -339,11 +339,21 @@ export async function POST(request: NextRequest) {
               }
             })
 
+            // Classify error for better user guidance
+            const errorMsg = connectionResult.error || ''
+            const isCredentialError = errorMsg.toLowerCase().includes('password') ||
+              errorMsg.toLowerCase().includes('email') ||
+              errorMsg.toLowerCase().includes('authentication')
+
             return NextResponse.json(
               {
                 error: 'Connection failed',
-                message: connectionResult.error || 'Unable to connect to controller. Please verify your credentials.',
+                errorType: isCredentialError ? 'credentials' : 'connection',
+                message: connectionResult.error || 'Unable to connect to controller.',
                 brand: brand,
+                guidance: isCredentialError
+                  ? 'Double-check your email and password. Try logging into the official app to verify your credentials.'
+                  : 'Check that your controller is powered on and connected to WiFi.',
               },
               { status: 400 }
             )
@@ -367,18 +377,45 @@ export async function POST(request: NextRequest) {
             ? adapterError.message
             : 'An unexpected error occurred while connecting to the controller'
 
-          // Determine appropriate status code based on error type
-          const isNetworkError = errorMessage.includes('fetch') ||
-            errorMessage.includes('network') ||
-            errorMessage.includes('ECONNREFUSED')
+          // Classify error for better user guidance
+          const lowerMsg = errorMessage.toLowerCase()
+          const isNetworkError = lowerMsg.includes('fetch') ||
+            lowerMsg.includes('network') ||
+            lowerMsg.includes('econnrefused') ||
+            lowerMsg.includes('timeout')
+          const isCredentialError = lowerMsg.includes('password') ||
+            lowerMsg.includes('email') ||
+            lowerMsg.includes('authentication') ||
+            lowerMsg.includes('invalid')
+
+          // Provide user-friendly error with guidance
+          let userMessage = errorMessage
+          let guidance = ''
+          let errorType = 'unknown'
+
+          if (isCredentialError) {
+            errorType = 'credentials'
+            userMessage = 'Invalid credentials. Please check your email and password.'
+            guidance = 'Try logging into the official app to verify your credentials work.'
+          } else if (isNetworkError) {
+            errorType = 'network'
+            userMessage = 'Could not connect to the controller service.'
+            guidance = 'Check your internet connection and try again. The controller service may be temporarily unavailable.'
+          } else {
+            errorType = 'server'
+            userMessage = 'An error occurred while connecting to the controller.'
+            guidance = 'Please try again. If the problem persists, the controller service may be experiencing issues.'
+          }
 
           return NextResponse.json(
             {
               error: isNetworkError ? 'Connection error' : 'Controller error',
-              message: errorMessage,
+              errorType,
+              message: userMessage,
               brand: brand,
+              guidance,
             },
-            { status: isNetworkError ? 503 : 500 }
+            { status: isNetworkError ? 503 : 400 }
           )
         }
       }
@@ -493,9 +530,17 @@ export async function POST(request: NextRequest) {
     }, { status: 201 })
     
   } catch (error) {
+    // Log detailed error server-side only
     console.error('Controllers POST error:', error)
+
+    // Return user-friendly error without exposing internals
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
+      {
+        error: 'Server error',
+        errorType: 'server',
+        message: 'An unexpected error occurred. Please try again.',
+        guidance: 'If this problem persists, please contact support.',
+      },
       { status: 500 }
     )
   }
