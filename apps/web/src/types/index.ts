@@ -169,6 +169,8 @@ export interface AddControllerInput {
     [key: string]: unknown;
   };
   room_id?: string | null;
+  /** Pre-discovered device info (skips connection test, uses device metadata) */
+  discoveredDevice?: DiscoveredDevice;
 }
 
 /**

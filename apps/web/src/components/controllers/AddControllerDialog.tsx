@@ -57,7 +57,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { NetworkDiscovery } from "@/components/controllers/NetworkDiscovery";
+import { NetworkDiscovery, type DeviceSelectionResult } from "@/components/controllers/NetworkDiscovery";
 import { supportsDiscovery } from "@/lib/network-discovery";
 import type { Brand, ControllerBrand, Controller, DiscoveredDevice } from "@/types";
 
@@ -168,7 +168,13 @@ export function AddControllerDialog({
 
   // Discovery state - for adding devices discovered through network scan
   const [discoveredDevice, setDiscoveredDevice] = useState<DiscoveredDevice | null>(null);
+  const [discoveryCredentials, setDiscoveryCredentials] = useState<{ email: string; password: string } | null>(null);
   const [addMode, setAddMode] = useState<"manual" | "discover">("manual");
+
+  // Multi-add state - queue of devices to add
+  const [pendingDevices, setPendingDevices] = useState<DeviceSelectionResult[]>([]);
+  const [addingMultiple, setAddingMultiple] = useState(false);
+  const [multiAddProgress, setMultiAddProgress] = useState({ current: 0, total: 0, results: [] as Array<{ name: string; success: boolean; error?: string }> });
 
   // Connection state
   const [isConnecting, setIsConnecting] = useState(false);
@@ -205,12 +211,16 @@ export function AddControllerDialog({
     setCredentials(null);
     setCsvFile(null);
     setDiscoveredDevice(null);
+    setDiscoveryCredentials(null);
     setAddMode("manual");
     setIsConnecting(false);
     setConnectionProgress(0);
     setConnectionStatus("idle");
     setConnectionError(null);
     setDiscoveredDevices([]);
+    setPendingDevices([]);
+    setAddingMultiple(false);
+    setMultiAddProgress({ current: 0, total: 0, results: [] });
     credentialsForm.reset();
     nameForm.reset();
   }, [credentialsForm, nameForm]);
@@ -242,20 +252,71 @@ export function AddControllerDialog({
 
   /**
    * Handle discovered device selection from NetworkDiscovery component
+   * Now receives credentials along with the device
    */
-  const handleDiscoveredDeviceSelect = useCallback((device: DiscoveredDevice) => {
+  const handleDiscoveredDeviceSelect = useCallback((result: DeviceSelectionResult) => {
+    const { device, credentials: creds } = result;
     // Find the brand info for this device
     const brand = brands.find(b => b.id === device.brand);
     if (!brand) return;
 
     setSelectedBrand(brand);
     setDiscoveredDevice(device);
+    setDiscoveryCredentials(creds);
     setAddMode("discover");
     // Pre-fill controller name from discovered device
     nameForm.setValue("name", device.name);
     // Skip credentials step and go directly to name/room step
     setStep(3);
   }, [brands, nameForm]);
+
+  /**
+   * Handle multiple device selection from NetworkDiscovery
+   * Adds all selected devices at once
+   */
+  const handleMultipleDeviceSelect = useCallback(async (results: DeviceSelectionResult[]) => {
+    if (results.length === 0) return;
+
+    setAddingMultiple(true);
+    setMultiAddProgress({ current: 0, total: results.length, results: [] });
+
+    const addResults: Array<{ name: string; success: boolean; error?: string }> = [];
+
+    for (let i = 0; i < results.length; i++) {
+      const { device, credentials: creds } = results[i];
+
+      setMultiAddProgress(prev => ({ ...prev, current: i + 1 }));
+
+      try {
+        const result = await onAdd({
+          brand: device.brand,
+          name: device.name,
+          credentials: creds,
+          room_id: null,
+          discoveredDevice: device,
+        });
+
+        addResults.push({
+          name: device.name,
+          success: result.success,
+          error: result.error,
+        });
+      } catch (err) {
+        addResults.push({
+          name: device.name,
+          success: false,
+          error: err instanceof Error ? err.message : "Unknown error",
+        });
+      }
+
+      setMultiAddProgress(prev => ({ ...prev, results: [...addResults] }));
+    }
+
+    // Show results briefly, then close
+    setTimeout(() => {
+      handleOpenChange(false);
+    }, 2000);
+  }, [onAdd, handleOpenChange]);
 
   /**
    * Handle credentials submit
@@ -306,11 +367,18 @@ export function AddControllerDialog({
           setConnectionProgress((prev) => Math.min(prev + 15, 85));
         }, 300);
 
+        // Determine which credentials to use:
+        // - For discovery flow: use discoveryCredentials (from NetworkDiscovery)
+        // - For manual flow: use credentials (from credentials form)
+        const effectiveCredentials = addMode === "discover" && discoveryCredentials
+          ? discoveryCredentials
+          : credentials;
+
         // Build the request - include discovered device info if available
         const addRequest: Parameters<typeof onAdd>[0] = {
           brand: selectedBrand.id,
           name: data.name,
-          credentials: credentials || undefined,
+          credentials: effectiveCredentials || undefined,
           room_id: data.roomId || null,
         };
 
@@ -358,7 +426,7 @@ export function AddControllerDialog({
         setIsConnecting(false);
       }
     },
-    [selectedBrand, credentials, addMode, discoveredDevice, onAdd, handleOpenChange]
+    [selectedBrand, credentials, discoveryCredentials, addMode, discoveredDevice, onAdd, handleOpenChange]
   );
 
   /**
@@ -376,6 +444,63 @@ export function AddControllerDialog({
    * Render step content
    */
   const renderStepContent = () => {
+    // Show multi-add progress if adding multiple devices
+    if (addingMultiple) {
+      const successCount = multiAddProgress.results.filter(r => r.success).length;
+      const failCount = multiAddProgress.results.filter(r => !r.success).length;
+
+      return (
+        <div className="space-y-6 py-4">
+          <div className="text-center space-y-4">
+            {multiAddProgress.current < multiAddProgress.total ? (
+              <>
+                <Loader2 className="w-12 h-12 mx-auto text-primary animate-spin" />
+                <div>
+                  <p className="font-medium">Adding devices...</p>
+                  <p className="text-sm text-muted-foreground">
+                    {multiAddProgress.current} of {multiAddProgress.total}
+                  </p>
+                </div>
+                <Progress value={(multiAddProgress.current / multiAddProgress.total) * 100} className="h-2" />
+              </>
+            ) : (
+              <>
+                <CheckCircle className="w-12 h-12 mx-auto text-success" />
+                <div>
+                  <p className="font-medium text-success">Done!</p>
+                  <p className="text-sm text-muted-foreground">
+                    Added {successCount} device{successCount !== 1 ? "s" : ""}
+                    {failCount > 0 && `, ${failCount} failed`}
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+
+          {multiAddProgress.results.length > 0 && (
+            <div className="bg-muted rounded-lg p-4 text-left max-h-[200px] overflow-y-auto">
+              <p className="text-sm font-medium mb-2">Results:</p>
+              <ul className="space-y-1">
+                {multiAddProgress.results.map((result, i) => (
+                  <li key={i} className="text-sm flex items-center gap-2">
+                    {result.success ? (
+                      <CheckCircle className="w-4 h-4 text-success shrink-0" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-destructive shrink-0" />
+                    )}
+                    <span className={result.success ? "" : "text-destructive"}>
+                      {result.name}
+                      {result.error && <span className="text-xs ml-1">({result.error})</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     switch (step) {
       case 1:
         return (
@@ -400,6 +525,7 @@ export function AddControllerDialog({
 
               <NetworkDiscovery
                 onSelectDevice={handleDiscoveredDeviceSelect}
+                onSelectMultiple={handleMultipleDeviceSelect}
                 authToken={authToken}
                 className="border-0 shadow-none p-0"
               />

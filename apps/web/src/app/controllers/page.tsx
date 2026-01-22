@@ -224,6 +224,8 @@ export default function ControllersPage() {
               name: data.name,
               credentials: data.credentials,
               room_id: data.room_id || undefined,
+              // Forward discovered device info - allows API to skip connection test
+              discoveredDevice: data.discoveredDevice,
             });
             if (result.success) {
               toast({

@@ -85,11 +85,24 @@ const DISCOVERABLE_BRANDS = [
 ];
 
 /**
+ * Selection result containing device and credentials used for discovery
+ */
+export interface DeviceSelectionResult {
+  device: DiscoveredDevice;
+  credentials: {
+    email: string;
+    password: string;
+  };
+}
+
+/**
  * Props for the NetworkDiscovery component
  */
 interface NetworkDiscoveryProps {
-  /** Callback when user selects a device to add */
-  onSelectDevice: (device: DiscoveredDevice) => void;
+  /** Callback when user selects a device to add - includes credentials used for discovery */
+  onSelectDevice: (result: DeviceSelectionResult) => void;
+  /** Callback when user selects multiple devices to add */
+  onSelectMultiple?: (results: DeviceSelectionResult[]) => void;
   /** Optional: Initial brand to pre-select */
   initialBrand?: ControllerBrand;
   /** Optional: Auth token for checking already-registered devices */
@@ -113,6 +126,7 @@ type DiscoveryState =
  */
 export function NetworkDiscovery({
   onSelectDevice,
+  onSelectMultiple,
   initialBrand,
   authToken,
   className,
@@ -136,6 +150,15 @@ export function NetworkDiscovery({
   const [progress, setProgress] = useState(0);
   const [showRegistered, setShowRegistered] = useState(false);
 
+  // Multi-select state
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<string>>(new Set());
+
+  // Store credentials used for successful discovery
+  const [discoveryCredentials, setDiscoveryCredentials] = useState<{
+    email: string;
+    password: string;
+  } | null>(null);
+
   // Get current brand info
   const selectedBrand = DISCOVERABLE_BRANDS.find(
     (b) => b.id === form.watch("brand")
@@ -149,6 +172,7 @@ export function NetworkDiscovery({
       setState("scanning");
       setError(null);
       setDevices([]);
+      setSelectedDeviceIds(new Set());
       setProgress(10);
 
       // Simulate progress animation
@@ -172,10 +196,18 @@ export function NetworkDiscovery({
           setState("error");
           setError(result.error || "Discovery failed");
           setProgress(0);
+          setDiscoveryCredentials(null);
           return;
         }
 
         setProgress(100);
+
+        // Store credentials used for successful discovery
+        // These will be passed along when devices are selected
+        setDiscoveryCredentials({
+          email: data.email,
+          password: data.password,
+        });
 
         if (result.devices.length === 0) {
           setState("no_devices");
@@ -190,6 +222,7 @@ export function NetworkDiscovery({
           err instanceof Error ? err.message : "An unexpected error occurred"
         );
         setProgress(0);
+        setDiscoveryCredentials(null);
       }
     },
     [authToken]
@@ -202,17 +235,73 @@ export function NetworkDiscovery({
     setState("idle");
     setError(null);
     setProgress(0);
+    setSelectedDeviceIds(new Set());
   }, []);
 
   /**
-   * Handle device selection
+   * Handle single device selection - pass device AND credentials
    */
   const handleSelectDevice = useCallback(
     (device: DiscoveredDevice) => {
-      onSelectDevice(device);
+      if (!discoveryCredentials) {
+        console.error("No discovery credentials available");
+        return;
+      }
+      onSelectDevice({
+        device,
+        credentials: discoveryCredentials,
+      });
     },
-    [onSelectDevice]
+    [onSelectDevice, discoveryCredentials]
   );
+
+  /**
+   * Toggle device selection for multi-select
+   */
+  const toggleDeviceSelection = useCallback((deviceId: string) => {
+    setSelectedDeviceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(deviceId)) {
+        next.delete(deviceId);
+      } else {
+        next.add(deviceId);
+      }
+      return next;
+    });
+  }, []);
+
+  /**
+   * Select all unregistered devices
+   */
+  const selectAllDevices = useCallback(() => {
+    const unregisteredIds = devices
+      .filter((d) => !d.isAlreadyRegistered)
+      .map((d) => d.deviceId);
+    setSelectedDeviceIds(new Set(unregisteredIds));
+  }, [devices]);
+
+  /**
+   * Handle adding selected devices (multi-select)
+   */
+  const handleAddSelected = useCallback(() => {
+    if (!discoveryCredentials || selectedDeviceIds.size === 0) return;
+
+    const selectedResults: DeviceSelectionResult[] = devices
+      .filter((d) => selectedDeviceIds.has(d.deviceId))
+      .map((device) => ({
+        device,
+        credentials: discoveryCredentials,
+      }));
+
+    if (onSelectMultiple) {
+      onSelectMultiple(selectedResults);
+    } else {
+      // Fallback: add one by one (first selected)
+      if (selectedResults.length > 0) {
+        onSelectDevice(selectedResults[0]);
+      }
+    }
+  }, [devices, selectedDeviceIds, discoveryCredentials, onSelectMultiple, onSelectDevice]);
 
   /**
    * Filter devices based on showRegistered toggle
@@ -321,6 +410,9 @@ export function NetworkDiscovery({
         );
 
       case "success":
+        const unregisteredCount = devices.filter((d) => !d.isAlreadyRegistered).length;
+        const hasMultipleUnregistered = unregisteredCount > 1;
+
         return (
           <div className="space-y-4">
             {/* Header with count and toggle */}
@@ -336,13 +428,24 @@ export function NetworkDiscovery({
                   </p>
                 )}
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowRegistered(!showRegistered)}
-              >
-                {showRegistered ? "Hide Registered" : "Show All"}
-              </Button>
+              <div className="flex gap-2">
+                {hasMultipleUnregistered && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={selectAllDevices}
+                  >
+                    Select All
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowRegistered(!showRegistered)}
+                >
+                  {showRegistered ? "Hide Registered" : "Show All"}
+                </Button>
+              </div>
             </div>
 
             {/* Device List */}
@@ -365,10 +468,23 @@ export function NetworkDiscovery({
                     key={device.deviceId}
                     device={device}
                     onSelect={handleSelectDevice}
+                    isSelected={selectedDeviceIds.has(device.deviceId)}
+                    onToggleSelect={hasMultipleUnregistered ? toggleDeviceSelection : undefined}
                   />
                 ))
               )}
             </div>
+
+            {/* Add Selected Button (for multi-select) */}
+            {selectedDeviceIds.size > 0 && (
+              <Button
+                onClick={handleAddSelected}
+                className="w-full"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add {selectedDeviceIds.size} Selected Device{selectedDeviceIds.size !== 1 ? "s" : ""}
+              </Button>
+            )}
 
             {/* Scan Again Button */}
             <Button
@@ -457,10 +573,13 @@ export function NetworkDiscovery({
 interface DeviceCardProps {
   device: DiscoveredDevice;
   onSelect: (device: DiscoveredDevice) => void;
+  isSelected?: boolean;
+  onToggleSelect?: (deviceId: string) => void;
 }
 
-function DeviceCard({ device, onSelect }: DeviceCardProps) {
+function DeviceCard({ device, onSelect, isSelected, onToggleSelect }: DeviceCardProps) {
   const BrandIcon = device.brand === "ac_infinity" ? Cpu : Thermometer;
+  const showCheckbox = onToggleSelect && !device.isAlreadyRegistered;
 
   return (
     <div
@@ -468,10 +587,28 @@ function DeviceCard({ device, onSelect }: DeviceCardProps) {
         "flex items-center justify-between p-3 rounded-lg border transition-colors",
         device.isAlreadyRegistered
           ? "bg-muted/50 border-muted"
-          : "bg-card border-border hover:border-primary"
+          : isSelected
+            ? "bg-primary/5 border-primary"
+            : "bg-card border-border hover:border-primary"
       )}
     >
       <div className="flex items-center gap-3">
+        {/* Checkbox for multi-select */}
+        {showCheckbox && (
+          <button
+            type="button"
+            onClick={() => onToggleSelect(device.deviceId)}
+            className={cn(
+              "w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors",
+              isSelected
+                ? "bg-primary border-primary text-primary-foreground"
+                : "border-muted-foreground/30 hover:border-primary"
+            )}
+          >
+            {isSelected && <CheckCircle className="w-3 h-3" />}
+          </button>
+        )}
+
         {/* Status Indicator */}
         <div
           className={cn(
@@ -527,8 +664,8 @@ function DeviceCard({ device, onSelect }: DeviceCardProps) {
         </div>
       </div>
 
-      {/* Add Button */}
-      {!device.isAlreadyRegistered && (
+      {/* Add Button (single select mode) */}
+      {!device.isAlreadyRegistered && !showCheckbox && (
         <Button
           size="sm"
           variant="outline"
@@ -537,6 +674,18 @@ function DeviceCard({ device, onSelect }: DeviceCardProps) {
         >
           <Plus className="w-4 h-4 mr-1" />
           Add
+        </Button>
+      )}
+
+      {/* Quick Add Button (multi-select mode - adds just this one) */}
+      {!device.isAlreadyRegistered && showCheckbox && (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => onSelect(device)}
+          className="shrink-0 text-xs"
+        >
+          Add Only
         </Button>
       )}
     </div>

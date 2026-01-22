@@ -182,8 +182,12 @@ export async function GET(request: NextRequest) {
  *   brand: 'ac_infinity' | 'inkbird' | 'csv_upload',
  *   name: string,
  *   credentials: { email, password } | {},
- *   room_id?: string
+ *   room_id?: string,
+ *   discoveredDevice?: DiscoveredDevice  // Pre-validated device from discovery
  * }
+ *
+ * When discoveredDevice is provided, the connection test is skipped and
+ * device metadata is used directly from the discovered device info.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -209,7 +213,7 @@ export async function POST(request: NextRequest) {
     
     // Parse body
     const body = await request.json()
-    const { brand, name, credentials, room_id } = body
+    const { brand, name, credentials, room_id, discoveredDevice } = body
     
     // Validate brand
     const brandInfo = SUPPORTED_BRANDS.find(b => b.id === brand)
@@ -263,66 +267,88 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      try {
-        // Get the appropriate adapter for this brand
-        const adapter = getAdapter(brand as ControllerBrand)
+      // If discoveredDevice is provided, skip connection test - device was already validated during discovery
+      if (discoveredDevice && discoveredDevice.deviceId) {
+        console.log(`[Controllers POST] Using pre-validated discovered device: ${discoveredDevice.name}`)
 
-        // Build properly typed credentials for the adapter
-        const adapterCredentials = buildAdapterCredentials(
-          brand as ControllerBrand,
-          credentials
-        )
+        // Use device metadata from discovery
+        controllerId = discoveredDevice.deviceId
+        model = discoveredDevice.model || undefined
+        firmwareVersion = discoveredDevice.firmwareVersion || undefined
 
-        // Test connection via the adapter - this validates credentials
-        // and retrieves controller metadata from the cloud API
-        connectionResult = await adapter.connect(adapterCredentials)
+        // Use capabilities from discovered device if available, otherwise fall back to brand defaults
+        if (discoveredDevice.capabilities) {
+          capabilities = {
+            sensors: discoveredDevice.capabilities.sensors as ControllerCapabilities['sensors'],
+            devices: discoveredDevice.capabilities.devices as ControllerCapabilities['devices'],
+            supportsDimming: discoveredDevice.capabilities.supportsDimming,
+          }
+        } else {
+          capabilities = brandInfo.capabilities || {}
+        }
+      } else {
+        // No discovered device - perform connection test via adapter
+        try {
+          // Get the appropriate adapter for this brand
+          const adapter = getAdapter(brand as ControllerBrand)
 
-        if (!connectionResult.success) {
-          // Connection failed - return appropriate error
-          // Common reasons: invalid credentials, no devices found, API unavailable
-          console.warn(`[Controllers POST] Connection failed for ${brand}:`, connectionResult.error)
+          // Build properly typed credentials for the adapter
+          const adapterCredentials = buildAdapterCredentials(
+            brand as ControllerBrand,
+            credentials
+          )
+
+          // Test connection via the adapter - this validates credentials
+          // and retrieves controller metadata from the cloud API
+          connectionResult = await adapter.connect(adapterCredentials)
+
+          if (!connectionResult.success) {
+            // Connection failed - return appropriate error
+            // Common reasons: invalid credentials, no devices found, API unavailable
+            console.warn(`[Controllers POST] Connection failed for ${brand}:`, connectionResult.error)
+
+            return NextResponse.json(
+              {
+                error: 'Connection failed',
+                message: connectionResult.error || 'Unable to connect to controller. Please verify your credentials.',
+                brand: brand,
+              },
+              { status: 400 }
+            )
+          }
+
+          // Connection successful - extract metadata from the adapter response
+          controllerId = connectionResult.controllerId
+          capabilities = connectionResult.metadata.capabilities
+          model = connectionResult.metadata.model
+          firmwareVersion = connectionResult.metadata.firmwareVersion
+
+          // Disconnect after successful test (we'll reconnect when needed for operations)
+          // This prevents holding connections open unnecessarily
+          await adapter.disconnect(controllerId)
+
+        } catch (adapterError) {
+          // Handle adapter-level errors (unsupported brand, network issues, etc.)
+          console.error(`[Controllers POST] Adapter error for ${brand}:`, adapterError)
+
+          const errorMessage = adapterError instanceof Error
+            ? adapterError.message
+            : 'An unexpected error occurred while connecting to the controller'
+
+          // Determine appropriate status code based on error type
+          const isNetworkError = errorMessage.includes('fetch') ||
+            errorMessage.includes('network') ||
+            errorMessage.includes('ECONNREFUSED')
 
           return NextResponse.json(
             {
-              error: 'Connection failed',
-              message: connectionResult.error || 'Unable to connect to controller. Please verify your credentials.',
+              error: isNetworkError ? 'Connection error' : 'Controller error',
+              message: errorMessage,
               brand: brand,
             },
-            { status: 400 }
+            { status: isNetworkError ? 503 : 500 }
           )
         }
-
-        // Connection successful - extract metadata from the adapter response
-        controllerId = connectionResult.controllerId
-        capabilities = connectionResult.metadata.capabilities
-        model = connectionResult.metadata.model
-        firmwareVersion = connectionResult.metadata.firmwareVersion
-
-        // Disconnect after successful test (we'll reconnect when needed for operations)
-        // This prevents holding connections open unnecessarily
-        await adapter.disconnect(controllerId)
-
-      } catch (adapterError) {
-        // Handle adapter-level errors (unsupported brand, network issues, etc.)
-        console.error(`[Controllers POST] Adapter error for ${brand}:`, adapterError)
-
-        const errorMessage = adapterError instanceof Error
-          ? adapterError.message
-          : 'An unexpected error occurred while connecting to the controller'
-
-        // Determine appropriate status code based on error type
-        const isNetworkError = errorMessage.includes('fetch') ||
-          errorMessage.includes('network') ||
-          errorMessage.includes('ECONNREFUSED')
-
-        return NextResponse.json(
-          {
-            error: isNetworkError ? 'Connection error' : 'Controller error',
-            message: errorMessage,
-            brand: brand,
-          },
-          { status: isNetworkError ? 503 : 500 }
-        )
       }
 
     } else if (brand === 'csv_upload') {
