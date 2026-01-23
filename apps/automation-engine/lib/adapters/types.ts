@@ -203,7 +203,7 @@ export interface CommandResult {
 // ============================================
 
 export interface ControllerStatus {
-  isOnline: boolean
+  status: 'online' | 'offline' | 'error' | 'initializing'
   lastSeen: Date
   firmwareVersion?: string
   signalStrength?: number
@@ -358,7 +358,7 @@ export interface DBController {
   name: string
   credentials: ControllerCredentials
   capabilities: ControllerCapabilities
-  is_online: boolean
+  status: 'online' | 'offline' | 'error' | 'initializing'
   last_seen: string | null
   last_error: string | null
   firmware_version: string | null

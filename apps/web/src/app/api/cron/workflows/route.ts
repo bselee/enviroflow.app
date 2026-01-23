@@ -649,7 +649,7 @@ interface DBController {
   controller_id: string
   name: string
   credentials: string | Record<string, unknown>
-  is_online: boolean
+  status: 'online' | 'offline' | 'error' | 'initializing'
   last_seen: string | null
   last_error: string | null
 }
@@ -827,7 +827,7 @@ async function executeDeviceControl(
     await supabase
       .from('controllers')
       .update({
-        is_online: false,
+        status: 'offline',
         last_error: connectionResult.error || 'Connection failed',
         updated_at: new Date().toISOString(),
       })
@@ -854,7 +854,7 @@ async function executeDeviceControl(
     }
 
     if (commandResult.success) {
-      updateData.is_online = true
+      updateData.status = 'online'
       updateData.last_error = null
 
       console.log(
@@ -879,7 +879,7 @@ async function executeDeviceControl(
       })
     } else {
       // Command failed but connection was successful
-      updateData.is_online = true
+      updateData.status = 'error'
       updateData.last_error = commandResult.error || 'Command failed'
 
       console.warn(

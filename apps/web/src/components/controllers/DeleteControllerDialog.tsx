@@ -167,13 +167,13 @@ export function DeleteControllerDialog({
                 <div
                   className={cn(
                     "w-10 h-10 rounded-lg flex items-center justify-center",
-                    controller.is_online ? "bg-success/10" : "bg-muted"
+                    controller.status === 'online' ? "bg-success/10" : "bg-muted"
                   )}
                 >
                   <Trash2
                     className={cn(
                       "w-5 h-5",
-                      controller.is_online ? "text-success" : "text-muted-foreground"
+                      controller.status === 'online' ? "text-success" : "text-muted-foreground"
                     )}
                   />
                 </div>

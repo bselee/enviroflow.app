@@ -560,37 +560,148 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
     const readings: SensorReading[] = []
     const now = new Date()
 
-    // Process sensor probes
-    if (data.data.sensorData) {
+    // Log full API response structure for debugging
+    log('info', `API response data structure for ${controllerId}`, {
+      hasSensorData: !!data.data.sensorData,
+      sensorDataLength: data.data.sensorData?.length || 0,
+      hasPortData: !!data.data.portData,
+      portDataLength: data.data.portData?.length || 0,
+      // Log first port structure to understand format
+      samplePort: data.data.portData?.[0] ? JSON.stringify(data.data.portData[0]) : 'none',
+      // Log full response keys to identify sensor data locations
+      responseKeys: Object.keys(data.data)
+    })
+
+    // Process explicit sensor probes from sensorData array
+    if (data.data.sensorData && data.data.sensorData.length > 0) {
       for (const sensor of data.data.sensorData) {
         // Handle both "sensorValue" and "value" field names
         const rawValue = sensor.sensorValue ?? sensor.value ?? 0
-        readings.push({
-          port: 0,
-          type: this.mapSensorType(sensor.sensorType),
-          value: this.convertSensorValue(rawValue, sensor.sensorType),
-          unit: this.mapSensorUnit(sensor.sensorType),
-          timestamp: now,
-          isStale: false
-        })
+
+        // Only add non-zero readings
+        if (rawValue !== 0) {
+          readings.push({
+            port: 0,
+            type: this.mapSensorType(sensor.sensorType),
+            value: this.convertSensorValue(rawValue, sensor.sensorType),
+            unit: this.mapSensorUnit(sensor.sensorType),
+            timestamp: now,
+            isStale: false
+          })
+        }
       }
+      log('info', `Found ${readings.length} sensors from sensorData array`)
     }
 
-    // Process port-based sensors (some devices report temp/humidity via portData)
-    for (const port of data.data.portData || []) {
-      if (port.devType === 10 || port.portType === 10) {
+    // Check for built-in controller sensors at device level
+    // Some AC Infinity controllers report temp/humidity/VPD at the device level, not port level
+    const deviceData = data.data as Record<string, unknown>
+
+    if (typeof deviceData.temperature === 'number' || typeof deviceData.temp === 'number') {
+      const rawTempValue = (deviceData.temperature as number) ?? (deviceData.temp as number)
+      if (rawTempValue !== 0) {
+        // AC Infinity returns temperature as Celsius × 100 (e.g., 2350 = 23.5°C)
+        // Convert to Fahrenheit: (C × 9/5) + 32
+        const celsiusValue = rawTempValue / 100
+        const fahrenheitValue = (celsiusValue * 9/5) + 32
         readings.push({
-          port: port.portId,
+          port: 0,
           type: 'temperature',
-          value: port.surplus,
+          value: Math.round(fahrenheitValue * 10) / 10, // Round to 1 decimal
           unit: 'F',
           timestamp: now,
           isStale: false
         })
+        log('info', 'Found device-level temperature sensor', {
+          rawValue: rawTempValue,
+          celsius: celsiusValue,
+          fahrenheit: fahrenheitValue
+        })
       }
     }
 
-    log('info', `Read ${readings.length} sensor values from ${controllerId}`)
+    if (typeof deviceData.humidity === 'number') {
+      const rawHumidityValue = deviceData.humidity as number
+      if (rawHumidityValue !== 0) {
+        // AC Infinity returns humidity as percentage × 100 (e.g., 6500 = 65%)
+        const humidityValue = rawHumidityValue / 100
+        readings.push({
+          port: 0,
+          type: 'humidity',
+          value: Math.round(humidityValue * 10) / 10, // Round to 1 decimal
+          unit: '%',
+          timestamp: now,
+          isStale: false
+        })
+        log('info', 'Found device-level humidity sensor', {
+          rawValue: rawHumidityValue,
+          percentage: humidityValue
+        })
+      }
+    }
+
+    if (typeof deviceData.vpd === 'number') {
+      const rawVpdValue = deviceData.vpd as number
+      if (rawVpdValue !== 0) {
+        // VPD is reported as kPa × 100 (e.g., 120 = 1.2 kPa)
+        const vpdValue = rawVpdValue / 100
+        readings.push({
+          port: 0,
+          type: 'vpd',
+          value: Math.round(vpdValue * 100) / 100, // Round to 2 decimals
+          unit: 'kPa',
+          timestamp: now,
+          isStale: false
+        })
+        log('info', 'Found device-level VPD sensor', {
+          rawValue: rawVpdValue,
+          kPa: vpdValue
+        })
+      }
+    }
+
+    // Process port-based sensors (more liberal extraction)
+    // Check ports for sensor readings - some controllers report via port data
+    for (const port of data.data.portData || []) {
+      // Log port structure for debugging
+      log('info', `Analyzing port ${port.portId}`, {
+        portType: port.portType,
+        devType: port.devType,
+        surplus: port.surplus,
+        speak: port.speak,
+        onOff: port.onOff
+      })
+
+      // Extract sensor-like values from ports
+      // devType 10 = sensor probe
+      // portType 10 = sensor port
+      // portType 7/8 = often temperature sensors
+      // Check surplus field which often contains current sensor value
+      if (port.surplus !== undefined && port.surplus !== 0) {
+        // Determine if this is a sensor port based on type indicators
+        if (port.devType === 10 || port.portType === 10 || port.portType === 7 || port.portType === 8) {
+          // This is a sensor port - extract the reading
+          const sensorType = port.portType === 8 ? 'humidity' : 'temperature'
+          readings.push({
+            port: port.portId,
+            type: sensorType,
+            value: port.surplus,
+            unit: sensorType === 'humidity' ? '%' : 'F',
+            timestamp: now,
+            isStale: false
+          })
+          log('info', `Found port-based sensor on port ${port.portId}`, {
+            type: sensorType,
+            value: port.surplus
+          })
+        }
+      }
+    }
+
+    log('info', `Read ${readings.length} sensor values from ${controllerId}`, {
+      sensorCount: readings.length,
+      types: readings.map(r => r.type)
+    })
     return readings
   }
 
@@ -692,7 +803,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
 
     if (!stored) {
       return {
-        isOnline: false,
+        status: 'offline',
         lastSeen: new Date()
       }
     }
@@ -715,13 +826,13 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       )
 
       return {
-        isOnline: result.success && result.data?.code === 200,
+        status: result.success && result.data?.code === 200 ? 'online' : 'offline',
         lastSeen: new Date()
       }
 
     } catch {
       return {
-        isOnline: false,
+        status: 'error',
         lastSeen: new Date()
       }
     }
@@ -862,11 +973,23 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
   }
 
   private convertSensorValue(value: number, acType: number): number {
-    // VPD is reported as kPa * 10 (e.g., 9 = 0.9 kPa)
-    if (acType === 3) {
-      return value / 10
+    // AC Infinity returns sensor values multiplied by 100
+    // acType: 1=temp (C×100), 2=humidity (%×100), 3=vpd (kPa×100), 4=co2, 5=light
+    switch (acType) {
+      case 1: // Temperature: Celsius × 100 → Fahrenheit
+        const celsiusValue = value / 100
+        return Math.round(((celsiusValue * 9/5) + 32) * 10) / 10
+      case 2: // Humidity: percentage × 100 → percentage
+        return Math.round((value / 100) * 10) / 10
+      case 3: // VPD: kPa × 100 → kPa
+        return Math.round((value / 100) * 100) / 100
+      case 4: // CO2: ppm (usually not scaled)
+        return value
+      case 5: // Light: lux (usually not scaled)
+        return value
+      default:
+        return value
     }
-    return value
   }
 
   private emptyMetadata(): ControllerMetadata {

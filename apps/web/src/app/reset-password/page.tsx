@@ -6,7 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Leaf, Loader2, ArrowLeft, Mail, Lock, CheckCircle2 } from "lucide-react";
+import { Loader2, ArrowLeft, Mail, Lock, CheckCircle2 } from "lucide-react";
+import Image from "next/image";
 import { createClient } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -220,7 +221,7 @@ function ResetPasswordContent(): JSX.Element {
   // Success state for forgot password flow
   if (isSuccess && !isResetMode) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12">
+      <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12">
         <div className="max-w-md w-full space-y-8 p-8 bg-card rounded-xl shadow-lg border border-border">
           <div className="text-center">
             <div className="flex justify-center mb-4">
@@ -261,16 +262,20 @@ function ResetPasswordContent(): JSX.Element {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12">
+    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12">
       <div className="max-w-md w-full space-y-8 p-8 bg-card rounded-xl shadow-lg border border-border">
         {/* Logo & Header */}
         <div className="text-center">
           <div className="flex justify-center mb-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
-              <Leaf className="h-7 w-7 text-primary-foreground" />
-            </div>
+            <Image
+              src="/logo-full.png"
+              alt="EnviroFlow"
+              width={280}
+              height={80}
+              className="h-16 w-auto"
+              priority
+            />
           </div>
-          <h1 className="text-3xl font-bold text-foreground">EnviroFlow</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {isResetMode ? "Set your new password" : "Reset your password"}
           </p>
@@ -424,7 +429,7 @@ export default function ResetPasswordPage(): JSX.Element {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="min-h-screen flex items-center justify-center bg-background">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       }

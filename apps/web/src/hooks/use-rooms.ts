@@ -75,7 +75,7 @@ export function useRooms(): UseRoomsReturn {
             brand,
             controller_id,
             name,
-            is_online,
+            status,
             last_seen,
             room_id,
             model,
@@ -88,7 +88,6 @@ export function useRooms(): UseRoomsReturn {
         throw new Error(fetchError.message);
       }
 
-      // is_online is already a boolean in the database
       const roomsWithMappedControllers = roomsData || [];
 
       setRooms(roomsWithMappedControllers);

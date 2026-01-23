@@ -234,10 +234,10 @@ export function EditControllerDialog({
             <div
               className={cn(
                 "w-10 h-10 rounded-lg flex items-center justify-center",
-                controller.is_online ? "bg-success/10" : "bg-muted"
+                controller.status === 'online' ? "bg-success/10" : "bg-muted"
               )}
             >
-              {controller.is_online ? (
+              {controller.status === 'online' ? (
                 <Wifi className="w-5 h-5 text-success" />
               ) : (
                 <WifiOff className="w-5 h-5 text-muted-foreground" />
@@ -250,13 +250,13 @@ export function EditControllerDialog({
                   {BRAND_NAMES[controller.brand] || controller.brand}
                 </Badge>
                 <Badge
-                  variant={controller.is_online ? "default" : "outline"}
+                  variant={controller.status === 'online' ? "default" : "outline"}
                   className={cn(
                     "text-xs",
-                    controller.is_online && "bg-success/10 text-success hover:bg-success/20"
+                    controller.status === 'online' && "bg-success/10 text-success hover:bg-success/20"
                   )}
                 >
-                  {controller.is_online ? "Online" : "Offline"}
+                  {controller.status === 'online' ? "Online" : "Offline"}
                 </Badge>
               </div>
             </div>

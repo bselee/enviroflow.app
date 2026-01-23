@@ -271,7 +271,7 @@ export function generateDemoControllers(roomId: string, roomIndex: number): Cont
       controller_id: `DEMO-${roomIndex}-${i}`,
       name: `Demo Controller ${i + 1}`,
       capabilities,
-      is_online: true,
+      status: "online",
       last_seen: now,
       last_error: null,
       firmware_version: "2.4.1",

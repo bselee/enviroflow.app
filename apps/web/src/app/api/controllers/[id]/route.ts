@@ -18,90 +18,13 @@ import {
   decryptCredentials as decryptCredentialsAES,
   EncryptionError,
 } from '@/lib/server-encryption'
-
-// ============================================
-// Inline Adapter Types (avoiding cross-package imports)
-// ============================================
-
-type ControllerBrand = 'ac_infinity' | 'inkbird' | 'govee' | 'csv_upload' | 'mqtt' | 'custom'
-
-interface ControllerCredentials {
-  email?: string
-  password?: string
-  apiKey?: string
-  [key: string]: unknown
-}
-
-interface ControllerCapabilities {
-  canControl: boolean
-  canReadSensors: boolean
-  supportsScheduling: boolean
-  supportedSensorTypes: string[]
-  supportedDeviceTypes: string[]
-}
-
-interface ConnectionResult {
-  success: boolean
-  error?: string
-  controllerId?: string
-  deviceIds?: string[]
-  metadata?: {
-    capabilities?: ControllerCapabilities
-    model?: string
-    firmwareVersion?: string
-  }
-}
-
-interface ControllerAdapter {
-  connect(credentials: ControllerCredentials): Promise<ConnectionResult>
-  disconnect(controllerId: string): Promise<void>
-  testConnection(credentials: ControllerCredentials): Promise<{ success: boolean; error?: string }>
-}
-
-/**
- * Simple adapter factory for connection testing.
- * Full adapter implementations are in automation-engine package.
- */
-function getAdapter(brand: ControllerBrand): ControllerAdapter {
-  const defaultCapabilities: ControllerCapabilities = {
-    canControl: brand !== 'csv_upload',
-    canReadSensors: true,
-    supportsScheduling: brand === 'ac_infinity' || brand === 'inkbird',
-    supportedSensorTypes: ['temperature', 'humidity', 'vpd'],
-    supportedDeviceTypes: brand === 'csv_upload' ? [] : ['fan', 'light', 'humidifier'],
-  }
-
-  // Return a minimal adapter for connection testing
-  return {
-    async connect(credentials: ControllerCredentials): Promise<ConnectionResult> {
-      // Basic validation - actual connection happens in automation-engine
-      if (!credentials.email && !credentials.apiKey) {
-        return { success: false, error: 'Credentials required' }
-      }
-      // Simulated connection response
-      return {
-        success: true,
-        controllerId: `${brand}_${Date.now()}`,
-        deviceIds: ['device_1', 'device_2'],
-        metadata: {
-          capabilities: defaultCapabilities,
-          model: `${brand.toUpperCase()} Controller`,
-          firmwareVersion: '1.0.0',
-        }
-      }
-    },
-    async disconnect() {
-      // No-op for connection testing
-    },
-    async testConnection(credentials: ControllerCredentials) {
-      if (!credentials.email && !credentials.apiKey) {
-        return { success: false, error: 'Credentials required' }
-      }
-      // In production, this would make actual API calls to verify credentials
-      return { success: true }
-    }
-  }
-}
+import { getAdapter } from '@enviroflow/automation-engine/adapters'
+import type {
+  ControllerBrand,
+  ControllerCredentials,
+  ControllerCapabilities,
+  ConnectionResult,
+} from '@enviroflow/automation-engine/adapters'
 
 // ============================================
 // Types
@@ -506,7 +429,7 @@ export async function PUT(
             updates.model = connectionResult.metadata.model
             updates.firmware_version = connectionResult.metadata.firmwareVersion
           }
-          updates.is_online = true
+          updates.status = 'online'
           updates.last_seen = new Date().toISOString()
           updates.last_error = null
 
@@ -546,7 +469,7 @@ export async function PUT(
         controller_id,
         name,
         capabilities,
-        is_online,
+        status,
         last_seen,
         last_error,
         firmware_version,
@@ -566,7 +489,6 @@ export async function PUT(
       )
     }
 
-    // is_online is already a boolean in the database
     const responseController = updatedController
 
     // Log activity

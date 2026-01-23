@@ -127,6 +127,11 @@ export interface Brand {
 }
 
 /**
+ * Controller status enum matching database CHECK constraint
+ */
+export type ControllerStatus = 'online' | 'offline' | 'error' | 'initializing';
+
+/**
  * Controller entity from database
  */
 export interface Controller {
@@ -137,7 +142,7 @@ export interface Controller {
   name: string;
   credentials?: Record<string, unknown>;
   capabilities: ControllerCapabilities;
-  is_online: boolean;
+  status: ControllerStatus;
   last_seen: string | null;
   last_error: string | null;
   firmware_version: string | null;
@@ -184,7 +189,7 @@ export type CreateControllerInput = AddControllerInput;
 export interface UpdateControllerInput {
   name?: string;
   room_id?: string | null;
-  is_online?: boolean;
+  status?: ControllerStatus;
   credentials?: {
     email?: string;
     password?: string;
@@ -402,13 +407,15 @@ export interface UpdateWorkflowInput {
 export interface SensorReading {
   id: string;
   controller_id: string;
-  user_id: string;
+  user_id?: string;
   port: number | null;
   sensor_type: SensorType;
   value: number;
   unit: string;
   is_stale: boolean;
-  timestamp: string;
+  recorded_at: string;
+  // Computed field for backwards compatibility
+  timestamp?: string;
 }
 
 /**

@@ -189,14 +189,39 @@ export interface UseDashboardDataReturn {
  * Formula: VPD = SVP * (1 - RH/100)
  * Where SVP (Saturation Vapor Pressure) = 0.6108 * exp(17.27 * T / (T + 237.3))
  *
- * @param temperatureCelsius - Temperature in Celsius
+ * @param temperatureFahrenheit - Temperature in Fahrenheit (sensor readings are stored in F)
  * @param humidityPercent - Relative humidity as percentage (0-100)
- * @returns VPD in kPa, rounded to 2 decimal places
+ * @returns VPD in kPa, rounded to 2 decimal places, or null if inputs are invalid
  */
-function calculateVPD(temperatureCelsius: number, humidityPercent: number): number {
+function calculateVPD(temperatureFahrenheit: number, humidityPercent: number): number | null {
+  // Validate inputs to prevent NaN/Infinity
+  if (!Number.isFinite(temperatureFahrenheit) || !Number.isFinite(humidityPercent)) {
+    return null;
+  }
+
+  // Temperature range validation: 32°F to 140°F (reasonable for environmental monitoring)
+  // This is equivalent to 0°C to 60°C
+  if (temperatureFahrenheit < 32 || temperatureFahrenheit > 140) {
+    return null;
+  }
+
+  // Humidity range validation: 0-100%
+  if (humidityPercent < 0 || humidityPercent > 100) {
+    return null;
+  }
+
+  // Convert Fahrenheit to Celsius for the VPD formula
+  const temperatureCelsius = (temperatureFahrenheit - 32) * 5 / 9;
+
   // Magnus-Tetens approximation for saturation vapor pressure
   const svp = 0.6108 * Math.exp((17.27 * temperatureCelsius) / (temperatureCelsius + 237.3));
   const vpd = svp * (1 - humidityPercent / 100);
+
+  // Validate result
+  if (!Number.isFinite(vpd) || vpd < 0) {
+    return null;
+  }
+
   return Math.round(vpd * 100) / 100;
 }
 
@@ -235,7 +260,7 @@ function getReadingFromOneHourAgo(
 
   const reading = readings.find((r) => {
     if (r.sensor_type !== sensorType) return false;
-    const timestamp = new Date(r.timestamp).getTime();
+    const timestamp = new Date(r.recorded_at).getTime();
     return timestamp >= windowStart && timestamp <= windowEnd;
   });
 
@@ -304,7 +329,7 @@ function convertToTimeSeriesData(readings: SensorReading[]): TimeSeriesData[] {
 
   for (const reading of readings) {
     // Round timestamp to nearest minute for grouping
-    const date = new Date(reading.timestamp);
+    const date = new Date(reading.recorded_at);
     date.setSeconds(0, 0);
     const roundedTimestamp = date.toISOString();
 
@@ -482,7 +507,7 @@ export function useDashboardData(
   options: DashboardDataOptions = {}
 ): UseDashboardDataReturn {
   const {
-    refreshInterval = 60000,
+    refreshInterval = 10000, // Reduced from 60s to 10s for faster real-time updates
     sensorTimeRangeHours = 24, // Changed default to 24h for timeline
   } = options;
 
@@ -528,6 +553,20 @@ export function useDashboardData(
       const startTime = new Date();
       startTime.setHours(startTime.getHours() - sensorTimeRangeHours);
 
+      // First, fetch controllers count to calculate dynamic sensor reading limit
+      const { count: controllerCount } = await supabase
+        .from("controllers")
+        .select("id", { count: "exact", head: true });
+
+      // Calculate dynamic limit:
+      // Base: 500 readings per controller for 24h at 1 reading per 3 minutes
+      // With minimum of 1000 and maximum of 10000 to prevent excessive queries
+      const readingsPerController = 500;
+      const minLimit = 1000;
+      const maxLimit = 10000;
+      const calculatedLimit = (controllerCount || 1) * readingsPerController;
+      const sensorReadingLimit = Math.max(minLimit, Math.min(maxLimit, calculatedLimit));
+
       // Fetch rooms with controllers, sensor readings, and workflows in parallel
       const [roomsResult, sensorsResult, workflowsResult] = await Promise.all([
         // Fetch rooms with controllers using Supabase relations
@@ -541,7 +580,7 @@ export function useDashboardData(
               brand,
               controller_id,
               name,
-              is_online,
+              status,
               last_seen,
               room_id,
               model,
@@ -552,13 +591,13 @@ export function useDashboardData(
           `)
           .order("created_at", { ascending: false }),
 
-        // Fetch sensor readings for the time range
+        // Fetch sensor readings for the time range with dynamic limit
         supabase
           .from("sensor_readings")
           .select("*")
-          .gte("timestamp", startTime.toISOString())
-          .order("timestamp", { ascending: false })
-          .limit(2000), // Increased limit for 24h timeline
+          .gte("recorded_at", startTime.toISOString())
+          .order("recorded_at", { ascending: false })
+          .limit(sensorReadingLimit),
 
         // Fetch active workflows for automations display
         supabase
@@ -626,9 +665,10 @@ export function useDashboardData(
 
   /**
    * Filter controllers that are currently offline.
+   * Offline includes 'offline' and 'error' statuses.
    */
   const offlineControllers = useMemo((): Controller[] => {
-    return controllers.filter((c) => !c.is_online);
+    return controllers.filter((c) => c.status !== 'online' && c.status !== 'initializing');
   }, [controllers]);
 
   // ==========================================================================
@@ -689,11 +729,11 @@ export function useDashboardData(
 
       // Filter sensor readings for controllers in this room
       const roomReadings = sensorReadings.filter((r) =>
-        controllerIds.includes(r.controller_id)
+        r.controller_id && controllerIds.includes(r.controller_id)
       );
 
       // Calculate online/offline counts
-      const onlineCount = roomControllers.filter((c) => c.is_online).length;
+      const onlineCount = roomControllers.filter((c) => c.status === 'online').length;
       const offlineCount = roomControllers.length - onlineCount;
 
       // Get latest sensor values across all controllers in the room
@@ -716,14 +756,14 @@ export function useDashboardData(
 
       // Determine last update timestamp and staleness
       const latestReadingTimestamp = roomReadings.length > 0
-        ? roomReadings[0].timestamp
+        ? roomReadings[0].recorded_at
         : null;
 
       // Build temperature time series for charting
       const temperatureTimeSeries: TimeSeriesPoint[] = roomReadings
         .filter((r) => r.sensor_type === "temperature")
         .map((r) => ({
-          timestamp: r.timestamp,
+          timestamp: r.recorded_at,
           value: r.value,
         }))
         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
@@ -755,7 +795,7 @@ export function useDashboardData(
    */
   const metrics = useMemo((): DashboardMetrics => {
     const totalControllers = controllers.length;
-    const onlineControllers = controllers.filter((c) => c.is_online).length;
+    const onlineControllers = controllers.filter((c) => c.status === 'online').length;
     const offlineCount = totalControllers - onlineControllers;
 
     // Calculate uptime percentage, handle division by zero
@@ -901,7 +941,7 @@ export function useDashboardData(
     const humByInterval = new Map<number, number[]>();
 
     for (const reading of sensorReadings) {
-      const time = Math.floor(new Date(reading.timestamp).getTime() / intervalMs) * intervalMs;
+      const time = Math.floor(new Date(reading.recorded_at).getTime() / intervalMs) * intervalMs;
       if (reading.sensor_type === "temperature") {
         const arr = tempByInterval.get(time) || [];
         arr.push(reading.value);
@@ -920,10 +960,12 @@ export function useDashboardData(
         const avgTemp = temps.reduce((a, b) => a + b, 0) / temps.length;
         const avgHum = hums.reduce((a, b) => a + b, 0) / hums.length;
         const vpd = calculateVPD(avgTemp, avgHum);
-        historicalVpd.push({
-          timestamp: new Date(time).toISOString(),
-          value: vpd,
-        });
+        if (vpd !== null) {
+          historicalVpd.push({
+            timestamp: new Date(time).toISOString(),
+            value: vpd,
+          });
+        }
       }
     }
 

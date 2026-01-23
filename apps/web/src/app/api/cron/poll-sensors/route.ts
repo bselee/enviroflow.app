@@ -65,7 +65,7 @@ interface DBController {
   controller_id: string
   name: string
   credentials: string | Record<string, unknown>
-  is_online: boolean
+  status: 'online' | 'offline' | 'error' | 'initializing'
   last_seen: string | null
   last_error: string | null
   room_id: string | null
@@ -187,13 +187,13 @@ export async function GET(request: NextRequest) {
     const cutoffTime = new Date(Date.now() - 30 * 60 * 1000).toISOString()
 
     // Fetch all controllers that are:
-    // - Online (is_online = true), OR
+    // - Online (status = 'online'), OR
     // - Were seen recently (last_seen within cutoff), OR
     // - Have never errored and were created recently
     const { data: controllers, error: fetchError } = await supabase
       .from('controllers')
       .select('*')
-      .or(`is_online.eq.true,last_seen.gt.${cutoffTime},last_error.is.null`)
+      .or(`status.eq.online,last_seen.gt.${cutoffTime},last_error.is.null`)
 
     if (fetchError) {
       log('error', 'Failed to fetch controllers', { error: fetchError.message })
@@ -330,7 +330,7 @@ async function pollController(
       await supabase
         .from('controllers')
         .update({
-          is_online: false,
+          status: 'error',
           last_error: 'Credentials cannot be decrypted',
           updated_at: new Date().toISOString()
         })
@@ -378,7 +378,7 @@ async function pollController(
     await supabase
       .from('controllers')
       .update({
-        is_online: false,
+        status: 'offline',
         last_error: connectionResult.error || 'Connection failed',
         updated_at: new Date().toISOString()
       })
@@ -419,13 +419,13 @@ async function pollController(
     if (validReadings.length > 0) {
       const readingsToInsert = validReadings.map(reading => ({
         controller_id: dbControllerId,
-        user_id,
+        user_id: user_id,  // Required by database schema
         port: reading.port,
         sensor_type: reading.type,
         value: reading.value,
         unit: reading.unit,
         is_stale: false,
-        timestamp: now
+        recorded_at: now
       }))
 
       const { error: insertError } = await supabase
@@ -441,7 +441,7 @@ async function pollController(
     await supabase
       .from('controllers')
       .update({
-        is_online: true,
+        status: 'online',
         last_seen: now,
         last_error: null,
         updated_at: now

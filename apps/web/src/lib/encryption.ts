@@ -270,7 +270,7 @@ export function createSafeControllerLog(
     'controller_id',
     'name',
     'capabilities',
-    'is_online',
+    'status',
     'last_seen',
     'model',
     'firmware_version',

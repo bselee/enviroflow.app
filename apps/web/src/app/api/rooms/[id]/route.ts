@@ -88,12 +88,6 @@ async function getUserId(request: NextRequest, supabase: SupabaseClient): Promis
     }
   }
 
-  // Fall back to x-user-id header for development
-  const devUserId = request.headers.get('x-user-id')
-  if (devUserId && process.env.NODE_ENV !== 'production') {
-    return devUserId
-  }
-
   return null
 }
 
@@ -210,7 +204,7 @@ export async function GET(
           controller_id,
           name,
           capabilities,
-          is_online,
+          status,
           last_seen,
           last_error,
           firmware_version,
@@ -223,7 +217,6 @@ export async function GET(
         .order('created_at', { ascending: false })
 
       if (!controllersError) {
-        // is_online is already a boolean in the database
         response.controllers = controllers || []
       }
     }

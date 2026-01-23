@@ -32,6 +32,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSensorReadings } from "@/hooks/use-sensor-readings";
+import { useDragDrop } from "@/components/providers";
 import type { RoomWithControllers, Controller, TimeSeriesPoint } from "@/types";
 
 /**
@@ -70,6 +71,8 @@ interface RoomDisplayData {
  */
 interface RoomCardProps {
   room: RoomDisplayData | RoomWithControllers;
+  /** Index of this card in the list (for drag-drop) */
+  index?: number;
   /** Whether to show loading skeleton */
   isLoading?: boolean;
 }
@@ -201,9 +204,22 @@ export function RoomCardSkeleton() {
  * );
  * ```
  */
-export function RoomCard({ room, isLoading }: RoomCardProps) {
+export function RoomCard({ room, index = 0, isLoading }: RoomCardProps) {
   const controllers = room.controllers || [];
   const controllerIds = controllers.map((c) => c.id);
+
+  // Drag-drop state
+  const {
+    draggedCard,
+    setDraggedCard,
+    dragOverCard,
+    setDragOverCard,
+    isEditing,
+    reorderCards,
+  } = useDragDrop();
+
+  const isDragging = draggedCard === index;
+  const isDragOver = dragOverCard === index && draggedCard !== index;
 
   // Fetch sensor readings for all controllers in this room
   const {
@@ -239,7 +255,7 @@ export function RoomCard({ room, isLoading }: RoomCardProps) {
     let onlineCount = 0;
 
     for (const controller of controllers) {
-      if (controller.is_online) {
+      if (controller.status === 'online') {
         onlineCount++;
       }
 
@@ -281,7 +297,7 @@ export function RoomCard({ room, isLoading }: RoomCardProps) {
       lastUpdate: latestTimestamp,
       isOnline: onlineCount > 0,
     };
-  }, [controllers, getLatestForController]);
+  }, [controllers, readings]);
 
   // Get temperature chart data from first controller with readings
   const chartData = useMemo(() => {
@@ -292,12 +308,12 @@ export function RoomCard({ room, isLoading }: RoomCardProps) {
       }
     }
     return [];
-  }, [controllers, getTimeSeries]);
+  }, [controllers, readings]);
 
   // Check if any controller has stale data
   const hasStaleData = useMemo(() => {
     return controllers.some((c) => isStale(c.id, 5));
-  }, [controllers, isStale]);
+  }, [controllers, readings]);
 
   // Check if any workflow is active for this room
   const hasActiveWorkflow = false; // TODO: Implement workflow status check
@@ -306,16 +322,81 @@ export function RoomCard({ room, isLoading }: RoomCardProps) {
     return <RoomCardSkeleton />;
   }
 
-  return (
-    <Link href={`/rooms/${room.id}`} className="block">
-      <div
-        className={cn(
-          "bg-card rounded-xl border p-6 transition-all hover:shadow-md hover:border-primary/50 cursor-pointer",
-          aggregatedData.isOnline ? "border-border" : "border-destructive/30"
+  // Drag-drop handlers
+  const handleDragStart = (e: React.DragEvent) => {
+    if (!isEditing) return;
+    setDraggedCard(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', room.id);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!isEditing) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverCard(index);
+  };
+
+  const handleDragLeave = () => {
+    if (!isEditing) return;
+    setDragOverCard(null);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    if (!isEditing) return;
+    e.preventDefault();
+    if (draggedCard !== null && draggedCard !== index) {
+      reorderCards(draggedCard, index);
+    }
+    setDraggedCard(null);
+    setDragOverCard(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedCard(null);
+    setDragOverCard(null);
+  };
+
+  const cardContent = (
+    <div
+      draggable={isEditing}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      onDragEnd={handleDragEnd}
+      className={cn(
+        "bg-card rounded-xl border p-6 transition-all cursor-pointer relative",
+        !isEditing && "hover:shadow-md hover:border-primary/50",
+        aggregatedData.isOnline ? "border-border" : "border-destructive/30",
+        // Drag-drop visual feedback
+        isDragging && "opacity-50 scale-[1.02] rotate-1 shadow-lg z-10",
+        isDragOver && "ring-2 ring-primary ring-offset-2 ring-offset-background",
+        isEditing && "cursor-grab active:cursor-grabbing"
+      )}
+    >
+        {/* Drag Handle - visible in edit mode */}
+        {isEditing && (
+          <div className="absolute top-3 left-3 text-muted-foreground/60 select-none pointer-events-none">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="currentColor"
+              className="opacity-60"
+            >
+              <circle cx="4" cy="4" r="1.5" />
+              <circle cx="4" cy="8" r="1.5" />
+              <circle cx="4" cy="12" r="1.5" />
+              <circle cx="10" cy="4" r="1.5" />
+              <circle cx="10" cy="8" r="1.5" />
+              <circle cx="10" cy="12" r="1.5" />
+            </svg>
+          </div>
         )}
-      >
+
         {/* Header */}
-        <div className="flex items-start justify-between mb-4">
+        <div className={cn("flex items-start justify-between mb-4", isEditing && "pl-6")}>
           <div>
             <h3 className="text-lg font-semibold text-foreground">{room.name}</h3>
             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
@@ -510,7 +591,17 @@ export function RoomCard({ room, isLoading }: RoomCardProps) {
         <div className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground">
           Last update: {formatRelativeTime(aggregatedData.lastUpdate)}
         </div>
-      </div>
+    </div>
+  );
+
+  // In edit mode, don't wrap with Link to prevent navigation during drag
+  if (isEditing) {
+    return cardContent;
+  }
+
+  return (
+    <Link href={`/rooms/${room.id}`} className="block">
+      {cardContent}
     </Link>
   );
 }

@@ -64,7 +64,7 @@ function ControllerCard({
   return (
     <div className={cn(
       "bg-card rounded-xl border p-5 hover:shadow-md transition-shadow",
-      !controller.is_online && controller.last_error
+      controller.status !== 'online' && controller.last_error
         ? "border-destructive/30"
         : "border-border"
     )}>
@@ -73,10 +73,10 @@ function ControllerCard({
           <div
             className={cn(
               "w-12 h-12 rounded-lg flex items-center justify-center",
-              controller.is_online ? "bg-success/10" : "bg-muted"
+              controller.status === 'online' ? "bg-success/10" : "bg-muted"
             )}
           >
-            {controller.is_online ? (
+            {controller.status === 'online' ? (
               <Wifi className="w-6 h-6 text-success" />
             ) : (
               <WifiOff className="w-6 h-6 text-muted-foreground" />
@@ -90,12 +90,12 @@ function ControllerCard({
                 variant="secondary"
                 className={cn(
                   "text-xs",
-                  controller.is_online
+                  controller.status === 'online'
                     ? "bg-success/10 text-success"
                     : "bg-muted text-muted-foreground"
                 )}
               >
-                {controller.is_online ? "Online" : "Offline"}
+                {controller.status === 'online' ? "Online" : "Offline"}
               </Badge>
               {controller.room && (
                 <Badge variant="outline" className="text-xs">
@@ -130,7 +130,7 @@ function ControllerCard({
       </div>
 
       {/* Offline warning with troubleshooting hint */}
-      {!controller.is_online && (controller.last_error || offlineForLong) && (
+      {controller.status !== 'online' && (controller.last_error || offlineForLong) && (
         <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-900">
           <div className="flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />

@@ -604,7 +604,7 @@ export class InkbirdAdapter implements ControllerAdapter, DiscoverableAdapter {
 
     if (!stored || stored.expiresAt < new Date()) {
       return {
-        isOnline: false,
+        status: 'offline',
         lastSeen: new Date()
       }
     }
@@ -623,13 +623,13 @@ export class InkbirdAdapter implements ControllerAdapter, DiscoverableAdapter {
       )
 
       return {
-        isOnline: result.success && result.data?.data?.online !== false,
+        status: result.success && result.data?.data?.online !== false ? 'online' : 'offline',
         lastSeen: new Date()
       }
 
     } catch {
       return {
-        isOnline: false,
+        status: 'error',
         lastSeen: new Date()
       }
     }

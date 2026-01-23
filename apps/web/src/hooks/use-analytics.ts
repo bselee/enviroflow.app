@@ -96,15 +96,15 @@ export function useAnalytics(options: UseAnalyticsOptions = {}): UseAnalyticsRet
           .select("id, name, is_active, last_run, run_count"),
 
         // Controllers for uptime calculation
-        supabase.from("controllers").select("id, is_online, room_id"),
+        supabase.from("controllers").select("id, status, room_id"),
 
         // Sensor readings for trends and compliance
         supabase
           .from("sensor_readings")
-          .select("controller_id, sensor_type, value, unit, timestamp")
-          .gte("timestamp", startDate)
-          .lte("timestamp", endDate)
-          .order("timestamp", { ascending: true }),
+          .select("controller_id, sensor_type, value, unit, recorded_at")
+          .gte("recorded_at", startDate)
+          .lte("recorded_at", endDate)
+          .order("recorded_at", { ascending: true }),
 
         // Rooms for compliance data
         supabase.from("rooms").select("id, name, settings"),
@@ -204,7 +204,7 @@ export function useAnalytics(options: UseAnalyticsOptions = {}): UseAnalyticsRet
         : controllerId
         ? controllers.filter((c) => c.id === controllerId)
         : controllers;
-      const onlineCount = relevantControllers.filter((c) => c.is_online).length;
+      const onlineCount = relevantControllers.filter((c) => c.status === 'online').length;
       const uptime =
         relevantControllers.length > 0
           ? (onlineCount / relevantControllers.length) * 100
@@ -274,7 +274,7 @@ function calculateTargetCompliance(
     controller_id: string;
     sensor_type: string;
     value: number;
-    timestamp: string;
+    recorded_at: string;
   }>,
   rooms: Array<{ id: string; settings: Record<string, unknown> | null }>,
   controllers: Array<{ id: string; room_id: string | null }>
@@ -349,7 +349,7 @@ function aggregateSensorTrends(
   readings: Array<{
     sensor_type: string;
     value: number;
-    timestamp: string;
+    recorded_at: string;
   }>,
   dateRange: DateRange
 ): SensorTrendPoint[] {
@@ -368,7 +368,7 @@ function aggregateSensorTrends(
 
   // Group readings by date and type
   readings.forEach((reading) => {
-    const dateKey = reading.timestamp.split("T")[0];
+    const dateKey = reading.recorded_at.split("T")[0];
     const dayData = dailyData.get(dateKey);
     if (!dayData) return;
 

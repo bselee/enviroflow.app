@@ -122,8 +122,8 @@ export function GridLayout({
         className
       )}
     >
-      {roomsForDisplay.map((room) => (
-        <RoomCard key={room.id} room={room} />
+      {roomsForDisplay.map((room, index) => (
+        <RoomCard key={room.id} room={room} index={index} />
       ))}
       {showAddRoomCard && <AddRoomCard onRoomCreated={onRoomCreated} />}
     </div>

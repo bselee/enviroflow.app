@@ -28,6 +28,8 @@ import {
   decryptCredentials as decryptCredentialsAES,
   EncryptionError,
 } from '@/lib/server-encryption'
+import { checkRateLimit, createRateLimitHeaders } from '@/lib/rate-limit'
+import { safeError, safeWarn } from '@/lib/sanitize-log'
 
 // Import REAL adapter factory from automation-engine workspace package
 import {
@@ -202,14 +204,14 @@ function decryptCredentials(encrypted: string | Record<string, unknown>): {
     return { success: true, credentials }
   } catch (error) {
     if (error instanceof EncryptionError) {
-      console.error('[Decryption] Failed to decrypt credentials:', error.message)
+      safeError('[Decryption] Failed to decrypt credentials:', error.message)
       return {
         success: false,
         credentials: {},
         error: 'Failed to decrypt stored credentials. The encryption key may have changed.',
       }
     }
-    console.error('[Decryption] Unexpected error:', error)
+    safeError('[Decryption] Unexpected error:', error)
     return {
       success: false,
       credentials: {},
@@ -293,7 +295,7 @@ function calculateVPD(temperatureF: number, humidityPercent: number): number {
  *   controller_id: string
  *   readings: ValidatedReading[]
  *   timestamp: string
- *   is_online: boolean
+ *   status: 'online' | 'offline' | 'error' | 'initializing'
  *   warnings?: string[]
  * }
  */
@@ -310,6 +312,28 @@ export async function GET(
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
+      )
+    }
+
+    // Rate limiting: 10 requests per minute per user
+    const rateLimitResult = checkRateLimit(userId, {
+      maxRequests: 10,
+      windowMs: 60 * 1000, // 1 minute
+      keyPrefix: 'sensor-read'
+    })
+
+    if (!rateLimitResult.success) {
+      const resetDate = new Date(rateLimitResult.reset)
+      return NextResponse.json(
+        {
+          error: 'Rate limit exceeded',
+          message: 'Too many sensor read requests. Please try again later.',
+          retryAfter: Math.ceil((rateLimitResult.reset - Date.now()) / 1000)
+        },
+        {
+          status: 429,
+          headers: createRateLimitHeaders(rateLimitResult)
+        }
       )
     }
 
@@ -357,14 +381,14 @@ export async function GET(
 
       if (!decryptResult.success) {
         // Log detailed error server-side only - don't expose to client
-        console.error('[Sensors GET] Credential decryption failed:', decryptResult.error)
+        safeError('[Sensors GET] Credential decryption failed:', decryptResult.error)
         return NextResponse.json(
           {
             success: false,
             controller_id: id,
             readings: [],
             timestamp: new Date().toISOString(),
-            is_online: false,
+            status: 'error',
             error: 'Failed to access controller credentials. Please re-add the controller.',
           },
           { status: 500 }
@@ -389,7 +413,7 @@ export async function GET(
               controller_id: id,
               readings: [],
               timestamp: new Date().toISOString(),
-              is_online: false,
+              status: 'error',
               error: `${brandName} credentials are incomplete or invalid`,
             },
             { status: 400 }
@@ -417,7 +441,7 @@ export async function GET(
           .from('sensor_readings')
           .select('*')
           .eq('controller_id', id)
-          .order('timestamp', { ascending: false })
+          .order('recorded_at', { ascending: false })
           .limit(10)
 
         if (cachedReadings && cachedReadings.length > 0) {
@@ -427,7 +451,7 @@ export async function GET(
             type: r.sensor_type as SensorType,
             value: r.value,
             unit: r.unit,
-            timestamp: new Date(r.timestamp).toISOString(),
+            timestamp: new Date(r.recorded_at).toISOString(),
             isStale: true,
             isValid: true,
           }))
@@ -436,7 +460,7 @@ export async function GET(
           await client
             .from('controllers')
             .update({
-              is_online: false,
+              status: 'offline',
               last_error: connectionResult.error || 'Connection failed',
               updated_at: new Date().toISOString(),
             })
@@ -447,7 +471,7 @@ export async function GET(
             controller_id: id,
             readings: cachedResponse,
             timestamp: new Date().toISOString(),
-            is_online: false,
+            status: 'offline',
             is_cached: true,
             warnings: [
               'Controller is offline. Returning cached readings.',
@@ -460,7 +484,7 @@ export async function GET(
         await client
           .from('controllers')
           .update({
-            is_online: false,
+            status: 'offline',
             last_error: connectionResult.error || 'Connection failed',
             updated_at: new Date().toISOString(),
           })
@@ -472,7 +496,7 @@ export async function GET(
             controller_id: id,
             readings: [],
             timestamp: new Date().toISOString(),
-            is_online: false,
+            status: 'offline',
             error: 'Controller offline and no cached data available',
           },
           { status: 503 }
@@ -506,7 +530,7 @@ export async function GET(
             try {
               await adapter.disconnect(controllerId)
             } catch (disconnectErr) {
-              console.warn('[Sensors GET] Error during pre-reconnect disconnect:', disconnectErr)
+              safeWarn('[Sensors GET] Error during pre-reconnect disconnect:', disconnectErr)
             }
 
             // Reconnect with fresh token
@@ -554,14 +578,14 @@ export async function GET(
       await client
         .from('controllers')
         .update({
-          is_online: true,
+          status: 'online',
           last_seen: new Date().toISOString(),
           last_error: null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
     } catch (adapterError) {
-      console.error('[Sensors GET] Adapter error:', adapterError)
+      safeError('[Sensors GET] Adapter error:', adapterError)
       isOnline = false
 
       const errorMessage =
@@ -572,7 +596,7 @@ export async function GET(
       await client
         .from('controllers')
         .update({
-          is_online: false,
+          status: 'error',
           last_error: errorMessage,
           updated_at: new Date().toISOString(),
         })
@@ -584,7 +608,7 @@ export async function GET(
           controller_id: id,
           readings: [],
           timestamp: new Date().toISOString(),
-          is_online: false,
+          status: 'error',
           error: 'Failed to read sensors. The controller may be offline or unreachable.',
         },
         { status: 503 }
@@ -634,7 +658,7 @@ export async function GET(
         value: r.value,
         unit: r.unit,
         is_stale: r.isStale || false,
-        timestamp: new Date().toISOString(),
+        recorded_at: new Date().toISOString(),
       }))
 
       const { error: insertError } = await client
@@ -659,20 +683,25 @@ export async function GET(
       validation_error: r.validationError,
     }))
 
-    return NextResponse.json({
-      success: true,
-      controller_id: id,
-      controller_name: controller.name,
-      brand: controller.brand,
-      readings: responseReadings,
-      reading_count: responseReadings.length,
-      timestamp: new Date().toISOString(),
-      is_online: isOnline,
-      warnings: warnings.length > 0 ? warnings : undefined,
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        controller_id: id,
+        controller_name: controller.name,
+        brand: controller.brand,
+        readings: responseReadings,
+        reading_count: responseReadings.length,
+        timestamp: new Date().toISOString(),
+        status: isOnline ? 'online' : 'offline',
+        warnings: warnings.length > 0 ? warnings : undefined,
+      },
+      {
+        headers: createRateLimitHeaders(rateLimitResult)
+      }
+    )
   } catch (error) {
     // Log detailed error server-side only - don't expose to client
-    console.error('[Sensors GET] Unexpected error:', error)
+    safeError('[Sensors GET] Unexpected error:', error)
     return NextResponse.json(
       {
         error: 'Internal server error',

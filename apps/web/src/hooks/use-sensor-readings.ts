@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import type {
   SensorReading,
@@ -10,6 +10,15 @@ import type {
   SensorReadingsOptions,
 } from "@/types";
 
+// =============================================================================
+// Type Definitions
+// =============================================================================
+
+/**
+ * Connection status for realtime subscriptions.
+ */
+export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'polling' | 'error';
+
 /**
  * Hook return type.
  */
@@ -17,6 +26,8 @@ interface UseSensorReadingsReturn {
   readings: SensorReading[];
   isLoading: boolean;
   error: string | null;
+  /** Current connection status */
+  connectionStatus: ConnectionStatus;
   refetch: () => Promise<void>;
   /** Get aggregated latest readings for a controller */
   getLatestForController: (controllerId: string) => AggregatedSensorData;
@@ -28,6 +39,13 @@ interface UseSensorReadingsReturn {
   /** Check if readings are stale (older than threshold) */
   isStale: (controllerId: string, thresholdMinutes?: number) => boolean;
 }
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+const MAX_RECONNECT_ATTEMPTS = 5;
+const POLLING_INTERVAL_MS = 30000; // 30 seconds fallback polling
 
 /**
  * Custom hook for managing sensor readings with Supabase.
@@ -59,6 +77,22 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
   const [readings, setReadings] = useState<SensorReading[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
+
+  // Refs for managing reconnection
+  const reconnectAttempts = useRef(0);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const mountedRef = useRef(true);
+
+  /**
+   * Calculate exponential backoff delay.
+   */
+  const getBackoffDelay = useCallback(() => {
+    // Exponential backoff: 1s, 2s, 4s, 8s, 16s (max)
+    return Math.min(1000 * Math.pow(2, reconnectAttempts.current), 16000);
+  }, []);
 
   /**
    * Fetches sensor readings based on the provided options.
@@ -76,8 +110,8 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
       let query = supabase
         .from("sensor_readings")
         .select("*")
-        .gte("timestamp", startTime.toISOString())
-        .order("timestamp", { ascending: false })
+        .gte("recorded_at", startTime.toISOString())
+        .order("recorded_at", { ascending: false })
         .limit(limit * Math.max(controllerIds.length, 1));
 
       // Filter by controller IDs if provided
@@ -96,7 +130,8 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
         throw new Error(fetchError.message);
       }
 
-      setReadings(data || []);
+      // The database uses `recorded_at` and the interface now matches this
+      setReadings((data || []) as SensorReading[]);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to fetch sensor readings";
       setError(errorMessage);
@@ -136,7 +171,7 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
         result[sensorType] = {
           value: latest.value,
           unit: latest.unit,
-          timestamp: latest.timestamp,
+          timestamp: latest.recorded_at,
         };
       }
     }
@@ -155,7 +190,7 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
     return readings
       .filter(r => r.controller_id === controllerId && r.sensor_type === sensorType)
       .map(r => ({
-        timestamp: r.timestamp,
+        timestamp: r.recorded_at,
         value: r.value,
       }))
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
@@ -173,7 +208,7 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
     }
 
     const latestTimestamp = Math.max(
-      ...controllerReadings.map(r => new Date(r.timestamp).getTime())
+      ...controllerReadings.map(r => new Date(r.recorded_at).getTime())
     );
     const thresholdMs = thresholdMinutes * 60 * 1000;
     const now = Date.now();
@@ -186,14 +221,49 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
     fetchReadings();
   }, [fetchReadings]);
 
-  // Set up real-time subscription for sensor readings changes
-  useEffect(() => {
-    if (controllerIds.length === 0) {
-      return; // No subscription if no controllers specified
+  /**
+   * Start fallback polling when WebSocket fails.
+   */
+  const startPollingFallback = useCallback(() => {
+    if (pollingIntervalRef.current) return; // Already polling
+
+    setConnectionStatus('polling');
+    console.info('[SensorReadings] WebSocket failed, falling back to polling');
+
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        await fetchReadings();
+      } catch (err) {
+        console.error('[SensorReadings] Polling fetch error:', err);
+      }
+    }, POLLING_INTERVAL_MS);
+  }, []);
+
+  /**
+   * Stop fallback polling.
+   */
+  const stopPollingFallback = useCallback(() => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+  }, []);
+
+  /**
+   * Set up realtime subscription with reconnection logic.
+   */
+  const setupSubscription = useCallback(() => {
+    if (controllerIds.length === 0) return;
+
+    // Clean up existing channel
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
     }
 
+    setConnectionStatus(reconnectAttempts.current > 0 ? 'reconnecting' : 'connecting');
+
     const channel = supabase
-      .channel("sensor_readings_changes")
+      .channel(`sensor_readings_${Date.now()}`)
       .on(
         "postgres_changes",
         {
@@ -209,17 +279,66 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
           }
         }
       )
-      .subscribe();
+      .subscribe((status, err) => {
+        if (status === 'SUBSCRIBED') {
+          setConnectionStatus('connected');
+          reconnectAttempts.current = 0;
+          stopPollingFallback();
+          console.info('[SensorReadings] Realtime connected');
+        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+          console.warn('[SensorReadings] Channel closed or error:', err);
+          reconnectAttempts.current++;
+
+          if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
+            setConnectionStatus('error');
+            startPollingFallback();
+          } else {
+            setConnectionStatus('reconnecting');
+            const delay = getBackoffDelay();
+            console.info(`[SensorReadings] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current})`);
+
+            reconnectTimeoutRef.current = setTimeout(() => {
+              if (mountedRef.current && controllerIds.length > 0) {
+                setupSubscription();
+              }
+            }, delay);
+          }
+        }
+      });
+
+    channelRef.current = channel;
+  }, [controllerIds, limit, getBackoffDelay, startPollingFallback, stopPollingFallback]);
+
+  // Set up real-time subscription for sensor readings changes
+  useEffect(() => {
+    if (controllerIds.length === 0) {
+      setConnectionStatus('connected'); // No subscription needed
+      return;
+    }
+
+    setupSubscription();
 
     return () => {
-      supabase.removeChannel(channel);
+      // Mark as unmounted to prevent state updates after cleanup
+      mountedRef.current = false;
+      // Cleanup on unmount
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+      }
     };
-  }, [controllerIds, limit]);
+  }, [controllerIds, setupSubscription]);
 
   return {
     readings,
     isLoading,
     error,
+    connectionStatus,
     refetch: fetchReadings,
     getLatestForController,
     getTimeSeries,

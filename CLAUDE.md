@@ -4,93 +4,58 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-EnviroFlow is a universal environmental automation platform for monitoring sensors, controlling devices, and automating workflows across multiple hardware controllers (AC Infinity, Inkbird, CSV Manual Upload, and more).
+EnviroFlow is a universal environmental automation platform for monitoring sensors, controlling devices, and automating workflows across multiple hardware controllers (AC Infinity, Inkbird, CSV Upload, and more).
 
-**Domain:** enviroflow.app  
-**Supabase:** vhlnnfmuhttjpwyobklu.supabase.co  
-**Status:** MVP Development (Phase 1)  
+**Domain:** enviroflow.app
+**Supabase:** vhlnnfmuhttjpwyobklu.supabase.co
+**Status:** MVP Complete
 **Spec:** See [docs/spec/EnviroFlow_MVP_Spec_v2.0.md](docs/spec/EnviroFlow_MVP_Spec_v2.0.md)
-
-## Repository Structure
-
-This is a **Turborepo monorepo** with two main applications:
-
-```
-apps/
-├── web/                    # Next.js 14 frontend (React 18, TypeScript)
-│   └── src/
-│       ├── app/            # App Router pages and API routes
-│       │   ├── api/
-│       │   │   ├── analyze/           # AI analysis (Grok)
-│       │   │   ├── controllers/       # Controller CRUD
-│       │   │   └── cron/workflows/    # Workflow executor (Vercel Cron)
-│       ├── components/     # React components (shadcn/ui based)
-│       │   ├── ui/         # 50+ shadcn/ui primitives
-│       │   ├── layout/     # AppLayout, AppSidebar, PageHeader
-│       │   └── dashboard/  # RoomCard, ActivityLog, etc.
-│       ├── hooks/          # Custom React hooks
-│       └── lib/            # Utilities, Supabase client, ai-insights.ts
-│
-└── automation-engine/      # Backend (adapters, migrations, future Edge Functions)
-    ├── supabase/
-    │   ├── migrations/     # SQL schema migrations (RUN THESE!)
-    │   └── functions/      # Future: Supabase Edge Functions
-    └── lib/
-        └── adapters/       # Controller brand adapters
-            ├── types.ts              # TypeScript interfaces
-            ├── index.ts              # Factory & exports
-            ├── ACInfinityAdapter.ts  # ✅ Implemented
-            ├── InkbirdAdapter.ts     # ✅ Implemented
-            └── CSVUploadAdapter.ts   # ✅ Implemented
-```
 
 ## Common Commands
 
-### Development
 ```bash
-npm install              # Install all dependencies (run from root)
-cd apps/web && npm run dev   # Next.js dev server on :3000
-```
+# From repository root
+npm install              # Install all dependencies (Turborepo workspaces)
+npm run dev              # Run all apps in dev mode
+npm run build            # Build all apps
 
-### Frontend (apps/web)
-```bash
+# From apps/web/
 npm run dev              # Next.js dev server on :3000
 npm run build            # Production build
 npm run lint             # ESLint
-```
 
-### Database
-
-See [docs/DATABASE_SETUP.md](docs/DATABASE_SETUP.md) for complete migration instructions.
-
-**Quick Start:**
-```bash
-# 1. Open Supabase SQL Editor:
-#    https://supabase.com/dashboard/project/vhlnnfmuhttjpwyobklu/sql
-
-# 2. Run migrations in order:
-#    - apps/automation-engine/supabase/migrations/20260121_complete_schema.sql (primary schema)
-#    - apps/automation-engine/supabase/migrations/20260121_notifications.sql (notifications table)
+# Database migrations (run in Supabase SQL Editor)
+# https://supabase.com/dashboard/project/vhlnnfmuhttjpwyobklu/sql
+# - apps/automation-engine/supabase/migrations/20260121_complete_schema.sql
+# - apps/automation-engine/supabase/migrations/20260121_notifications.sql
 ```
 
 ## Architecture
 
-### Frontend
-- **Framework:** Next.js 14 with App Router
-- **UI:** shadcn/ui (50+ components) with Radix UI primitives
-- **Styling:** Tailwind CSS with custom theme (dark mode support)
-- **State:** Supabase client with Realtime subscriptions
+### Monorepo Structure
+
+Turborepo monorepo with two main applications:
+- **apps/web/** - Next.js 14 frontend (App Router, React 18, TypeScript)
+- **apps/automation-engine/** - Backend services (adapters, migrations, future Edge Functions)
+
+### Frontend Stack
+- **UI:** shadcn/ui components with Radix UI primitives
+- **Styling:** Tailwind CSS with dark mode support
+- **State:** Supabase client with Realtime subscriptions (no Redux/Zustand)
 - **Forms:** React Hook Form + Zod validation
+- **Workflow Builder:** @xyflow/react (React Flow)
 - **Charts:** Recharts
 
-### Backend
+### Backend Stack
 - **Database:** Supabase PostgreSQL with Row-Level Security (RLS)
-- **Auth:** Supabase Auth (email/password, 2FA planned)
-- **API:** Next.js API Routes + future Supabase Edge Functions
+- **Auth:** Supabase Auth (email/password, TOTP 2FA)
+- **API:** Next.js API Routes (server-side operations)
 - **Automation:** Vercel Cron (every minute) → /api/cron/workflows
 
 ### Controller Adapter Pattern
-Hardware controllers are abstracted via the `ControllerAdapter` interface:
+
+Hardware controllers are abstracted via the `ControllerAdapter` interface in `apps/automation-engine/lib/adapters/`:
+
 ```typescript
 interface ControllerAdapter {
   connect(credentials): Promise<ConnectionResult>
@@ -101,91 +66,92 @@ interface ControllerAdapter {
 }
 ```
 
-**Supported Brands (MVP):**
-- AC Infinity (Controller 69, UIS lights/fans) - 40% market share
-- Inkbird (ITC-308, ITC-310T, IHC-200) - 25% market share
-- CSV Upload (manual data for any brand) - fallback option
+Implemented adapters: `ACInfinityAdapter`, `InkbirdAdapter`, `CSVUploadAdapter`
 
-### Key Database Tables
-- `controllers` - Registered hardware controllers
-- `rooms` - Logical grouping of controllers
-- `workflows` - Automation workflow definitions (React Flow nodes/edges)
-- `dimmer_schedules` - Sunrise/sunset lighting schedules
-- `activity_logs` - Execution history (90-day retention)
-- `sensor_readings` - Cached sensor data (30-day retention)
-- `ai_insights` - Grok AI analysis results
-- `growth_stages` - Plant growth stage definitions
-- `push_tokens` - Mobile push notification tokens
+## Key Patterns
 
-### API Routes
+### TypeScript Types
 
-| Route | Method | Purpose |
-|-------|--------|---------|
-| `/api/analyze` | POST | AI analysis via Grok |
-| `/api/controllers` | GET/POST | List/add controllers |
+All application types are centralized in `apps/web/src/types/index.ts`. Do not create separate type files.
+
+### Supabase Client Usage
+
+Two client patterns exist:
+- **Browser client** (`@/lib/supabase`): Uses `createClient()` singleton with cookies for SSR
+- **Server client** (`@/lib/supabase-server`): For Server Components and API Routes with cookie-based auth
+- **Service role client**: `createServerClient()` from `@/lib/supabase` bypasses RLS (server-side only)
+
+### Custom Hooks Pattern
+
+Hooks in `apps/web/src/hooks/` follow this pattern:
+- Return `{ data, loading, error, ...mutations }` state
+- Use `isMounted` ref to prevent state updates after unmount
+- Set up Supabase Realtime subscriptions for live updates
+- CRUD operations return `{ success: boolean, data?, error? }`
+
+### Credential Encryption
+
+Controller credentials are encrypted at rest using AES-256-GCM:
+- **Encrypt/decrypt:** `apps/web/src/lib/server-encryption.ts` (server-side only)
+- **Client-side masking:** `apps/web/src/lib/encryption.ts` (display only)
+- Encryption happens in API routes before database storage
+- Credentials are NEVER returned in API responses
+
+### Demo Mode
+
+When no user is authenticated, the app can show demo data. Demo data utilities are in `apps/web/src/lib/demo-data.ts`.
+
+### Realtime Subscriptions
+
+Tables with realtime enabled: `ai_insights`, `automation_actions`, `controllers`, `sensor_readings`
+
+## API Routes
+
+| Route | Methods | Purpose |
+|-------|---------|---------|
+| `/api/controllers` | GET, POST | List/add controllers |
+| `/api/controllers/[id]` | GET, PUT, DELETE | Controller CRUD |
+| `/api/controllers/[id]/sensors` | GET | Live sensor readings |
 | `/api/controllers/brands` | GET | Supported brands list |
+| `/api/controllers/discover` | POST | Discover devices via cloud API |
 | `/api/controllers/csv-template` | GET | Download CSV template |
+| `/api/rooms` | GET, POST | Room management |
+| `/api/rooms/[id]` | GET, PUT, DELETE | Room CRUD |
+| `/api/workflows` | GET, POST | Workflow management |
+| `/api/workflows/[id]` | GET, PUT, DELETE | Workflow CRUD |
+| `/api/analyze` | POST | AI analysis via Grok |
+| `/api/export` | GET | Export data (CSV/JSON) |
 | `/api/cron/workflows` | GET | Execute active workflows |
+| `/api/cron/poll-sensors` | GET | Poll sensor readings |
 
 ## Environment Variables
 
-Create `.env.local` in `apps/web/`:
+Required in `apps/web/.env.local`:
+
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=https://vhlnnfmuhttjpwyobklu.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
-XAI_API_KEY=xai-...  # Preferred (Vercel standard); GROK_API_KEY also supported
+XAI_API_KEY=xai-...  # AI analysis (GROK_API_KEY also supported)
 NEXT_PUBLIC_APP_URL=https://enviroflow.app
-CRON_SECRET=your-secret-for-vercel-cron  # Optional
 
-# REQUIRED: Credential encryption key (32 bytes = 64 hex chars)
-# Generate with: openssl rand -hex 32
-# WARNING: Back up this key! Losing it makes stored credentials unreadable.
+# REQUIRED: 32-byte encryption key (64 hex chars)
+# Generate: openssl rand -hex 32
 ENCRYPTION_KEY=<64-character-hex-string>
+
+# Optional
+CRON_SECRET=...
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=...  # Push notifications
+VAPID_PRIVATE_KEY=...
 ```
 
-## TypeScript Configuration
+## Key Database Tables
 
-Path alias `@/*` maps to `./src/*` in the web app.
-
-```typescript
-import { Button } from "@/components/ui/button";
-import { supabase } from "@/lib/supabase";
-```
-
-## Environment Variables (Summary)
-
-Required variables (see `.env.example`):
-- `NEXT_PUBLIC_SUPABASE_URL` - Supabase project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Public anon key
-- `SUPABASE_SERVICE_ROLE_KEY` - Server-side operations
-- `XAI_API_KEY` - AI analysis via xAI/Grok (preferred; `GROK_API_KEY` also supported for backward compatibility)
-- `ENCRYPTION_KEY` - AES-256-GCM key for credential encryption (64 hex chars)
-
-## Security Patterns
-
-### Credential Encryption
-Controller credentials (email/password for AC Infinity, Inkbird) are encrypted at rest:
-- Uses AES-256-GCM with random IV per encryption
-- Implementation: `apps/web/src/lib/server-encryption.ts`
-- Encryption happens in API routes before database storage
-- Decryption only occurs server-side when connecting to controllers
-- Credentials are NEVER returned in API responses
-
-**Key files:**
-- `apps/web/src/lib/server-encryption.ts` - Core encryption/decryption functions
-- `apps/web/src/lib/encryption.ts` - Client-side masking utilities (display only)
-- `apps/web/src/app/api/controllers/route.ts` - Encrypts on POST
-- `apps/web/src/app/api/controllers/[id]/route.ts` - Encrypts on PUT, never returns credentials
-- `apps/web/src/app/api/controllers/[id]/sensors/route.ts` - Decrypts for adapter connection
-
-## Key Patterns
-
-### Supabase Realtime
-Tables with realtime enabled: `ai_insights`, `automation_actions`, `controllers`
-
-### Edge Function Execution
-Workflow executor and sunrise-sunset functions run via Supabase cron jobs every 60 seconds. They use service role key to bypass RLS.
-
-### AI Integration
-API route at `/api/analyze` sends sensor data to Grok API for environmental analysis and stores results in `ai_insights` table.
+- `controllers` - Registered hardware controllers
+- `rooms` - Logical grouping of controllers
+- `workflows` - Automation definitions (React Flow nodes/edges)
+- `sensor_readings` - Cached sensor data (30-day retention)
+- `activity_logs` - Execution history (90-day retention)
+- `dimmer_schedules` - Sunrise/sunset lighting schedules
+- `ai_insights` - Grok AI analysis results
+- `growth_stages` - Plant growth stage definitions

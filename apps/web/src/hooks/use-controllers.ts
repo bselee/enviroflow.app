@@ -117,7 +117,7 @@ export function useControllers(): UseControllersState {
           controller_id,
           name,
           capabilities,
-          is_online,
+          status,
           last_seen,
           last_error,
           firmware_version,
@@ -143,23 +143,28 @@ export function useControllers(): UseControllersState {
         // Supabase returns rooms as an array, we need the first element or null
         const controllersWithRooms = (data || []).map(
           (controller) => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const roomsArray = controller.rooms as any;
-            const room = Array.isArray(roomsArray) && roomsArray.length > 0
-              ? { id: roomsArray[0].id, name: roomsArray[0].name }
-              : roomsArray && typeof roomsArray === 'object'
-                ? { id: roomsArray.id, name: roomsArray.name }
-                : null;
+            // Runtime validation: check if rooms field exists and has valid structure
+            const roomsData = controller.rooms;
+            let room: { id: string; name: string } | null = null;
+
+            if (Array.isArray(roomsData) && roomsData.length > 0) {
+              const firstRoom = roomsData[0];
+              if (firstRoom && typeof firstRoom === 'object' && 'id' in firstRoom && 'name' in firstRoom) {
+                room = { id: String(firstRoom.id), name: String(firstRoom.name) };
+              }
+            } else if (roomsData && typeof roomsData === 'object' && 'id' in roomsData && 'name' in roomsData) {
+              room = { id: String(roomsData.id), name: String(roomsData.name) };
+            }
+
             // Omit the 'rooms' property and add 'room'
-            // is_online is already a boolean in the database
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { rooms: _rooms, ...controllerData } = controller;
             return {
               ...controllerData,
               room,
-            };
+            } as ControllerWithRoom;
           }
-        ) as ControllerWithRoom[];
+        );
         setControllers(controllersWithRooms);
       }
     } catch (err) {
@@ -304,11 +309,20 @@ export function useControllers(): UseControllersState {
           return { success: false, error: "You must be logged in to update a controller" };
         }
 
+        // SECURITY: Block direct credential updates
+        // Credentials must be updated through the API route (PUT /api/controllers/[id])
+        // which handles encryption properly with server-side key
+        if (input.credentials !== undefined) {
+          return {
+            success: false,
+            error: "Credentials cannot be updated directly. Use the API endpoint to ensure proper encryption."
+          };
+        }
+
         // Build update object, excluding undefined values
         const updateData: Record<string, unknown> = {};
         if (input.name !== undefined) updateData.name = input.name;
         if (input.room_id !== undefined) updateData.room_id = input.room_id;
-        if (input.credentials !== undefined) updateData.credentials = input.credentials;
 
         const { data, error: updateError } = await supabase
           .from("controllers")
@@ -412,7 +426,7 @@ export function useControllers(): UseControllersState {
         await supabase
           .from("controllers")
           .update({
-            is_online: isOnline,
+            status: isOnline ? 'online' : 'offline',
             last_seen: new Date().toISOString(),
             last_error: null,
           })
@@ -448,27 +462,24 @@ export function useControllers(): UseControllersState {
           return { success: false, error: "You must be logged in" };
         }
 
-        // Search workflows that reference this controller in their nodes
+        // Use PostgreSQL JSONB operators for server-side filtering
+        // The @> operator checks if the left JSONB contains the right JSONB
+        // This filters workflows where nodes array contains an element with matching controllerId
         const { data: workflows, error: fetchError } = await supabase
           .from("workflows")
-          .select("id, name, nodes")
-          .eq("user_id", session.user.id);
+          .select("id, name")
+          .eq("user_id", session.user.id)
+          .contains("nodes", [{ data: { controllerId } }]);
 
         if (fetchError) {
           return { success: false, error: fetchError.message };
         }
 
-        // Filter workflows that contain this controller in their nodes
-        const associatedWorkflows = (workflows || []).filter((workflow) => {
-          const nodes = workflow.nodes as Array<{ data?: { controllerId?: string } }>;
-          return nodes?.some((node) => node.data?.controllerId === controllerId);
-        });
-
         return {
           success: true,
           data: {
-            count: associatedWorkflows.length,
-            names: associatedWorkflows.map((w) => w.name),
+            count: workflows?.length || 0,
+            names: (workflows || []).map((w) => w.name),
           },
         };
       } catch (err) {

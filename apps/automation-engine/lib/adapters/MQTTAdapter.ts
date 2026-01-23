@@ -412,7 +412,7 @@ export class MQTTAdapter implements ControllerAdapter {
 
     if (!connection) {
       return {
-        isOnline: false,
+        status: 'offline',
         lastSeen: new Date()
       }
     }
@@ -424,7 +424,7 @@ export class MQTTAdapter implements ControllerAdapter {
       : connection.connected
 
     return {
-      isOnline,
+      status: isOnline ? 'online' : 'offline',
       lastSeen: connection.lastConnected || new Date(),
       errors: connection.lastError ? [connection.lastError] : undefined
     }

@@ -237,7 +237,7 @@ export class CSVUploadAdapter implements ControllerAdapter {
     
     if (!data || data.length === 0) {
       return {
-        isOnline: false,
+        status: 'offline',
         lastSeen: new Date(),
         errors: ['No CSV data uploaded yet']
       }
@@ -248,7 +248,7 @@ export class CSVUploadAdapter implements ControllerAdapter {
     const isStale = (now.getTime() - latest.timestamp.getTime()) > 5 * 60 * 1000
 
     return {
-      isOnline: !isStale,
+      status: isStale ? 'offline' : 'online',
       lastSeen: latest.timestamp,
       errors: isStale ? ['Data is stale - upload new CSV'] : undefined
     }

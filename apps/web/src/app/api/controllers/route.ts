@@ -223,7 +223,7 @@ export async function GET(request: NextRequest) {
         controller_id,
         name,
         capabilities,
-        is_online,
+        status,
         last_seen,
         last_error,
         firmware_version,
@@ -243,7 +243,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // is_online is already a boolean in the database
+    // status is a TEXT field with enum constraint in the database
     const controllers = data || []
 
     return NextResponse.json({
@@ -578,7 +578,7 @@ export async function POST(request: NextRequest) {
         capabilities,
         model,
         firmware_version: firmwareVersion,
-        is_online: brand !== 'csv_upload',
+        status: brand === 'csv_upload' ? 'offline' : 'online',
         last_seen: new Date().toISOString(),
         room_id: room_id || null
       })
