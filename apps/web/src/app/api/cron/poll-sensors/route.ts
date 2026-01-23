@@ -415,6 +415,35 @@ async function pollController(
       }
     }
 
+    // Check if we need to calculate VPD
+    const hasVPD = validReadings.some(r => r.type === 'vpd')
+    const tempReading = validReadings.find(r => r.type === 'temperature')
+    const humidityReading = validReadings.find(r => r.type === 'humidity')
+
+    if (!hasVPD && tempReading && humidityReading) {
+      // Calculate VPD using Magnus-Tetens formula
+      // Temperature is in Fahrenheit, convert to Celsius
+      const tempF = tempReading.value
+      const humidity = humidityReading.value
+
+      if (tempF >= 32 && tempF <= 140 && humidity >= 0 && humidity <= 100) {
+        const tempC = (tempF - 32) * 5 / 9
+        const svp = 0.6108 * Math.exp((17.27 * tempC) / (tempC + 237.3))
+        const vpd = svp * (1 - humidity / 100)
+
+        if (Number.isFinite(vpd) && vpd >= 0 && vpd <= 5) {
+          validReadings.push({
+            type: 'vpd',
+            value: Math.round(vpd * 100) / 100,
+            unit: 'kPa',
+            timestamp: new Date(),
+            port: 0,
+            isStale: false,
+          })
+        }
+      }
+    }
+
     // Insert readings into database
     if (validReadings.length > 0) {
       const readingsToInsert = validReadings.map(reading => ({

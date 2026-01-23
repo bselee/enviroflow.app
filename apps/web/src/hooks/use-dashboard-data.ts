@@ -217,8 +217,9 @@ function calculateVPD(temperatureFahrenheit: number, humidityPercent: number): n
   const svp = 0.6108 * Math.exp((17.27 * temperatureCelsius) / (temperatureCelsius + 237.3));
   const vpd = svp * (1 - humidityPercent / 100);
 
-  // Validate result
-  if (!Number.isFinite(vpd) || vpd < 0) {
+  // Validate result with upper bound check
+  if (!Number.isFinite(vpd) || vpd < 0 || vpd > 5) {
+    console.warn(`VPD out of range: ${vpd} kPa (Temp: ${temperatureFahrenheit}°F, RH: ${humidityPercent}%)`);
     return null;
   }
 
@@ -741,12 +742,10 @@ export function useDashboardData(
       const latestHumidity = getLatestReading(roomReadings, "humidity");
 
       // Calculate VPD from temperature and humidity if both available
-      // Otherwise try to get stored VPD value
+      // DO NOT fall back to stored VPD to maintain consistency
       let latestVPD: number | null = null;
       if (latestTemp !== null && latestHumidity !== null) {
         latestVPD = calculateVPD(latestTemp, latestHumidity);
-      } else {
-        latestVPD = getLatestReading(roomReadings, "vpd");
       }
 
       // Calculate trends by comparing to values from ~1 hour ago
@@ -850,6 +849,12 @@ export function useDashboardData(
    * Set up periodic refresh interval.
    */
   useEffect(() => {
+    // Clear any existing interval first to prevent duplicates
+    if (refreshIntervalRef.current) {
+      clearInterval(refreshIntervalRef.current);
+      refreshIntervalRef.current = null;
+    }
+
     if (refreshInterval > 0) {
       refreshIntervalRef.current = setInterval(() => {
         fetchDashboardData(true);
@@ -905,13 +910,28 @@ export function useDashboardData(
           table: "sensor_readings",
         },
         (payload) => {
-          // Optimistically add new reading to state instead of full refetch
+          // Optimistically add new reading to state with deduplication
           const newReading = payload.new as SensorReading;
           if (isMounted.current) {
             setSensorReadings((prev) => {
-              // Prepend new reading and limit array size
-              const updated = [newReading, ...prev];
-              return updated.slice(0, 1000);
+              const deduplicated = new Map<string, SensorReading>();
+
+              // Add new reading first
+              const key = `${newReading.controller_id}_${newReading.sensor_type}_${newReading.recorded_at}`;
+              deduplicated.set(key, newReading);
+
+              // Add existing readings (skip duplicates)
+              for (const reading of prev) {
+                const k = `${reading.controller_id}_${reading.sensor_type}_${reading.recorded_at}`;
+                if (!deduplicated.has(k)) {
+                  deduplicated.set(k, reading);
+                }
+              }
+
+              // Sort by recorded_at descending and limit
+              return Array.from(deduplicated.values())
+                .sort((a, b) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime())
+                .slice(0, 1000);
             });
           }
         }

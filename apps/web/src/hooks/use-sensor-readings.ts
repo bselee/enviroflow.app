@@ -263,7 +263,7 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
     setConnectionStatus(reconnectAttempts.current > 0 ? 'reconnecting' : 'connecting');
 
     const channel = supabase
-      .channel(`sensor_readings_${Date.now()}`)
+      .channel(`sensor_readings_${Date.now()}_${Math.random().toString(36).slice(2)}`)
       .on(
         "postgres_changes",
         {
