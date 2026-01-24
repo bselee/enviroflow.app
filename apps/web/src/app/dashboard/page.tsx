@@ -7,6 +7,7 @@ import { DashboardContent } from "@/components/dashboard/DashboardContent";
 import { EnvironmentSnapshot } from "@/components/dashboard/EnvironmentSnapshot";
 import { IntelligentTimeline } from "@/components/dashboard/IntelligentTimeline";
 import { SmartActionCards, SmartActionCardsSkeleton } from "@/components/dashboard/SmartActionCards";
+import { UnassignedControllersCard } from "@/components/dashboard/UnassignedControllersCard";
 import {
   DemoBanner,
   ConnectCTA,
@@ -112,6 +113,7 @@ export default function DashboardPage(): JSX.Element {
     automations,
     offlineControllerSummaries,
     nextScheduledEvent,
+    unassignedControllers,
     // Loading states
     isLoading,
     // Actions
@@ -327,6 +329,11 @@ export default function DashboardPage(): JSX.Element {
               onAutomationToggle={handleAutomationToggle}
               className="grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
             />
+          )}
+
+          {/* Unassigned Controllers Warning */}
+          {!isLoading && unassignedControllers.length > 0 && (
+            <UnassignedControllersCard controllers={unassignedControllers} />
           )}
 
           {/* Rooms Section with View Mode Selection */}

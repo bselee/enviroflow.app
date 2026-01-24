@@ -141,6 +141,8 @@ export interface UseDashboardDataReturn {
   metrics: DashboardMetrics;
   /** Controllers that are currently offline */
   offlineControllers: Controller[];
+  /** Controllers that are not assigned to any room */
+  unassignedControllers: Controller[];
   /** True during initial data fetch */
   isLoading: boolean;
   /** True during background refresh */
@@ -514,6 +516,7 @@ export function useDashboardData(
 
   // Raw data state
   const [roomsWithControllers, setRoomsWithControllers] = useState<RoomWithControllers[]>([]);
+  const [unassignedControllersData, setUnassignedControllersData] = useState<Controller[]>([]);
   const [sensorReadings, setSensorReadings] = useState<SensorReading[]>([]);
   const [workflows, setWorkflows] = useState<DashboardWorkflow[]>([]);
 
@@ -568,8 +571,8 @@ export function useDashboardData(
       const calculatedLimit = (controllerCount || 1) * readingsPerController;
       const sensorReadingLimit = Math.max(minLimit, Math.min(maxLimit, calculatedLimit));
 
-      // Fetch rooms with controllers, sensor readings, and workflows in parallel
-      const [roomsResult, sensorsResult, workflowsResult] = await Promise.all([
+      // Fetch rooms with controllers, unassigned controllers, sensor readings, and workflows in parallel
+      const [roomsResult, unassignedResult, sensorsResult, workflowsResult] = await Promise.all([
         // Fetch rooms with controllers using Supabase relations
         supabase
           .from("rooms")
@@ -592,6 +595,13 @@ export function useDashboardData(
           `)
           .order("created_at", { ascending: false }),
 
+        // Fetch controllers not assigned to any room
+        supabase
+          .from("controllers")
+          .select("*")
+          .is("room_id", null)
+          .order("created_at", { ascending: false }),
+
         // Fetch sensor readings for the time range with dynamic limit
         supabase
           .from("sensor_readings")
@@ -612,6 +622,9 @@ export function useDashboardData(
       if (roomsResult.error) {
         throw new Error(`Failed to fetch rooms: ${roomsResult.error.message}`);
       }
+      if (unassignedResult.error) {
+        throw new Error(`Failed to fetch unassigned controllers: ${unassignedResult.error.message}`);
+      }
       if (sensorsResult.error) {
         throw new Error(`Failed to fetch sensor readings: ${sensorsResult.error.message}`);
       }
@@ -622,6 +635,7 @@ export function useDashboardData(
 
       if (isMounted.current) {
         setRoomsWithControllers(roomsResult.data || []);
+        setUnassignedControllersData(unassignedResult.data || []);
         setSensorReadings(sensorsResult.data || []);
         setWorkflows(workflowsResult.data || []);
       }
@@ -671,6 +685,14 @@ export function useDashboardData(
   const offlineControllers = useMemo((): Controller[] => {
     return controllers.filter((c) => c.status !== 'online' && c.status !== 'initializing');
   }, [controllers]);
+
+  /**
+   * Controllers not assigned to any room.
+   * These are controllers with room_id = null.
+   */
+  const unassignedControllers = useMemo((): Controller[] => {
+    return unassignedControllersData;
+  }, [unassignedControllersData]);
 
   // ==========================================================================
   // Demo Mode Logic
@@ -1226,6 +1248,7 @@ export function useDashboardData(
     roomSummaries: finalRoomSummaries,
     metrics: finalMetrics,
     offlineControllers: shouldShowDemoMode ? [] : offlineControllers,
+    unassignedControllers: shouldShowDemoMode ? [] : unassignedControllers,
     isLoading,
     isRefreshing,
     error,

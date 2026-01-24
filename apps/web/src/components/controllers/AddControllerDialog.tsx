@@ -34,6 +34,8 @@ import {
   AlertCircle,
   Search,
   Radar,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import {
   Dialog,
@@ -43,6 +45,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Home, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -104,6 +108,10 @@ interface AddControllerDialogProps {
     /** Pre-discovered device info (skips connection test) */
     discoveredDevice?: DiscoveredDevice;
   }) => Promise<{ success: boolean; data?: Controller; error?: string }>;
+  /** Optional callback to create a room (for inline room creation after adding controller) */
+  onCreateRoom?: (name: string) => Promise<{ success: boolean; data?: { id: string; name: string }; error?: string }>;
+  /** Optional callback to assign a controller to a room */
+  onAssignControllerToRoom?: (controllerId: string, roomId: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 /**
@@ -160,6 +168,8 @@ export function AddControllerDialog({
   rooms,
   authToken,
   onAdd,
+  onCreateRoom,
+  onAssignControllerToRoom,
 }: AddControllerDialogProps) {
   // Wizard state
   const [step, setStep] = useState(1);
@@ -184,8 +194,18 @@ export function AddControllerDialog({
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [discoveredDevices, setDiscoveredDevices] = useState<string[]>([]);
 
+  // Post-add room creation state
+  const [showRoomPrompt, setShowRoomPrompt] = useState(false);
+  const [newRoomName, setNewRoomName] = useState("");
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false);
+  const [roomCreated, setRoomCreated] = useState(false);
+  const [addedControllerId, setAddedControllerId] = useState<string | null>(null);
+
   // File input ref
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Password visibility state
+  const [showPassword, setShowPassword] = useState(false);
 
   // Credentials form
   const credentialsForm = useForm<CredentialsFormData>({
@@ -222,6 +242,12 @@ export function AddControllerDialog({
     setPendingDevices([]);
     setAddingMultiple(false);
     setMultiAddProgress({ current: 0, total: 0, results: [] });
+    setShowPassword(false);
+    setShowRoomPrompt(false);
+    setNewRoomName("");
+    setIsCreatingRoom(false);
+    setRoomCreated(false);
+    setAddedControllerId(null);
     credentialsForm.reset();
     nameForm.reset();
   }, [credentialsForm, nameForm]);
@@ -362,9 +388,12 @@ export function AddControllerDialog({
       setConnectionError(null);
       setConnectionProgress(10);
 
+      // Track the interval so we can clear it in both catch and finally blocks
+      let progressInterval: NodeJS.Timeout | null = null;
+
       try {
         // Simulate connection progress
-        const progressInterval = setInterval(() => {
+        progressInterval = setInterval(() => {
           setConnectionProgress((prev) => Math.min(prev + 15, 85));
         }, 300);
 
@@ -392,11 +421,19 @@ export function AddControllerDialog({
         // Call the add controller function
         const result = await onAdd(addRequest);
 
-        clearInterval(progressInterval);
+        if (progressInterval) {
+          clearInterval(progressInterval);
+          progressInterval = null;
+        }
 
         if (result.success) {
           setConnectionProgress(100);
           setConnectionStatus("success");
+
+          // Store the added controller ID for potential room assignment
+          if (result.data?.id) {
+            setAddedControllerId(result.data.id);
+          }
 
           // Show the device that was added
           if (discoveredDevice) {
@@ -410,24 +447,41 @@ export function AddControllerDialog({
             setDiscoveredDevices(["Manual CSV Data Source"]);
           }
 
-          // Close dialog after short delay on success
-          setTimeout(() => {
-            handleOpenChange(false);
-          }, 2000);
+          // Check if we should prompt for room creation
+          const noRoomSelected = !data.roomId || data.roomId === "none";
+          const noRoomsExist = rooms.length === 0;
+          const canCreateRoom = onCreateRoom !== undefined;
+
+          if (noRoomSelected && noRoomsExist && canCreateRoom) {
+            // Show room creation prompt instead of auto-closing
+            setShowRoomPrompt(true);
+          } else {
+            // Close dialog after short delay on success
+            setTimeout(() => {
+              handleOpenChange(false);
+            }, 2000);
+          }
         } else {
           setConnectionProgress(0);
           setConnectionStatus("error");
           setConnectionError(result.error || "Failed to connect");
         }
       } catch (err) {
+        if (progressInterval) {
+          clearInterval(progressInterval);
+          progressInterval = null;
+        }
         setConnectionProgress(0);
         setConnectionStatus("error");
         setConnectionError(err instanceof Error ? err.message : "Connection failed");
       } finally {
+        if (progressInterval) {
+          clearInterval(progressInterval);
+        }
         setIsConnecting(false);
       }
     },
-    [selectedBrand, credentials, discoveryCredentials, addMode, discoveredDevice, onAdd, handleOpenChange]
+    [selectedBrand, credentials, discoveryCredentials, addMode, discoveredDevice, onAdd, handleOpenChange, onCreateRoom, rooms.length]
   );
 
   /**
@@ -437,6 +491,7 @@ export function AddControllerDialog({
     setConnectionStatus("idle");
     setConnectionError(null);
     setConnectionProgress(0);
+    setShowPassword(false);
     // Re-submit the form
     nameForm.handleSubmit(handleConnect)();
   }, [nameForm, handleConnect]);
@@ -692,12 +747,28 @@ export function AddControllerDialog({
 
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Enter your password"
-                  {...credentialsForm.register("password")}
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
+                    {...credentialsForm.register("password")}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                    onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </Button>
+                </div>
                 {credentialsForm.formState.errors.password && (
                   <p className="text-sm text-destructive">
                     {credentialsForm.formState.errors.password.message}
@@ -894,6 +965,132 @@ export function AddControllerDialog({
                         </li>
                       ))}
                     </ul>
+                  </div>
+                )}
+
+                {/* Room creation prompt */}
+                {showRoomPrompt && !roomCreated && (
+                  <div className="bg-card border rounded-lg p-4 space-y-4 text-left">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                        <Home className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="font-medium">Create a room now?</p>
+                        <p className="text-sm text-muted-foreground">
+                          Organize your controller by adding it to a room
+                        </p>
+                      </div>
+                    </div>
+
+                    {!newRoomName ? (
+                      <div className="flex gap-2">
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => setNewRoomName(" ")}
+                          className="flex-1"
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          Create Room Now
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleOpenChange(false)}
+                          className="flex-1"
+                        >
+                          I&apos;ll Do It Later
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div>
+                          <Label htmlFor="room-name">Room Name</Label>
+                          <Input
+                            id="room-name"
+                            placeholder="e.g., Veg Room A, Flower Tent 1"
+                            value={newRoomName.trim() ? newRoomName : ""}
+                            onChange={(e) => setNewRoomName(e.target.value)}
+                            autoFocus
+                            disabled={isCreatingRoom}
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={async () => {
+                              const trimmedName = newRoomName.trim();
+                              if (!trimmedName || !onCreateRoom) return;
+
+                              setIsCreatingRoom(true);
+                              try {
+                                const result = await onCreateRoom(trimmedName);
+                                if (result.success) {
+                                  setRoomCreated(true);
+
+                                  // If we have a controller ID and the assignment callback, assign the controller to the room
+                                  if (addedControllerId && result.data?.id && onAssignControllerToRoom) {
+                                    const assignResult = await onAssignControllerToRoom(addedControllerId, result.data.id);
+                                    if (!assignResult.success) {
+                                      toast.error("Room created but failed to assign controller", {
+                                        description: assignResult.error || "You can assign it manually later.",
+                                      });
+                                    }
+                                  }
+
+                                  // Show success and close after delay
+                                  setTimeout(() => {
+                                    handleOpenChange(false);
+                                  }, 1500);
+                                } else {
+                                  // Show error but allow retry
+                                  toast.error("Failed to create room", {
+                                    description: result.error || "Please try again.",
+                                  });
+                                }
+                              } catch (err) {
+                                toast.error("Failed to create room", {
+                                  description: err instanceof Error ? err.message : "Please try again.",
+                                });
+                              } finally {
+                                setIsCreatingRoom(false);
+                              }
+                            }}
+                            disabled={!newRoomName.trim() || isCreatingRoom}
+                            className="flex-1"
+                          >
+                            {isCreatingRoom ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Creating...
+                              </>
+                            ) : (
+                              "Save Room"
+                            )}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setNewRoomName("")}
+                            disabled={isCreatingRoom}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Room created success message */}
+                {showRoomPrompt && roomCreated && (
+                  <div className="bg-success/10 border border-success/20 rounded-lg p-4">
+                    <div className="flex items-center gap-2 text-success">
+                      <CheckCircle className="w-5 h-5" />
+                      <p className="font-medium">Room created successfully!</p>
+                    </div>
                   </div>
                 )}
               </div>

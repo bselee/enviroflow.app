@@ -24,6 +24,7 @@ import {
 import { cn } from "@/lib/utils";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useControllers } from "@/hooks/use-controllers";
+import { useRooms } from "@/hooks/use-rooms";
 import { AddControllerDialog } from "@/components/controllers/AddControllerDialog";
 import { AssignRoomDialog } from "@/components/controllers/AssignRoomDialog";
 import { ErrorGuidance } from "@/components/ui/error-guidance";
@@ -174,6 +175,9 @@ export default function ControllersPage() {
     brands,
     rooms,
   } = useControllers();
+
+  // Use the rooms hook for room creation
+  const { createRoom: createRoomFromHook } = useRooms();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [controllerToDelete, setControllerToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -301,6 +305,23 @@ export default function ControllersPage() {
               });
             }
             return result;
+          }}
+          onCreateRoom={async (name: string) => {
+            const result = await createRoomFromHook({ name });
+            if (result.success && result.data) {
+              toast({
+                title: "Room created",
+                description: `${name} has been created successfully.`,
+              });
+              return {
+                success: true,
+                data: { id: result.data.id, name: result.data.name },
+              };
+            }
+            return { success: false, error: result.error || "Failed to create room" };
+          }}
+          onAssignControllerToRoom={async (controllerId: string, roomId: string) => {
+            return await handleAssignRoom(controllerId, roomId);
           }}
         />
 
