@@ -151,46 +151,8 @@ export default {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0.5" },
         },
-        // Dashboard animations
-        "pulse-glow": {
-          "0%, 100%": {
-            boxShadow: "0 0 20px var(--pulse-glow-color, rgba(16, 185, 129, 0.4))",
-            opacity: "1",
-          },
-          "50%": {
-            boxShadow: "0 0 40px var(--pulse-glow-color, rgba(16, 185, 129, 0.6))",
-            opacity: "0.8",
-          },
-        },
-        "count-up": {
-          "0%": {
-            opacity: "0",
-            transform: "translateY(10px)",
-          },
-          "100%": {
-            opacity: "1",
-            transform: "translateY(0)",
-          },
-        },
-        "slide-up": {
-          "0%": {
-            opacity: "0",
-            transform: "translateY(20px)",
-          },
-          "100%": {
-            opacity: "1",
-            transform: "translateY(0)",
-          },
-        },
-        // Demo mode CTA pulsing glow animation
-        "cta-pulse": {
-          "0%, 100%": {
-            boxShadow: "0 10px 15px -3px hsl(var(--primary) / 0.25), 0 4px 6px -4px hsl(var(--primary) / 0.25)",
-          },
-          "50%": {
-            boxShadow: "0 20px 25px -5px hsl(var(--primary) / 0.4), 0 8px 10px -6px hsl(var(--primary) / 0.4)",
-          },
-        },
+        // All other custom keyframes are defined in globals.css
+        // This keeps the source of truth in one place
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -202,6 +164,10 @@ export default {
         "slide-up": "slide-up 0.4s ease-out forwards",
         // Demo mode CTA pulsing animation
         "cta-pulse": "cta-pulse 2s ease-in-out infinite",
+        // Additional utility animations
+        "shimmer": "shimmer 2s infinite",
+        "pulse-subtle": "pulse-subtle 2s ease-in-out infinite",
+        "spin-slow": "spin-slow 8s linear infinite",
       },
     },
   },

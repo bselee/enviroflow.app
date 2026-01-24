@@ -290,17 +290,25 @@ function TimelineSkeleton(): JSX.Element {
 
 /**
  * Empty state component when no data is available.
+ * Designed to feel like an onboarding experience rather than an error.
  */
 function EmptyState(): JSX.Element {
   return (
     <div
-      className="flex flex-col items-center justify-center bg-muted/30 rounded-lg border border-dashed border-border"
+      className="flex flex-col items-center justify-center bg-gradient-to-b from-muted/10 to-muted/30 rounded-lg border border-dashed border-border"
       style={{ height: CHART_HEIGHT }}
     >
-      <Activity className="w-8 h-8 text-muted-foreground mb-2" />
-      <p className="text-sm text-muted-foreground">No sensor data available</p>
-      <p className="text-xs text-muted-foreground mt-1">
-        Data will appear once sensors start reporting
+      <div className="relative">
+        {/* Pulsing ping effect around the icon */}
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="animate-ping absolute inline-flex h-12 w-12 rounded-full bg-primary/20 opacity-75" />
+        </span>
+        {/* Main icon */}
+        <Activity className="w-8 h-8 text-muted-foreground mb-2 relative" />
+      </div>
+      <p className="text-sm font-medium text-foreground/80 mt-4">Waiting for sensor data</p>
+      <p className="text-xs text-muted-foreground/70 mt-1">
+        Your timeline will populate as sensors report readings
       </p>
     </div>
   );
@@ -732,9 +740,12 @@ export function IntelligentTimeline({
             </div>
           )}
         </div>
-        <span>
-          {sortedData.length} reading{sortedData.length !== 1 ? "s" : ""}
-        </span>
+        {/* Only show reading count when there are more than 10 readings */}
+        {sortedData.length > 10 && (
+          <span>
+            {sortedData.length} reading{sortedData.length !== 1 ? "s" : ""}
+          </span>
+        )}
       </div>
     </div>
   );

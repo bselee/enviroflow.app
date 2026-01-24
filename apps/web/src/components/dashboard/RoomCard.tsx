@@ -81,7 +81,7 @@ interface RoomCardProps {
  * Formats a timestamp to relative time (e.g., "2 min ago").
  */
 function formatRelativeTime(timestamp: string | null): string {
-  if (!timestamp) return "Never";
+  if (!timestamp) return "Connecting...";
 
   const now = new Date();
   const then = new Date(timestamp);
@@ -125,8 +125,22 @@ function MiniChart({
 }) {
   if (data.length < 2) {
     return (
-      <div className="h-8 w-full flex items-center justify-center text-xs text-muted-foreground">
-        No chart data
+      <div className="h-8 w-full relative overflow-hidden rounded">
+        {/* Animated placeholder bars */}
+        <div className="h-full flex items-end justify-around gap-[2px] px-2">
+          <div className="w-1 bg-muted-foreground/10 animate-pulse rounded-t" style={{ height: '40%', animationDelay: '0ms', animationDuration: '1.5s' }} />
+          <div className="w-1 bg-muted-foreground/10 animate-pulse rounded-t" style={{ height: '65%', animationDelay: '150ms', animationDuration: '1.5s' }} />
+          <div className="w-1 bg-muted-foreground/10 animate-pulse rounded-t" style={{ height: '50%', animationDelay: '300ms', animationDuration: '1.5s' }} />
+          <div className="w-1 bg-muted-foreground/10 animate-pulse rounded-t" style={{ height: '75%', animationDelay: '450ms', animationDuration: '1.5s' }} />
+          <div className="w-1 bg-muted-foreground/10 animate-pulse rounded-t" style={{ height: '55%', animationDelay: '600ms', animationDuration: '1.5s' }} />
+          <div className="w-1 bg-muted-foreground/10 animate-pulse rounded-t" style={{ height: '45%', animationDelay: '750ms', animationDuration: '1.5s' }} />
+          <div className="w-1 bg-muted-foreground/10 animate-pulse rounded-t" style={{ height: '70%', animationDelay: '900ms', animationDuration: '1.5s' }} />
+          <div className="w-1 bg-muted-foreground/10 animate-pulse rounded-t" style={{ height: '60%', animationDelay: '1050ms', animationDuration: '1.5s' }} />
+        </div>
+        {/* Overlay text */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-xs text-muted-foreground/50 font-medium">Building chart...</span>
+        </div>
       </div>
     );
   }
@@ -528,18 +542,16 @@ export function RoomCard({ room, index = 0, isLoading }: RoomCardProps) {
                 <Thermometer className="w-4 h-4" />
                 Temperature
               </span>
-              <span
-                className={cn(
-                  "text-lg font-semibold",
-                  aggregatedData.temperature != null
-                    ? "text-foreground"
-                    : "text-muted-foreground"
-                )}
-              >
-                {aggregatedData.temperature != null
-                  ? `${aggregatedData.temperature}°F`
-                  : "--"}
-              </span>
+              {aggregatedData.temperature != null ? (
+                <span className="text-lg font-semibold text-foreground">
+                  {aggregatedData.temperature}°F
+                </span>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-5 bg-muted-foreground/30 rounded-sm" />
+                  <div className="w-2 h-5 bg-muted-foreground/30 rounded-sm" />
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-between">
@@ -547,18 +559,16 @@ export function RoomCard({ room, index = 0, isLoading }: RoomCardProps) {
                 <Droplet className="w-4 h-4" />
                 Humidity
               </span>
-              <span
-                className={cn(
-                  "text-lg font-semibold",
-                  aggregatedData.humidity != null
-                    ? "text-foreground"
-                    : "text-muted-foreground"
-                )}
-              >
-                {aggregatedData.humidity != null
-                  ? `${aggregatedData.humidity}%`
-                  : "--"}
-              </span>
+              {aggregatedData.humidity != null ? (
+                <span className="text-lg font-semibold text-foreground">
+                  {aggregatedData.humidity}%
+                </span>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-5 bg-muted-foreground/30 rounded-sm" />
+                  <div className="w-2 h-5 bg-muted-foreground/30 rounded-sm" />
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-between">
@@ -566,16 +576,16 @@ export function RoomCard({ room, index = 0, isLoading }: RoomCardProps) {
                 <Activity className="w-4 h-4" />
                 VPD
               </span>
-              <span
-                className={cn(
-                  "text-lg font-semibold",
-                  aggregatedData.vpd != null
-                    ? "text-foreground"
-                    : "text-muted-foreground"
-                )}
-              >
-                {aggregatedData.vpd != null ? `${aggregatedData.vpd} kPa` : "--"}
-              </span>
+              {aggregatedData.vpd != null ? (
+                <span className="text-lg font-semibold text-foreground">
+                  {aggregatedData.vpd} kPa
+                </span>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-5 bg-muted-foreground/30 rounded-sm" />
+                  <div className="w-2 h-5 bg-muted-foreground/30 rounded-sm" />
+                </div>
+              )}
             </div>
           </div>
         )}

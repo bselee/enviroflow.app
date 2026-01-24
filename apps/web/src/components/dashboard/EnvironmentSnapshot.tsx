@@ -315,7 +315,9 @@ function MetricCard({
             </span>
           </div>
         ) : (
-          <span className="text-metric text-muted-foreground/50">--</span>
+          <span className="text-metric text-muted-foreground/30 tracking-wider font-light">
+            --
+          </span>
         )}
       </div>
 
@@ -329,9 +331,10 @@ function MetricCard({
             unit={trendUnit}
           />
         ) : hasValue ? (
-          <span className="text-context text-muted-foreground/50">
-            No trend data
-          </span>
+          <div className="flex items-center gap-1.5 text-context text-muted-foreground/40">
+            <span className="inline-block w-3 h-[2px] bg-muted-foreground/30 rounded-full" aria-hidden="true" />
+            <span className="text-xs">Collecting...</span>
+          </div>
         ) : null}
       </div>
     </div>
@@ -448,13 +451,34 @@ export function EnvironmentSnapshot({
               className="w-full max-w-[280px]"
             />
           ) : (
-            <div className="flex flex-col items-center justify-center w-[280px] h-[280px]">
-              <div className="text-metric text-muted-foreground/50">--</div>
-              <div className="text-supporting text-muted-foreground mt-2">
+            <div className="flex flex-col items-center justify-center w-[280px] h-[280px] relative">
+              {/* Pulsing ring indicator */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div
+                  className={cn(
+                    "w-32 h-32 rounded-full border-2 border-dashed",
+                    isConnected
+                      ? "border-muted-foreground/20 animate-pulse"
+                      : "border-muted-foreground/10"
+                  )}
+                  aria-hidden="true"
+                />
+              </div>
+
+              {/* Content */}
+              <div className="text-metric text-muted-foreground/30 tracking-wider font-light">
+                --
+              </div>
+              <div className="text-supporting text-muted-foreground/60 mt-2">
                 kPa
               </div>
-              <div className="text-context text-muted-foreground/50 mt-4">
-                {isConnected ? "Awaiting data" : "Offline"}
+              <div className={cn(
+                "text-context mt-4 text-sm",
+                isConnected
+                  ? "text-muted-foreground/60"
+                  : "text-muted-foreground/40"
+              )}>
+                {isConnected ? "Connecting..." : "Offline"}
               </div>
             </div>
           )}

@@ -22,6 +22,7 @@ import {
   usePulseEnabled,
   type AnimationTier,
 } from "@/hooks/use-animation-tier";
+import { useTheme } from "@/components/providers/ThemeProvider";
 
 // =============================================================================
 // Types
@@ -122,12 +123,6 @@ const STATUS_COLORS: Record<VPDStatus, StatusColors> = {
     text: STATUS_COLOR_CONFIG.alert.textClass,
   },
 };
-
-/** Track background color (subtle white with transparency) */
-const TRACK_COLOR = "rgba(255, 255, 255, 0.1)";
-
-/** Historical data track color (even more subtle) */
-const HISTORICAL_TRACK_COLOR = "rgba(255, 255, 255, 0.05)";
 
 // =============================================================================
 // Utility Functions
@@ -413,13 +408,50 @@ function HistoricalBackground({
   data,
   radius,
   strokeWidth,
+  isDark,
 }: {
   data: TimeSeriesPoint[];
   radius: number;
   strokeWidth: number;
+  isDark: boolean;
 }): React.ReactElement | null {
+  // Show placeholder ring for sparse data
   if (data.length < 2) {
-    return null;
+    const innerRadius = radius - strokeWidth / 2;
+    const center = radius;
+    const startAngle = 135;
+    const totalAngle = 270;
+    const rangeStartAngle = startAngle;
+    const rangeEndAngle = startAngle + totalAngle * 0.3; // Show 30% as placeholder
+
+    const startRad = (rangeStartAngle * Math.PI) / 180;
+    const endRad = (rangeEndAngle * Math.PI) / 180;
+
+    const x1 = center + innerRadius * Math.cos(startRad);
+    const y1 = center + innerRadius * Math.sin(startRad);
+    const x2 = center + innerRadius * Math.cos(endRad);
+    const y2 = center + innerRadius * Math.sin(endRad);
+
+    const sweepAngle = rangeEndAngle - rangeStartAngle;
+    const largeArcFlag = sweepAngle > 180 ? 1 : 0;
+
+    const path = `M ${x1} ${y1} A ${innerRadius} ${innerRadius} 0 ${largeArcFlag} 1 ${x2} ${y2}`;
+
+    // Theme-aware placeholder color with subtle animation
+    const placeholderColor = isDark ? "rgba(255, 255, 255, 0.03)" : "rgba(0, 0, 0, 0.03)";
+
+    return (
+      <path
+        d={path}
+        fill="none"
+        stroke={placeholderColor}
+        strokeWidth={strokeWidth + 8}
+        strokeLinecap="round"
+        strokeDasharray="4 8"
+        opacity={0.5}
+        className="animate-pulse"
+      />
+    );
   }
 
   // Sample historical data to create segments
@@ -460,11 +492,14 @@ function HistoricalBackground({
 
   const path = `M ${x1} ${y1} A ${innerRadius} ${innerRadius} 0 ${largeArcFlag} 1 ${x2} ${y2}`;
 
+  // Theme-aware historical track color
+  const historicalColor = isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.05)";
+
   return (
     <path
       d={path}
       fill="none"
-      stroke={HISTORICAL_TRACK_COLOR}
+      stroke={historicalColor}
       strokeWidth={strokeWidth + 8}
       strokeLinecap="round"
       opacity={0.6}
@@ -542,7 +577,7 @@ function VPDBreakdownContent({
           </span>
         </div>
 
-        {historicalStats && (
+        {historicalStats ? (
           <>
             <div className="flex justify-between text-xs">
               <span className="text-muted-foreground">24h Avg:</span>
@@ -558,6 +593,11 @@ function VPDBreakdownContent({
               </span>
             </div>
           </>
+        ) : (
+          <div className="flex items-center justify-center py-2 text-xs text-muted-foreground/60">
+            <span className="inline-block w-2 h-[2px] bg-muted-foreground/30 rounded-full mr-2" aria-hidden="true" />
+            Building history...
+          </div>
         )}
       </div>
 
@@ -616,6 +656,10 @@ export function VPDDial({
   const { tier } = useAnimationTierContext();
   const isPulseEnabled = usePulseEnabled();
 
+  // Theme context for theme-aware colors
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+
   // Generate unique ID for SVG gradients to avoid conflicts with multiple instances
   const instanceId = useRef(
     `vpd-${Math.random().toString(36).substring(2, 9)}`
@@ -641,6 +685,10 @@ export function VPDDial({
 
   // Calculate SVG dimensions
   const radius = DIAL_SIZE / 2;
+
+  // Theme-aware track colors
+  const trackColor = isDark ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)";
+  const tickColor = isDark ? "rgba(255, 255, 255, 0.3)" : "rgba(0, 0, 0, 0.3)";
 
   // Handle click/tap interaction
   const handleInteraction = useCallback(() => {
@@ -702,7 +750,7 @@ export function VPDDial({
               <path
                 d={generateTrackPath(radius, STROKE_WIDTH)}
                 fill="none"
-                stroke={TRACK_COLOR}
+                stroke={trackColor}
                 strokeWidth={STROKE_WIDTH}
                 strokeLinecap="round"
               />
@@ -713,6 +761,7 @@ export function VPDDial({
                   data={historicalData}
                   radius={radius}
                   strokeWidth={STROKE_WIDTH}
+                  isDark={isDark}
                 />
               )}
 
@@ -748,7 +797,7 @@ export function VPDDial({
                     y1={y1}
                     x2={x2}
                     y2={y2}
-                    stroke="rgba(255, 255, 255, 0.3)"
+                    stroke={tickColor}
                     strokeWidth={2}
                     strokeLinecap="round"
                   />

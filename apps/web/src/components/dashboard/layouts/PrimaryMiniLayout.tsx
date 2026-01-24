@@ -81,7 +81,7 @@ interface RoomDisplayData {
  * Formats a timestamp to relative time (e.g., "2 min ago").
  */
 function formatRelativeTime(timestamp: string | null): string {
-  if (!timestamp) return "Never";
+  if (!timestamp) return "Connecting...";
 
   const now = new Date();
   const then = new Date(timestamp);
@@ -137,11 +137,25 @@ function MiniChart({
 }): JSX.Element {
   if (data.length < 2) {
     return (
-      <div
-        className="w-full flex items-center justify-center text-xs text-muted-foreground"
-        style={{ height }}
-      >
-        No chart data
+      <div className="relative overflow-hidden rounded" style={{ height }}>
+        {/* Animated placeholder bars */}
+        <div className="h-full flex items-end justify-around gap-[2px] px-2">
+          {[40, 65, 50, 75, 55, 45, 70, 60].map((h, i) => (
+            <div
+              key={i}
+              className="w-1 bg-muted-foreground/10 animate-pulse rounded-t"
+              style={{
+                height: `${h}%`,
+                animationDelay: `${i * 150}ms`,
+                animationDuration: '1.5s'
+              }}
+            />
+          ))}
+        </div>
+        {/* Overlay text */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-xs text-muted-foreground/50 font-medium">Building chart...</span>
+        </div>
       </div>
     );
   }
