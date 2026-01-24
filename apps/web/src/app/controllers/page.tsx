@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Cpu, Wifi, WifiOff, MoreVertical, Trash2, Loader2, AlertTriangle, Home } from "lucide-react";
+import { Plus, Cpu, Wifi, WifiOff, MoreVertical, Trash2, Loader2, AlertTriangle, Home, Settings } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,15 +21,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useControllers } from "@/hooks/use-controllers";
 import { useRooms } from "@/hooks/use-rooms";
 import { AddControllerDialog } from "@/components/controllers/AddControllerDialog";
 import { AssignRoomDialog } from "@/components/controllers/AssignRoomDialog";
+import { ControllerDevicesPanel } from "@/components/controllers/ControllerDevicesPanel";
 import { ErrorGuidance } from "@/components/ui/error-guidance";
 import { toast } from "@/hooks/use-toast";
-import type { ControllerWithRoom, ControllerBrand } from "@/types";
+import type { ControllerWithRoom } from "@/types";
 
 function formatRelativeTime(timestamp: string | null): string {
   if (!timestamp) return "Never";
@@ -51,10 +59,12 @@ function ControllerCard({
   controller,
   onDelete,
   onAssignRoom,
+  onViewDevices,
 }: {
   controller: ControllerWithRoom;
   onDelete: (id: string) => void;
   onAssignRoom: (controller: ControllerWithRoom) => void;
+  onViewDevices: (controller: ControllerWithRoom) => void;
 }) {
   // Check if controller has been offline for a while
   const lastSeenDate = controller.last_seen ? new Date(controller.last_seen) : null;
@@ -114,7 +124,10 @@ function ControllerCard({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem>Edit</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onViewDevices(controller)}>
+              <Settings className="h-4 w-4 mr-2" />
+              Control Devices
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onAssignRoom(controller)}>
               <Home className="h-4 w-4 mr-2" />
               Assign to Room
@@ -182,6 +195,7 @@ export default function ControllersPage() {
   const [controllerToDelete, setControllerToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [controllerToAssign, setControllerToAssign] = useState<ControllerWithRoom | null>(null);
+  const [controllerToViewDevices, setControllerToViewDevices] = useState<ControllerWithRoom | null>(null);
 
   const handleDelete = async () => {
     if (!controllerToDelete) return;
@@ -263,6 +277,7 @@ export default function ControllersPage() {
                   controller={controller}
                   onDelete={setControllerToDelete}
                   onAssignRoom={setControllerToAssign}
+                  onViewDevices={setControllerToViewDevices}
                 />
               ))}
             </div>
@@ -366,6 +381,27 @@ export default function ControllersPage() {
           rooms={rooms}
           onAssign={handleAssignRoom}
         />
+
+        {/* View Devices Dialog */}
+        <Dialog
+          open={!!controllerToViewDevices}
+          onOpenChange={(open) => !open && setControllerToViewDevices(null)}
+        >
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Control Devices</DialogTitle>
+              <DialogDescription>
+                View and control devices connected to this controller
+              </DialogDescription>
+            </DialogHeader>
+            {controllerToViewDevices && (
+              <ControllerDevicesPanel
+                controllerId={controllerToViewDevices.id}
+                controllerName={controllerToViewDevices.name}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </AppLayout>
   );
