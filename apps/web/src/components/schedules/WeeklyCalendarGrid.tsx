@@ -68,7 +68,7 @@ function getActionColor(action: ScheduleAction): string {
  */
 function scheduleToBlocks(schedule: DeviceSchedule): ScheduleBlock[] {
   const blocks: ScheduleBlock[] = [];
-  const days = schedule.schedule.days || [];
+  const days = schedule.schedule.days;
   const startTime = schedule.schedule.start_time;
   const endTime = schedule.schedule.end_time;
 

@@ -753,9 +753,9 @@ export type DeviceScheduleAction = 'on' | 'off' | 'set_level';
  * Device schedule configuration (stored as JSONB)
  */
 export interface DeviceScheduleConfig {
-  /** Days of week (0=Sunday, 6=Saturday) */
-  days?: number[];
-  /** Start time in HH:MM format */
+  /** Days of week (0=Sunday, 6=Saturday). Empty array means every day. */
+  days: number[];
+  /** Start time in HH:MM format (required for 'time' trigger, optional for others) */
   start_time?: string;
   /** End time in HH:MM format (optional) */
   end_time?: string;

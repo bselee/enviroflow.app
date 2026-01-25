@@ -1,14 +1,34 @@
 # Type Audit Report: Optional Fields Analysis
 
 Generated: 2026-01-25
+Updated: 2026-01-25
 
 ## Summary
 
-The codebase has **23 optional fields** that are frequently used without null guards, causing TypeScript build errors. This report categorizes them by risk level and provides recommended fixes.
+~~The codebase has **23 optional fields** that are frequently used without null guards.~~
+
+**FIXED:** High-risk fields have been made required. See "Completed Fixes" below.
 
 ---
 
-## HIGH RISK - Should be Required
+## Completed Fixes
+
+| Field | Change | Commit |
+|-------|--------|--------|
+| `ControllerCapabilities.sensors` | Made required (was `SensorType[]?`) | 3bdc7eb |
+| `ControllerCapabilities.devices` | Made required (was `DeviceType[]?`) | 3bdc7eb |
+| `ActivityLog.created_at` | Made required (was `string?`) | 3bdc7eb |
+| `DeviceScheduleConfig.action` | Made required (was optional) | f891302 |
+| `DeviceScheduleConfig.days` | Made required (was `number[]?`) | This commit |
+
+Redundant fallbacks removed from:
+- `WeeklyCalendarGrid.tsx`
+- `ScheduleModal.tsx`
+- `use-schedules.ts`
+
+---
+
+## ~~HIGH RISK~~ RESOLVED - Previously Should be Required
 
 These fields have database defaults or are always present in practice, but are typed as optional.
 

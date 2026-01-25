@@ -114,7 +114,7 @@ export function ScheduleModal({
 
       setTriggerType(schedule.trigger_type);
       setAction(schedule.schedule.action || "on");
-      setSelectedDays(schedule.schedule.days || []);
+      setSelectedDays(schedule.schedule.days);
       if (schedule.schedule.level !== undefined) {
         setDimLevel(schedule.schedule.level);
       }

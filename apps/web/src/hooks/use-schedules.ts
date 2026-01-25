@@ -370,7 +370,7 @@ export function useSchedules(controllerId?: string): UseSchedulesState {
     if (schedule.trigger_type === 'time' && schedule.schedule.start_time) {
       // Calculate next 5 executions for time-based schedules
       const now = new Date();
-      const days = schedule.schedule.days || [];
+      const days = schedule.schedule.days;
       const [hours, minutes] = schedule.schedule.start_time.split(':').map(Number);
 
       for (let i = 0; i < 14; i++) {
