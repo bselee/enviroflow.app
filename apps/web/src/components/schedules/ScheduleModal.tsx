@@ -107,7 +107,7 @@ export function ScheduleModal({
       setValue("description", schedule.description || "");
       setValue("controller_id", schedule.controller_id);
       setValue("device_port", schedule.device_port);
-      setValue("start_time", schedule.schedule.start_time);
+      setValue("start_time", schedule.schedule.start_time || "");
       setValue("end_time", schedule.schedule.end_time || "");
       setValue("cron_expression", schedule.schedule.cron || "");
       setValue("offset_minutes", schedule.schedule.offset_minutes || 0);
