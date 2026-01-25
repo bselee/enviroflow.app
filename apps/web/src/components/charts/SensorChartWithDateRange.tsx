@@ -139,23 +139,32 @@ export function SensorChartWithDateRange({
   /**
    * Extract time series data for each sensor type.
    */
-  const { temperatureData, humidityData, vpdData, co2Data } = useMemo(() => {
+  const { temperatureData, humidityData, vpdData, co2Data, hasData } = useMemo(() => {
     // Use the first controller's data (if multiple controllers, combine them)
     const controllerId = controllerIds[0];
 
+    const tempData = visibleSensors.includes("temperature")
+      ? getTimeSeries(controllerId, "temperature")
+      : undefined;
+    const humData = visibleSensors.includes("humidity")
+      ? getTimeSeries(controllerId, "humidity")
+      : undefined;
+    const vData = visibleSensors.includes("vpd")
+      ? getTimeSeries(controllerId, "vpd")
+      : undefined;
+    const cData = visibleSensors.includes("co2")
+      ? getTimeSeries(controllerId, "co2")
+      : undefined;
+
     return {
-      temperatureData: visibleSensors.includes("temperature")
-        ? getTimeSeries(controllerId, "temperature")
-        : undefined,
-      humidityData: visibleSensors.includes("humidity")
-        ? getTimeSeries(controllerId, "humidity")
-        : undefined,
-      vpdData: visibleSensors.includes("vpd")
-        ? getTimeSeries(controllerId, "vpd")
-        : undefined,
-      co2Data: visibleSensors.includes("co2")
-        ? getTimeSeries(controllerId, "co2")
-        : undefined,
+      temperatureData: tempData,
+      humidityData: humData,
+      vpdData: vData,
+      co2Data: cData,
+      hasData: (tempData?.length ?? 0) > 0 ||
+               (humData?.length ?? 0) > 0 ||
+               (vData?.length ?? 0) > 0 ||
+               (cData?.length ?? 0) > 0,
     };
   }, [controllerIds, visibleSensors, getTimeSeries]);
 
@@ -199,7 +208,7 @@ export function SensorChartWithDateRange({
                   variant="outline"
                   size="sm"
                   onClick={handleExport}
-                  disabled={isLoading || readings.length === 0}
+                  disabled={isLoading || !hasData}
                   className="flex-1 sm:flex-none"
                 >
                   <Download className="h-4 w-4 mr-2" />
