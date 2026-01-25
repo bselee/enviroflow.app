@@ -287,7 +287,8 @@ export function downsampleTimeSeries<T extends { timestamp: string; value: numbe
  * @param maxSize - Maximum cache size (default: 100)
  * @returns Memoized function
  */
-export function memoize<T extends (...args: unknown[]) => unknown>(
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function memoize<T extends (...args: any[]) => any>(
   fn: T,
   keyFn: (...args: Parameters<T>) => string,
   maxSize = 100
