@@ -312,7 +312,7 @@ export function DimmerScheduleForm({
             <div>
               <Label htmlFor="offset_minutes">
                 Offset (minutes)
-                <HelpTooltip content="Adjust start time before (-) or after (+) sunrise" />
+                <HelpTooltip id="schedule-offset-sunrise" content={{ description: "Adjust start time before (-) or after (+) sunrise" }} />
               </Label>
               <Input
                 id="offset_minutes"
@@ -335,7 +335,7 @@ export function DimmerScheduleForm({
             <div>
               <Label htmlFor="offset_minutes">
                 Offset (minutes)
-                <HelpTooltip content="Adjust start time before (-) or after (+) sunset" />
+                <HelpTooltip id="schedule-offset-sunset" content={{ description: "Adjust start time before (-) or after (+) sunset" }} />
               </Label>
               <Input
                 id="offset_minutes"
@@ -505,7 +505,7 @@ export function DimmerScheduleForm({
           <div>
             <Label htmlFor="curve">
               Dimming Curve
-              <HelpTooltip content="Choose how intensity changes over time" />
+              <HelpTooltip id="schedule-curve-type" content={{ description: "Choose how intensity changes over time" }} />
             </Label>
             <Select
               value={watchCurve}
