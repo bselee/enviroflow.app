@@ -113,7 +113,7 @@ export function ScheduleModal({
       setValue("offset_minutes", schedule.schedule.offset_minutes || 0);
 
       setTriggerType(schedule.trigger_type);
-      setAction(schedule.schedule.action);
+      setAction(schedule.schedule.action || "on");
       setSelectedDays(schedule.schedule.days || []);
       if (schedule.schedule.level !== undefined) {
         setDimLevel(schedule.schedule.level);
