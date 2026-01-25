@@ -211,10 +211,12 @@ export function useActivityLogs(options: ActivityLogsOptions = {}): UseActivityL
    * Transforms raw logs into formatted display objects.
    * Memoized to prevent unnecessary recalculations.
    */
-  const formattedLogs: FormattedActivityLog[] = logs.map((log) => ({
+  const formattedLogs: FormattedActivityLog[] = logs.map((log) => {
+    const ts = log.timestamp || log.created_at || new Date().toISOString();
+    return {
     id: log.id,
-    timestamp: log.timestamp,
-    relativeTime: formatRelativeTime(log.timestamp),
+    timestamp: ts,
+    relativeTime: formatRelativeTime(ts),
     type: determineLogType(log),
     message: generateLogMessage(log),
     workflowName: log.workflow?.name || null,
@@ -223,7 +225,8 @@ export function useActivityLogs(options: ActivityLogsOptions = {}): UseActivityL
     actionType: log.action_type,
     result: log.result,
     errorMessage: log.error_message,
-  }));
+  };
+  });
 
   /**
    * Filters formatted logs by room ID.
