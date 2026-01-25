@@ -13,11 +13,86 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdapter } from '@enviroflow/automation-engine/adapters'
-import type { ControllerBrand } from '@enviroflow/automation-engine/adapters'
-import { decryptCredentials } from '@/lib/server-encryption'
+import {
+  getAdapter,
+  type ControllerBrand,
+  type ACInfinityCredentials,
+  type InkbirdCredentials,
+  type CSVUploadCredentials,
+} from '@enviroflow/automation-engine/adapters'
+import {
+  decryptCredentials as decryptCredentialsAES,
+  EncryptionError,
+} from '@/lib/server-encryption'
 import type { DiagnosticMetrics, DiagnosticHistoryPoint } from '@/lib/diagnostic-utils'
 import { calculateSyncLag } from '@/lib/diagnostic-utils'
+
+// ============================================
+// Credential Decryption Wrapper
+// ============================================
+
+/**
+ * Wrapper to handle credential decryption with proper error handling.
+ * The underlying function throws EncryptionError on failure.
+ */
+function decryptCredentials(encrypted: string | Record<string, unknown>): {
+  success: boolean
+  credentials: Record<string, unknown>
+  error?: string
+} {
+  try {
+    const credentials = decryptCredentialsAES(encrypted)
+    return { success: true, credentials }
+  } catch (error) {
+    if (error instanceof EncryptionError) {
+      console.error('[Diagnostics] Failed to decrypt credentials:', error.message)
+      return {
+        success: false,
+        credentials: {},
+        error: 'Failed to decrypt stored credentials. The encryption key may have changed.',
+      }
+    }
+    console.error('[Diagnostics] Unexpected decryption error:', error)
+    return {
+      success: false,
+      credentials: {},
+      error: 'Unexpected error decrypting credentials.',
+    }
+  }
+}
+
+// ============================================
+// Credential Builder
+// ============================================
+
+function buildAdapterCredentials(
+  brand: ControllerBrand,
+  credentials: { email?: string; password?: string; type?: string }
+): ACInfinityCredentials | InkbirdCredentials | CSVUploadCredentials {
+  switch (brand) {
+    case 'ac_infinity':
+      return {
+        type: 'ac_infinity',
+        email: credentials.email || '',
+        password: credentials.password || '',
+      } satisfies ACInfinityCredentials
+
+    case 'inkbird':
+      return {
+        type: 'inkbird',
+        email: credentials.email || '',
+        password: credentials.password || '',
+      } satisfies InkbirdCredentials
+
+    case 'csv_upload':
+      return {
+        type: 'csv_upload',
+      } satisfies CSVUploadCredentials
+
+    default:
+      throw new Error(`Cannot build credentials for unsupported brand: ${brand}`)
+  }
+}
 
 // ============================================
 // Types
@@ -160,32 +235,88 @@ export async function POST(
     const responseTimes: number[] = []
     let successfulAttempts = 0
     let failedAttempts = 0
+    let connectedControllerId: string | null = null
 
     try {
       // Decrypt credentials
-      const _decryptedCredentials = decryptCredentials(controller.credentials)
+      const decryptResult = decryptCredentials(controller.credentials)
 
-      // Get adapter
-      const adapter = getAdapter(controller.brand as ControllerBrand)
+      if (!decryptResult.success) {
+        console.error('[Diagnostics] Credential decryption failed:', decryptResult.error)
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Failed to access controller credentials. Please re-add the controller.',
+          },
+          { status: 500 }
+        )
+      }
 
-      // Run multiple connection tests
-      for (let i = 0; i < attempts; i++) {
-        const startTime = Date.now()
+      const storedCredentials = decryptResult.credentials as Record<string, unknown>
 
-        try {
-          const statusResult = await adapter.getStatus(controller.controller_id)
-          const endTime = Date.now()
-          const responseTime = endTime - startTime
+      // Validate credentials for brands that require them
+      const brand = controller.brand as ControllerBrand
+      if (brand === 'ac_infinity' || brand === 'inkbird') {
+        const email = storedCredentials.email
+        const password = storedCredentials.password
 
-          if (statusResult.status !== 'error') {
-            responseTimes.push(responseTime)
-            successfulAttempts++
-          } else {
+        if (typeof email !== 'string' || !email ||
+            typeof password !== 'string' || !password) {
+          const brandName = brand === 'ac_infinity' ? 'AC Infinity' : 'Inkbird'
+          return NextResponse.json(
+            {
+              success: false,
+              error: `${brandName} credentials are incomplete or invalid`,
+            },
+            { status: 400 }
+          )
+        }
+      }
+
+      // Build properly typed credentials for the adapter
+      const adapterCredentials = buildAdapterCredentials(brand, {
+        email: storedCredentials.email as string,
+        password: storedCredentials.password as string,
+        type: brand,
+      })
+
+      // Get adapter and connect first
+      const adapter = getAdapter(brand)
+      const connectionResult = await adapter.connect(adapterCredentials)
+
+      if (!connectionResult.success) {
+        // Connection failed - all attempts count as failed
+        failedAttempts = attempts
+      } else {
+        const activeControllerId = connectionResult.controllerId || controller.controller_id
+        connectedControllerId = activeControllerId
+
+        // Run multiple status checks to calculate packet loss
+        for (let i = 0; i < attempts; i++) {
+          const startTime = Date.now()
+
+          try {
+            const statusResult = await adapter.getStatus(activeControllerId)
+            const endTime = Date.now()
+            const responseTime = endTime - startTime
+
+            if (statusResult.status !== 'error') {
+              responseTimes.push(responseTime)
+              successfulAttempts++
+            } else {
+              failedAttempts++
+            }
+          } catch (_error) {
             failedAttempts++
+            // Continue with next attempt
           }
-        } catch (_error) {
-          failedAttempts++
-          // Continue with next attempt
+        }
+
+        // Disconnect when done
+        try {
+          await adapter.disconnect(activeControllerId)
+        } catch (disconnectErr) {
+          console.warn('[Diagnostics] Error during disconnect:', disconnectErr)
         }
       }
     } catch (error) {

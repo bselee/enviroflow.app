@@ -8,9 +8,46 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
-import { decryptCredentials } from '@/lib/server-encryption'
+import {
+  decryptCredentials as decryptCredentialsAES,
+  EncryptionError,
+} from '@/lib/server-encryption'
 import { checkRateLimit, createRateLimitHeaders } from '@/lib/rate-limit'
 import { safeError } from '@/lib/sanitize-log'
+
+// ============================================
+// Credential Decryption Wrapper
+// ============================================
+
+/**
+ * Wrapper to handle credential decryption with proper error handling.
+ * The underlying function throws EncryptionError on failure.
+ */
+function decryptCredentials(encrypted: string | Record<string, unknown>): {
+  success: boolean
+  credentials: Record<string, unknown>
+  error?: string
+} {
+  try {
+    const credentials = decryptCredentialsAES(encrypted)
+    return { success: true, credentials }
+  } catch (error) {
+    if (error instanceof EncryptionError) {
+      safeError('[Devices] Failed to decrypt credentials:', error.message)
+      return {
+        success: false,
+        credentials: {},
+        error: 'Failed to decrypt stored credentials. The encryption key may have changed.',
+      }
+    }
+    safeError('[Devices] Unexpected decryption error:', error)
+    return {
+      success: false,
+      credentials: {},
+      error: 'Unexpected error decrypting credentials.',
+    }
+  }
+}
 
 import {
   getAdapter,

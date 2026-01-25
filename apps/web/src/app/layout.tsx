@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/toaster'
 import { AuthProvider } from '@/contexts/AuthContext'
 import { ThemeProvider } from '@/components/providers/ThemeProvider'
 import { TooltipProviderWrapper } from '@/components/ui/TooltipProvider'
+import { DragDropProvider } from '@/components/providers/DragDropProvider'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -20,6 +21,7 @@ export const metadata: Metadata = {
  * - ThemeProvider: Handles light/dark theme state
  * - TooltipProviderWrapper: Provides tooltip context for help system
  * - AuthProvider: Handles Supabase authentication state
+ * - DragDropProvider: Enables drag-and-drop card reordering on dashboard
  * - Toaster: Provides toast notification support
  */
 export default function RootLayout({
@@ -33,7 +35,9 @@ export default function RootLayout({
         <ThemeProvider>
           <TooltipProviderWrapper>
             <AuthProvider>
-              {children}
+              <DragDropProvider>
+                {children}
+              </DragDropProvider>
             </AuthProvider>
           </TooltipProviderWrapper>
         </ThemeProvider>
