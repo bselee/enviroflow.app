@@ -630,10 +630,37 @@ export function useDashboardData(
         console.warn("Failed to fetch workflows:", workflowsResult.error.message);
       }
 
+      // If sensor readings are empty but we have controllers, try to fetch cached readings
+      // This provides a fallback when polling is failing but old data exists
+      let finalSensorReadings = sensorsResult.data || [];
+
+      if (finalSensorReadings.length === 0) {
+        const allControllers = [
+          ...(roomsResult.data?.flatMap((r: RoomWithControllers) => r.controllers || []) || []),
+          ...(unassignedResult.data || [])
+        ];
+
+        if (allControllers.length > 0) {
+          // Fetch most recent readings for each controller, regardless of date
+          const controllerIds = allControllers.map((c: Controller) => c.id);
+          const { data: cachedReadings } = await supabase
+            .from("sensor_readings")
+            .select("*")
+            .in("controller_id", controllerIds)
+            .order("recorded_at", { ascending: false })
+            .limit(sensorReadingLimit);
+
+          if (cachedReadings && cachedReadings.length > 0) {
+            finalSensorReadings = cachedReadings;
+            console.log(`[Dashboard] Using ${cachedReadings.length} cached readings (data may be stale)`);
+          }
+        }
+      }
+
       if (isMounted.current) {
         setRoomsWithControllers(roomsResult.data || []);
         setUnassignedControllersData(unassignedResult.data || []);
-        setSensorReadings(sensorsResult.data || []);
+        setSensorReadings(finalSensorReadings);
         setWorkflows(workflowsResult.data || []);
       }
     } catch (err) {
