@@ -384,6 +384,13 @@ export const SENSOR_TYPE_LABELS: Record<SensorType, string> = {
   soil_moisture: "Soil Moisture",
   ph: "pH",
   ec: "EC",
+  pressure: "Pressure",
+  water_level: "Water Level",
+  wind_speed: "Wind Speed",
+  pm25: "PM2.5",
+  uv: "UV Index",
+  solar_radiation: "Solar Radiation",
+  rain: "Rainfall",
 };
 
 /** Default units for sensor types */
@@ -396,6 +403,13 @@ export const SENSOR_TYPE_UNITS: Record<SensorType, string> = {
   soil_moisture: "%",
   ph: "",
   ec: "mS/cm",
+  pressure: "hPa",
+  water_level: "%",
+  wind_speed: "mph",
+  pm25: "µg/m³",
+  uv: "",
+  solar_radiation: "W/m²",
+  rain: "mm",
 };
 
 /** Operator labels for display */

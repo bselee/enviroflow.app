@@ -12,6 +12,8 @@ import {
   Zap,
   Activity,
   X,
+  Gauge,
+  CloudRain,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SensorNodeData, SensorType } from "../types";
@@ -44,6 +46,13 @@ const SENSOR_ICONS: Record<SensorType, React.ComponentType<{ className?: string 
   soil_moisture: Leaf,
   ph: FlaskConical,
   ec: Zap,
+  pressure: Gauge,
+  water_level: Droplets,
+  wind_speed: Wind,
+  pm25: Wind,
+  uv: Sun,
+  solar_radiation: Sun,
+  rain: CloudRain,
 };
 
 /** Human-readable labels for sensor types */
@@ -56,6 +65,13 @@ const TYPE_LABELS: Record<SensorType, string> = {
   soil_moisture: "Soil Moisture",
   ph: "pH",
   ec: "EC",
+  pressure: "Pressure",
+  water_level: "Water Level",
+  wind_speed: "Wind Speed",
+  pm25: "PM2.5",
+  uv: "UV Index",
+  solar_radiation: "Solar Radiation",
+  rain: "Rainfall",
 };
 
 /** Default units for sensor types */
@@ -68,6 +84,13 @@ const TYPE_UNITS: Record<SensorType, string> = {
   soil_moisture: "%",
   ph: "",
   ec: "mS/cm",
+  pressure: "hPa",
+  water_level: "%",
+  wind_speed: "mph",
+  pm25: "µg/m³",
+  uv: "",
+  solar_radiation: "W/m²",
+  rain: "mm",
 };
 
 /** Operator display symbols */

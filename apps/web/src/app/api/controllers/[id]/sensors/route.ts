@@ -128,6 +128,12 @@ const SENSOR_RANGES: Record<SensorType, SensorRanges> = {
   ec: { min: 0, max: 20, unit: 'mS/cm' },
   soil_moisture: { min: 0, max: 100, unit: '%' },
   pressure: { min: 800, max: 1200, unit: 'hPa' },
+  water_level: { min: 0, max: 100, unit: '%' },
+  wind_speed: { min: 0, max: 200, unit: 'mph' },
+  pm25: { min: 0, max: 500, unit: 'µg/m³' },
+  uv: { min: 0, max: 15, unit: 'index' },
+  solar_radiation: { min: 0, max: 1500, unit: 'W/m²' },
+  rain: { min: 0, max: 500, unit: 'mm' },
 }
 
 // ============================================

@@ -140,6 +140,78 @@ const SENSOR_CONFIGS: Record<SensorType, SensorDisplayConfig> = {
     getStatusColor: (value, range) =>
       getStatusColor({ value, optimalMin: range[0], optimalMax: range[1] }),
   },
+  soil_moisture: {
+    label: "Soil Moisture",
+    icon: Droplet,
+    unit: "%",
+    decimals: 1,
+    defaultOptimalRange: [40, 60],
+    getStatusColor: (value, range) =>
+      getStatusColor({ value, optimalMin: range[0], optimalMax: range[1] }),
+  },
+  pressure: {
+    label: "Pressure",
+    icon: Activity,
+    unit: "hPa",
+    decimals: 1,
+    defaultOptimalRange: [1000, 1030],
+    getStatusColor: (value, range) =>
+      getStatusColor({ value, optimalMin: range[0], optimalMax: range[1] }),
+  },
+  water_level: {
+    label: "Water Level",
+    icon: Droplet,
+    unit: "%",
+    decimals: 0,
+    defaultOptimalRange: [20, 80],
+    getStatusColor: (value, range) =>
+      getStatusColor({ value, optimalMin: range[0], optimalMax: range[1] }),
+  },
+  wind_speed: {
+    label: "Wind Speed",
+    icon: Wind,
+    unit: "mph",
+    decimals: 1,
+    defaultOptimalRange: [0, 15],
+    getStatusColor: (value, range) =>
+      getStatusColor({ value, optimalMin: range[0], optimalMax: range[1] }),
+  },
+  pm25: {
+    label: "PM2.5",
+    icon: Wind,
+    unit: "µg/m³",
+    decimals: 0,
+    defaultOptimalRange: [0, 35],
+    getStatusColor: (value, range) =>
+      getStatusColor({ value, optimalMin: range[0], optimalMax: range[1] }),
+  },
+  uv: {
+    label: "UV Index",
+    icon: Activity,
+    unit: "",
+    decimals: 1,
+    defaultOptimalRange: [0, 6],
+    getStatusColor: (value, range) =>
+      getStatusColor({ value, optimalMin: range[0], optimalMax: range[1] }),
+  },
+  solar_radiation: {
+    label: "Solar Radiation",
+    icon: Activity,
+    unit: "W/m²",
+    decimals: 0,
+    defaultOptimalRange: [0, 1000],
+    getStatusColor: (value, range) =>
+      getStatusColor({ value, optimalMin: range[0], optimalMax: range[1] }),
+  },
+  rain: {
+    label: "Rainfall",
+    icon: Droplet,
+    unit: "mm",
+    decimals: 1,
+    defaultOptimalRange: [0, 10],
+    getStatusColor: (value, range) =>
+      getStatusColor({ value, optimalMin: range[0], optimalMax: range[1] }),
+  },
 };
 
 // Size-based styling
