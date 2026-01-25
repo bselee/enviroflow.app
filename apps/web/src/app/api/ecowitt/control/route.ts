@@ -25,6 +25,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { decryptCredentials } from '@/lib/server-encryption'
+import type { Controller } from '@/types'
 
 // ============================================
 // Types
@@ -56,7 +57,7 @@ interface EcowittCommand {
 // Supabase Client (Service Role)
 // ============================================
 
-type SupabaseClient = ReturnType<typeof createClient<never>>
+type SupabaseClient = ReturnType<typeof createClient>
 
 let supabase: SupabaseClient | null = null
 
@@ -252,7 +253,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .select('*')
       .eq('id', controllerId)
       .eq('user_id', userId)
-      .single()
+      .single<Controller>()
 
     if (controllerError || !controller) {
       return NextResponse.json(
@@ -270,6 +271,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // Decrypt credentials to get gateway IP
+    if (!controller.credentials) {
+      return NextResponse.json(
+        { error: 'Controller has no credentials configured' },
+        { status: 400 }
+      )
+    }
+
     let credentials: Record<string, unknown>
     try {
       credentials = decryptCredentials(controller.credentials)
@@ -313,7 +321,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       console.error('[Ecowitt Control] Gateway communication error:', error)
 
       // Log failed attempt
-      await client.from('activity_logs').insert({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (client.from('activity_logs') as any).insert({
         user_id: userId,
         controller_id: controllerId,
         action_type: 'ecowitt_control_failed',
@@ -337,7 +346,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // Log successful control action
-    await client.from('activity_logs').insert({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (client.from('activity_logs') as any).insert({
       user_id: userId,
       controller_id: controllerId,
       action_type: `ecowitt_control_${action}`,

@@ -293,7 +293,7 @@ async function pollController(
   supabase: SupabaseClient,
   controller: DBController
 ): Promise<PollResult> {
-  const { id: dbControllerId, user_id, brand, controller_id: controllerId, name, credentials } = controller
+  const { id: dbControllerId, user_id, brand, name, credentials } = controller
 
   // Skip CSV upload controllers - they don't poll
   if (brand === 'csv_upload') {

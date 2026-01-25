@@ -11,7 +11,6 @@ import {
   isRetryable,
   getRetryDelay,
   getBrandErrorInsights,
-  type ErrorType,
 } from '../error-classifier';
 
 describe('Error Classifier', () => {

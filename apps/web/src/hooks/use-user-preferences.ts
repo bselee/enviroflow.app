@@ -405,6 +405,7 @@ export function useUserPreferences(): UseUserPreferencesReturn {
    */
   const resetRoomPreferences = useCallback((roomId: string) => {
     setPreferences((prev) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { [roomId]: _, ...remainingRoomSettings } = prev.roomSettings;
 
       const updated: UserPreferences = {

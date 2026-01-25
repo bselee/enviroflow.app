@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import type {
   ActivityLog,
-  ActivityLogResult,
   FormattedActivityLog,
   ActivityLogsOptions,
 } from "@/types";

@@ -9,7 +9,7 @@
 
 import { createServerClient } from '@/lib/supabase'
 import { NextRequest, NextResponse } from 'next/server'
-import type { Alert, AlertStatus } from '@/types'
+import type { AlertStatus } from '@/types'
 
 /**
  * GET /api/alerts

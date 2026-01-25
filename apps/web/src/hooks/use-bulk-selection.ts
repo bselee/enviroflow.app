@@ -71,45 +71,6 @@ export function useBulkSelection<T>({
     [selectedIds]
   );
 
-  // Toggle selection of a single item
-  const toggleItem = useCallback(
-    (id: string, event?: React.MouseEvent) => {
-      // Handle Shift+Click for range selection
-      if (event?.shiftKey && lastSelectedIdRef.current) {
-        selectRange(lastSelectedIdRef.current, id);
-        return;
-      }
-
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(id)) {
-          next.delete(id);
-          // If deselecting, don't update lastSelectedId
-        } else {
-          next.add(id);
-          lastSelectedIdRef.current = id;
-        }
-        return next;
-      });
-    },
-    [items, getKey, selectRange]
-  );
-
-  // Select all items
-  const selectAll = useCallback(() => {
-    const allIds = new Set(items.map(getKey));
-    setSelectedIds(allIds);
-    if (items.length > 0) {
-      lastSelectedIdRef.current = getKey(items[items.length - 1]);
-    }
-  }, [items, getKey]);
-
-  // Clear all selections
-  const clearSelection = useCallback(() => {
-    setSelectedIds(new Set());
-    lastSelectedIdRef.current = null;
-  }, []);
-
   // Select a range of items between two IDs
   const selectRange = useCallback(
     (fromId: string, toId: string) => {
@@ -133,6 +94,45 @@ export function useBulkSelection<T>({
     },
     [items, getKey]
   );
+
+  // Toggle selection of a single item
+  const toggleItem = useCallback(
+    (id: string, event?: React.MouseEvent) => {
+      // Handle Shift+Click for range selection
+      if (event?.shiftKey && lastSelectedIdRef.current) {
+        selectRange(lastSelectedIdRef.current, id);
+        return;
+      }
+
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) {
+          next.delete(id);
+          // If deselecting, don't update lastSelectedId
+        } else {
+          next.add(id);
+          lastSelectedIdRef.current = id;
+        }
+        return next;
+      });
+    },
+    [selectRange]
+  );
+
+  // Select all items
+  const selectAll = useCallback(() => {
+    const allIds = new Set(items.map(getKey));
+    setSelectedIds(allIds);
+    if (items.length > 0) {
+      lastSelectedIdRef.current = getKey(items[items.length - 1]);
+    }
+  }, [items, getKey]);
+
+  // Clear all selections
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    lastSelectedIdRef.current = null;
+  }, []);
 
   // Get array of selected items
   const getSelectedItems = useCallback((): T[] => {

@@ -27,16 +27,6 @@ import {
 } from "@/lib/onboarding-content";
 
 /**
- * Default onboarding state for new users.
- */
-const DEFAULT_STATE: OnboardingState = {
-  completed: false,
-  currentStep: 0,
-  skippedSteps: [],
-  version: ONBOARDING_VERSION,
-};
-
-/**
  * Hook return type.
  */
 interface UseOnboardingReturn {
@@ -188,6 +178,21 @@ export function useOnboarding(): UseOnboardingReturn {
   );
 
   /**
+   * Complete the tour.
+   */
+  const completeTour = useCallback(() => {
+    if (!isMountedRef.current) return;
+
+    trackEvent("complete");
+    setIsCompleted(true);
+    setIsActive(false);
+    saveState({
+      completed: true,
+      completedAt: new Date().toISOString(),
+    });
+  }, [trackEvent, saveState]);
+
+  /**
    * Advance to the next step.
    */
   const nextStep = useCallback(() => {
@@ -202,7 +207,7 @@ export function useOnboarding(): UseOnboardingReturn {
     setCurrentStep(nextStepIndex);
     trackEvent("view", ONBOARDING_STEPS[nextStepIndex]?.id);
     saveState({ currentStep: nextStepIndex });
-  }, [currentStep, trackEvent, saveState]);
+  }, [currentStep, completeTour, trackEvent, saveState]);
 
   /**
    * Go back to the previous step.
@@ -232,21 +237,6 @@ export function useOnboarding(): UseOnboardingReturn {
 
     nextStep();
   }, [currentStep, skippedSteps, nextStep, trackEvent, saveState]);
-
-  /**
-   * Complete the tour.
-   */
-  const completeTour = useCallback(() => {
-    if (!isMountedRef.current) return;
-
-    trackEvent("complete");
-    setIsCompleted(true);
-    setIsActive(false);
-    saveState({
-      completed: true,
-      completedAt: new Date().toISOString(),
-    });
-  }, [trackEvent, saveState]);
 
   /**
    * Dismiss the tour without completing.

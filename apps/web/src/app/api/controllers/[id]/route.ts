@@ -15,15 +15,12 @@ import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import {
   encryptCredentials as encryptCredentialsAES,
-  decryptCredentials as decryptCredentialsAES,
   EncryptionError,
 } from '@/lib/server-encryption'
 import { getAdapter } from '@enviroflow/automation-engine/adapters'
 import type {
   ControllerBrand,
   ControllerCredentials,
-  ControllerCapabilities,
-  ConnectionResult,
 } from '@enviroflow/automation-engine/adapters'
 
 // ============================================
@@ -120,23 +117,6 @@ function encryptCredentials(credentials: Record<string, unknown>): string {
   }
 }
 
-/**
- * Decrypt credentials from database storage.
- * Handles both AES-256-GCM and legacy formats.
- *
- * @param encrypted - Encrypted string from database
- * @returns Decrypted credential object
- */
-function decryptCredentials(encrypted: string | Record<string, unknown>): Record<string, unknown> {
-  try {
-    return decryptCredentialsAES(encrypted)
-  } catch (error) {
-    if (error instanceof EncryptionError) {
-      console.error('[Decryption] Failed to decrypt credentials')
-    }
-    return {}
-  }
-}
 
 function maskCredentials(credentials: Record<string, unknown>): Record<string, unknown> {
   const masked: Record<string, unknown> = {}
@@ -188,7 +168,7 @@ async function getOwnedController(
 
   // Remove credentials if not requested
   if (!includeCredentials && data.credentials) {
-    const { credentials: _, ...rest } = data
+    const { credentials: _credentials, ...rest } = data
     return rest as Record<string, unknown>
   }
 

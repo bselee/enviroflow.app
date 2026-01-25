@@ -223,7 +223,7 @@ async function executeWorkflow(
   supabase: SupabaseClient,
   workflow: Workflow
 ): Promise<ExecutionResult> {
-  const { id, user_id, name, nodes, edges, dry_run_enabled, room } = workflow
+  const { id, user_id, name, nodes, dry_run_enabled, room } = workflow
 
   // Extract room name for notification context
   const roomName = room?.name || undefined

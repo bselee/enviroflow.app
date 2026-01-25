@@ -89,7 +89,7 @@ export function AssignRoomDialog({
       } else {
         onOpenChange(false);
       }
-    } catch (err) {
+    } catch {
       setError("An unexpected error occurred");
     } finally {
       setIsSubmitting(false);
@@ -116,7 +116,7 @@ export function AssignRoomDialog({
       } else {
         onOpenChange(false);
       }
-    } catch (err) {
+    } catch {
       setError("An unexpected error occurred");
     } finally {
       setIsSubmitting(false);

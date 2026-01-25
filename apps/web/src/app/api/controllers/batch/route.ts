@@ -63,7 +63,8 @@ interface BatchDeleteRequest {
   }
 }
 
-type BatchRequest = BatchAssignRoomRequest | BatchTestConnectionRequest | BatchDeleteRequest
+// Union type for type-safe batch requests
+// type BatchRequest = BatchAssignRoomRequest | BatchTestConnectionRequest | BatchDeleteRequest
 
 interface ConnectionTestResult {
   controllerId: string
@@ -224,7 +225,7 @@ async function batchTestConnection(
         let credentials: unknown
         try {
           credentials = decryptCredentials(controller.credentials as string)
-        } catch (decryptError) {
+        } catch (_decryptError) {
           return {
             controllerId: controller.id,
             controllerName: controller.name,

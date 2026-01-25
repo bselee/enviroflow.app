@@ -12,7 +12,7 @@
  */
 
 import { useState } from 'react'
-import { Loader2, CheckCircle, XCircle, AlertCircle, Wifi, WifiOff } from 'lucide-react'
+import { Loader2, XCircle, AlertCircle, Wifi, WifiOff } from 'lucide-react'
 import {
   Dialog,
   DialogContent,

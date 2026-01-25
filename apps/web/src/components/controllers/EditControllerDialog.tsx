@@ -57,7 +57,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import type { ControllerWithRoom, Room, UpdateControllerInput } from "@/types";
+import type { ControllerWithRoom, UpdateControllerInput } from "@/types";
 
 /**
  * Form validation schema
@@ -206,7 +206,7 @@ export function EditControllerDialog({
         success: result.success,
         isOnline: result.data?.isOnline,
       });
-    } catch (err) {
+    } catch {
       setTestResult({ success: false });
     } finally {
       setIsTesting(false);

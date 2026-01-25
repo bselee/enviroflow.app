@@ -691,6 +691,7 @@ export function useDashboardData(
    * Extract flat list of rooms from rooms with controllers.
    */
   const rooms = useMemo((): Room[] => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     return roomsWithControllers.map(({ controllers: _controllers, ...room }) => room);
   }, [roomsWithControllers]);
 

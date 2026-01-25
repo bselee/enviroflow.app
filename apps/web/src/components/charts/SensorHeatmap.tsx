@@ -340,7 +340,7 @@ function HeatmapTable({
           </tr>
         </thead>
         <tbody>
-          {sortedCells.map((cell, idx) => (
+          {sortedCells.map((cell) => (
             <tr
               key={`${cell.day}-${cell.hour}`}
               className={cn("border-b", isDark ? "border-gray-800" : "border-gray-100")}

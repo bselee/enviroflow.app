@@ -31,7 +31,6 @@ import {
   BookOpen,
 } from "lucide-react";
 import {
-  type ErrorGuidance as ErrorGuidanceType,
   type ErrorCategory,
   getErrorGuidance,
   getErrorColor,

@@ -248,7 +248,7 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
         console.error('[SensorReadings] Polling fetch error:', err);
       }
     }, POLLING_INTERVAL_MS);
-  }, []);
+  }, [fetchReadings]);
 
   /**
    * Stop fallback polling.

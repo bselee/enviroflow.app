@@ -9,8 +9,6 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  Line,
-  Legend,
   ReferenceLine,
 } from "recharts";
 import { cn } from "@/lib/utils";

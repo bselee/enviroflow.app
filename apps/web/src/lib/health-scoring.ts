@@ -82,7 +82,7 @@ const ANALYSIS_WINDOW_HOURS = 24;
  */
 function calculateUptimeScore(
   controller: Controller,
-  activityLogs: ActivityLog[]
+  _activityLogs: ActivityLog[]
 ): { score: number; uptimeHours: number; totalHours: number } {
   const now = new Date();
   const windowStart = new Date(now.getTime() - ANALYSIS_WINDOW_HOURS * 60 * 60 * 1000);

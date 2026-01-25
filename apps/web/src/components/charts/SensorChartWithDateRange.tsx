@@ -106,7 +106,6 @@ export function SensorChartWithDateRange({
 
   // Fetch sensor readings with the selected date range
   const {
-    readings,
     isLoading,
     error,
     refetch,
@@ -247,10 +246,10 @@ export function SensorChartWithDateRange({
         )}
 
         {/* Data Summary */}
-        {!error && !isLoading && readings.length > 0 && (
+        {!error && !isLoading && (temperatureData || humidityData || vpdData || co2Data) && (
           <div className="mt-4 pt-4 border-t">
             <p className="text-xs text-muted-foreground text-center">
-              Showing {readings.length.toLocaleString()} data points from{" "}
+              Showing data from{" "}
               {range.from.toLocaleDateString()} to {range.to.toLocaleDateString()}
             </p>
           </div>
@@ -280,7 +279,7 @@ export function SensorChartWithDateRangeCompact({
     urlParamKey: "sensorRange",
   });
 
-  const { readings, isLoading, error, refetch, getTimeSeries } = useSensorReadings({
+  const { isLoading, error, refetch, getTimeSeries } = useSensorReadings({
     controllerIds,
     sensorTypes: visibleSensors,
     dateRange: range,

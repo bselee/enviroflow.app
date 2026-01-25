@@ -38,7 +38,6 @@ import {
   type ACInfinityCredentials,
   type InkbirdCredentials,
   type CSVUploadCredentials,
-  type SensorReading as AdapterSensorReading,
 } from '@enviroflow/automation-engine/adapters'
 
 // ============================================
@@ -323,7 +322,6 @@ export async function GET(
     })
 
     if (!rateLimitResult.success) {
-      const resetDate = new Date(rateLimitResult.reset)
       return NextResponse.json(
         {
           error: 'Rate limit exceeded',

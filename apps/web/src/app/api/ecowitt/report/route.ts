@@ -90,15 +90,6 @@ const MAC_REGEX = /^([0-9A-F]{2}[:-]?){5}[0-9A-F]{2}$/i
 /**
  * Parse Ecowitt sensor data from form-encoded webhook payload
  */
-interface EcowittReading {
-  controller_id: string
-  user_id: string
-  sensor_type: string
-  value: number
-  unit: string
-  port: number
-}
-
 function parseSensorData(formData: FormData): {
   macAddress: string | null
   timestamp: Date

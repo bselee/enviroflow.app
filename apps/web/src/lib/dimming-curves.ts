@@ -119,7 +119,7 @@ export function calculateSunrise(
   date: Date,
   latitude: number,
   longitude: number,
-  timezone: string
+  _timezone: string
 ): Date {
   // For MVP, use a simple approximation
   // Production should use a library like suncalc or an API
@@ -196,7 +196,7 @@ export function calculateSunset(
   date: Date,
   latitude: number,
   longitude: number,
-  timezone: string
+  _timezone: string
 ): Date {
   // For MVP, use a simple approximation
   // Production should use a library like suncalc or an API

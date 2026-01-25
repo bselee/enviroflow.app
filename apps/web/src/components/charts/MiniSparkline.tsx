@@ -5,7 +5,7 @@ import { Area, AreaChart, Line, LineChart, ResponsiveContainer } from "recharts"
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/providers/ThemeProvider";
 import type { TimeSeriesPoint } from "@/types";
-import { getStatusColor, type StatusLevel } from "@/lib/status-colors";
+import { getStatusColor } from "@/lib/status-colors";
 
 // =============================================================================
 // Types

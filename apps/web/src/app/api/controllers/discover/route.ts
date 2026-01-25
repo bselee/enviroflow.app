@@ -148,7 +148,6 @@ import {
   getDiscoverableAdapter,
   supportsDiscovery,
   type ControllerBrand,
-  type DiscoveredDevice,
 } from '@enviroflow/automation-engine/adapters'
 
 // Lazy Supabase client initialization

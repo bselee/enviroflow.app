@@ -91,7 +91,7 @@ export function classifyError(
   error: Error | string | { error?: string; message?: string; status?: number },
   statusCode?: number
 ): ErrorType {
-  const message = typeof error === 'string'
+  const errorMessage = typeof error === 'string'
     ? error.toLowerCase()
     : error instanceof Error
       ? error.message.toLowerCase()
@@ -103,37 +103,37 @@ export function classifyError(
   if (
     status === 401 ||
     status === 403 ||
-    message.includes('invalid credentials') ||
-    message.includes('invalid email') ||
-    message.includes('invalid password') ||
-    message.includes('authentication failed') ||
-    message.includes('login failed') ||
-    message.includes('unauthorized') ||
-    message.includes('invalid token') ||
-    message.includes('session expired') ||
-    message.includes('credentials') ||
-    message.includes('email not found') ||
-    message.includes('password incorrect') ||
-    message.includes('invalid api key')
+    errorMessage.includes('invalid credentials') ||
+    errorMessage.includes('invalid email') ||
+    errorMessage.includes('invalid password') ||
+    errorMessage.includes('authentication failed') ||
+    errorMessage.includes('login failed') ||
+    errorMessage.includes('unauthorized') ||
+    errorMessage.includes('invalid token') ||
+    errorMessage.includes('session expired') ||
+    errorMessage.includes('credentials') ||
+    errorMessage.includes('email not found') ||
+    errorMessage.includes('password incorrect') ||
+    errorMessage.includes('invalid api key')
   ) {
     return 'credentials';
   }
 
   // 2. NETWORK - Connection and network issues
   if (
-    message.includes('network') ||
-    message.includes('fetch failed') ||
-    message.includes('econnrefused') ||
-    message.includes('enotfound') ||
-    message.includes('connection refused') ||
-    message.includes('dns') ||
-    message.includes('timeout') ||
-    message.includes('timed out') ||
-    message.includes('getaddrinfo') ||
-    message.includes('unable to connect') ||
-    message.includes('connection error') ||
-    message.includes('no internet') ||
-    message.includes('network error')
+    errorMessage.includes('network') ||
+    errorMessage.includes('fetch failed') ||
+    errorMessage.includes('econnrefused') ||
+    errorMessage.includes('enotfound') ||
+    errorMessage.includes('connection refused') ||
+    errorMessage.includes('dns') ||
+    errorMessage.includes('timeout') ||
+    errorMessage.includes('timed out') ||
+    errorMessage.includes('getaddrinfo') ||
+    errorMessage.includes('unable to connect') ||
+    errorMessage.includes('connection error') ||
+    errorMessage.includes('no internet') ||
+    errorMessage.includes('network error')
   ) {
     return 'network';
   }
@@ -141,15 +141,15 @@ export function classifyError(
   // 3. OFFLINE - Device/controller is unreachable
   if (
     status === 503 ||
-    message.includes('offline') ||
-    message.includes('unreachable') ||
-    message.includes('not connected') ||
-    message.includes('controller is offline') ||
-    message.includes('device offline') ||
-    message.includes('controller not found') ||
-    message.includes('device not found') ||
-    message.includes('not available') ||
-    message.includes('disconnected')
+    errorMessage.includes('offline') ||
+    errorMessage.includes('unreachable') ||
+    errorMessage.includes('not connected') ||
+    errorMessage.includes('controller is offline') ||
+    errorMessage.includes('device offline') ||
+    errorMessage.includes('controller not found') ||
+    errorMessage.includes('device not found') ||
+    errorMessage.includes('not available') ||
+    errorMessage.includes('disconnected')
   ) {
     return 'offline';
   }
@@ -157,11 +157,11 @@ export function classifyError(
   // 4. RATE_LIMIT - Too many requests
   if (
     status === 429 ||
-    message.includes('rate limit') ||
-    message.includes('too many requests') ||
-    message.includes('slow down') ||
-    message.includes('throttled') ||
-    message.includes('quota exceeded')
+    errorMessage.includes('rate limit') ||
+    errorMessage.includes('too many requests') ||
+    errorMessage.includes('slow down') ||
+    errorMessage.includes('throttled') ||
+    errorMessage.includes('quota exceeded')
   ) {
     return 'rate_limit';
   }
@@ -169,11 +169,11 @@ export function classifyError(
   // 5. SERVER - Server-side errors (default for 5xx codes)
   if (
     status && status >= 500 ||
-    message.includes('internal server error') ||
-    message.includes('service unavailable') ||
-    message.includes('bad gateway') ||
-    message.includes('gateway timeout') ||
-    message.includes('server error')
+    errorMessage.includes('internal server error') ||
+    errorMessage.includes('service unavailable') ||
+    errorMessage.includes('bad gateway') ||
+    errorMessage.includes('gateway timeout') ||
+    errorMessage.includes('server error')
   ) {
     return 'server';
   }
@@ -346,7 +346,7 @@ export async function classifyAndLogError(
     (typeof error === 'object' && 'status' in error ? error.status : undefined);
 
   const type = classifyError(error, statusCode);
-  const message = extractErrorMessage(error);
+  // const message = extractErrorMessage(error);
   const retryable = isRetryable(type);
 
   const errorContext: ErrorContext = {

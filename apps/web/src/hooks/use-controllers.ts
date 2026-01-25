@@ -21,7 +21,6 @@ import type {
   Brand,
   RoomBasic,
 } from "@/types";
-import { redactCredentials } from "@/lib/encryption";
 
 /**
  * Result type following { success, data?, error? } pattern

@@ -211,7 +211,10 @@ function setStoredOverride(tier: AnimationTier | null): void {
 export function useAnimationTier(
   config: Partial<FPSMeasurementConfig> = {}
 ): UseAnimationTierReturn {
-  const mergedConfig: FPSMeasurementConfig = { ...DEFAULT_CONFIG, ...config };
+  const mergedConfig: FPSMeasurementConfig = useMemo(
+    () => ({ ...DEFAULT_CONFIG, ...config }),
+    [config]
+  );
 
   // State
   const [fps, setFps] = useState<number>(0);

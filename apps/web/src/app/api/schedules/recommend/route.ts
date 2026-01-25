@@ -277,7 +277,7 @@ async function getScheduleRecommendation(
   }
 }
 
-function generateMockRecommendation(request: RecommendRequest): AIScheduleRecommendation {
+function generateMockRecommendation(_request: RecommendRequest): AIScheduleRecommendation {
   console.warn('[Recommend API] Using mock recommendation (API key not configured)');
 
   return {
@@ -349,10 +349,10 @@ function generateMockRecommendation(request: RecommendRequest): AIScheduleRecomm
  *
  * Get AI-powered schedule recommendations based on room conditions
  */
-export async function POST(request: NextRequest) {
+export async function POST(_request: NextRequest) {
   try {
     // Parse and validate request
-    const body = await request.json();
+    const body = await _request.json();
     const validation = RecommendRequestSchema.safeParse(body);
 
     if (!validation.success) {

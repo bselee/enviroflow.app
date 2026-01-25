@@ -268,7 +268,7 @@ export function aggregateTimeSeriestoHeatmap(points: TimeSeriesPoint[]): Heatmap
       }
 
       aggregationMap.get(key)!.values.push(point.value);
-    } catch (error) {
+    } catch (_error) {
       // Skip invalid timestamps
       continue;
     }
@@ -328,7 +328,7 @@ export function prepareCorrelationData(
           timestamp: yReading.recorded_at,
           hour,
         });
-      } catch (error) {
+      } catch (_error) {
         // Skip invalid timestamps
         continue;
       }
@@ -369,7 +369,7 @@ export function prepareCorrelationFromTimeSeries(
           timestamp: yPoint.timestamp,
           hour,
         });
-      } catch (error) {
+      } catch (_error) {
         // Skip invalid timestamps
         continue;
       }

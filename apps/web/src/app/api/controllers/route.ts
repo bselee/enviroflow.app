@@ -28,7 +28,6 @@ import { sanitizeName, isValidName } from '@/lib/sanitize-input'
 import {
   getAdapter,
   getSupportedBrands,
-  isBrandSupported,
   type ControllerBrand,
   type ACInfinityCredentials,
   type InkbirdCredentials,

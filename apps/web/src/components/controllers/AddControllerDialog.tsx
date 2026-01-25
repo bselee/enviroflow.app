@@ -563,7 +563,7 @@ export function AddControllerDialog({
         setIsConnecting(false);
       }
     },
-    [selectedBrand, credentials, discoveryCredentials, addMode, discoveredDevice, onAdd, handleOpenChange, onCreateRoom, rooms.length]
+    [selectedBrand, credentials, discoveryCredentials, addMode, discoveredDevice, onAdd, handleOpenChange, onCreateRoom, rooms.length, credentialsForm]
   );
 
   /**

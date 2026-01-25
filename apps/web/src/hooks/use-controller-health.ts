@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import type {
-  Controller,
   ControllerHealth,
   HealthScore,
   HealthScoreWithController,

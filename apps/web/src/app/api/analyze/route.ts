@@ -70,7 +70,8 @@ const AnalyzeRequestSchema = z.object({
   roomId: z.string().uuid().optional(),
 });
 
-type AnalyzeRequest = z.infer<typeof AnalyzeRequestSchema>;
+// Type extracted from schema for internal use
+// type AnalyzeRequest = z.infer<typeof AnalyzeRequestSchema>;
 
 /**
  * Schema for validating the structured AI response.

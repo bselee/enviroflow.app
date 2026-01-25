@@ -196,7 +196,7 @@ export function decryptCredentials(
       ])
 
       return JSON.parse(decrypted.toString('utf8'))
-    } catch (error) {
+    } catch (_error) {
       // Never expose decryption error details
       throw new EncryptionError('Failed to decrypt credentials')
     }

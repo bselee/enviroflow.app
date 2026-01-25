@@ -9,7 +9,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import type {
   LocalDiscoveryOptions,
   LocalDiscoveryResult,
-  LocalDevice,
 } from '@/lib/local-discovery'
 
 /**

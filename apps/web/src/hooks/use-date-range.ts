@@ -213,6 +213,7 @@ export function useDateRange(options: UseDateRangeOptions = {}): UseDateRangeRet
       if (urlRange) return urlRange;
     }
     return calculateRangeFromPreset(defaultPreset);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
   const [range, setRangeState] = useState<DateRangeValue>(initialRange);
@@ -297,6 +298,7 @@ export function useDateRange(options: UseDateRangeOptions = {}): UseDateRangeRet
         onChange?.(urlRange);
       }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, persistInUrl, urlParamKey]);
 
   return {

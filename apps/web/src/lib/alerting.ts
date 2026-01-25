@@ -21,7 +21,6 @@ import type {
   AlertType,
   AlertMetadata,
   Controller,
-  ActivityLog,
 } from '@/types'
 import {
   sendPushNotification,

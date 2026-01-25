@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/providers/ThemeProvider";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { TimeSeriesPoint, SensorType } from "@/types";
-import { getStatusColor, STATUS_COLORS } from "@/lib/status-colors";
+import { getStatusColor } from "@/lib/status-colors";
 
 // =============================================================================
 // Types
