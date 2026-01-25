@@ -874,32 +874,32 @@ export async function POST(request: NextRequest) {
     if (brand !== 'csv_upload') {
       console.log(`[Controllers POST] Fetching initial sensor data for ${sanitizedName}`)
 
-      // Run sensor polling in the background (don't block the response)
-      // We use setImmediate to run after the response is sent
-      setImmediate(async () => {
-        try {
-          const pollResult = await pollController(supabase, {
-            id: data.id,
-            user_id: userId,
-            brand: data.brand,
-            controller_id: data.controller_id,
-            name: data.name,
-            credentials: data.credentials,
-            status: data.status,
-            last_seen: data.last_seen,
-            last_error: data.last_error,
-          })
+      // CRITICAL FIX: Poll sensors SYNCHRONOUSLY before returning the response
+      // setImmediate() doesn't work in serverless environments (Vercel Edge/Lambda)
+      // The function terminates immediately after response, so background tasks never run
+      try {
+        const pollResult = await pollController(supabase, {
+          id: data.id,
+          user_id: userId,
+          brand: data.brand,
+          controller_id: data.controller_id,
+          name: data.name,
+          credentials: data.credentials,
+          status: data.status,
+          last_seen: data.last_seen,
+          last_error: data.last_error,
+        })
 
-          if (pollResult.status === 'success') {
-            console.log(`[Controllers POST] Initial sensor data fetched successfully: ${pollResult.readingsCount} readings`)
-          } else {
-            console.warn(`[Controllers POST] Initial sensor fetch failed: ${pollResult.error}`)
-          }
-        } catch (pollError) {
-          console.error(`[Controllers POST] Error during initial sensor fetch:`, pollError)
-          // Don't fail the controller creation - this is best-effort
+        if (pollResult.status === 'success') {
+          console.log(`[Controllers POST] Initial sensor data fetched successfully: ${pollResult.readingsCount} readings`)
+        } else {
+          console.warn(`[Controllers POST] Initial sensor fetch failed: ${pollResult.error}`)
         }
-      })
+      } catch (pollError) {
+        console.error(`[Controllers POST] Error during initial sensor fetch:`, pollError)
+        // Don't fail the controller creation - this is best-effort
+        // Continue with controller creation even if polling fails
+      }
     }
 
     return NextResponse.json({

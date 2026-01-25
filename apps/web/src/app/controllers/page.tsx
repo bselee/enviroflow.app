@@ -134,7 +134,7 @@ function ControllerCard({
               <WifiOff className="w-6 h-6 text-muted-foreground" />
             )}
           </div>
-          <div>
+          <div className="flex-1">
             <div className="flex items-center gap-2">
               <h3 className="font-semibold text-foreground">{controller.name}</h3>
               <ControllerStatusIndicator
@@ -143,11 +143,33 @@ function ControllerCard({
                 onClick={() => onViewDiagnostics(controller)}
               />
             </div>
-            <p className="text-sm text-muted-foreground capitalize">{controller.brand.replace("_", " ")}</p>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-sm text-muted-foreground capitalize">
+                {controller.brand.replace("_", " ")}
+              </p>
+              {controller.model && (
+                <>
+                  <span className="text-muted-foreground">•</span>
+                  <p className="text-sm font-medium text-foreground">
+                    {controller.model}
+                  </p>
+                </>
+              )}
+            </div>
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               {controller.room && (
                 <Badge variant="outline" className="text-xs">
                   {controller.room.name}
+                </Badge>
+              )}
+              {controller.firmware_version && (
+                <Badge variant="secondary" className="text-xs">
+                  FW: {controller.firmware_version}
+                </Badge>
+              )}
+              {controller.capabilities?.devices && controller.capabilities.devices.length > 0 && (
+                <Badge variant="outline" className="text-xs">
+                  {controller.capabilities.devices.length} device{controller.capabilities.devices.length !== 1 ? 's' : ''}
                 </Badge>
               )}
             </div>
@@ -253,6 +275,37 @@ function ControllerCard({
         </DropdownMenu>
       </div>
 
+      {/* Quick Actions */}
+      <div className="mt-4 pt-4 border-t border-border">
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onViewDiagnostics(controller);
+            }}
+            className="w-full"
+          >
+            <Activity className="w-4 h-4 mr-2" />
+            Diagnostics
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onViewDevices(controller);
+            }}
+            className="w-full"
+            disabled={controller.brand === 'csv_upload'}
+          >
+            <Settings className="w-4 h-4 mr-2" />
+            Control
+          </Button>
+        </div>
+      </div>
+
       {/* Status warning - click to view diagnostics */}
       {hasIssue && (
         <button
@@ -260,7 +313,7 @@ function ControllerCard({
             e.stopPropagation();
             onViewDiagnostics(controller);
           }}
-          className="mt-4 w-full p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-900 hover:bg-amber-100 dark:hover:bg-amber-950/40 transition-colors text-left"
+          className="mt-3 w-full p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-900 hover:bg-amber-100 dark:hover:bg-amber-950/40 transition-colors text-left"
         >
           <div className="flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
@@ -280,10 +333,12 @@ function ControllerCard({
         </button>
       )}
 
-      <div className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground">
-        <div className="flex justify-between">
-          <span>ID: {controller.controller_id}</span>
-          <span>Last seen: {formatRelativeTime(controller.last_seen)}</span>
+      <div className="mt-3 pt-3 border-t border-border text-xs text-muted-foreground">
+        <div className="flex justify-between items-center">
+          <span className="truncate">ID: {controller.controller_id}</span>
+          <span className="ml-2 flex-shrink-0">
+            {formatRelativeTime(controller.last_seen)}
+          </span>
         </div>
       </div>
     </div>
