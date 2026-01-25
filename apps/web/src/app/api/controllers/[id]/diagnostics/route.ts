@@ -163,7 +163,7 @@ export async function POST(
 
     try {
       // Decrypt credentials
-      const decryptedCredentials = decryptCredentials(controller.credentials)
+      const _decryptedCredentials = decryptCredentials(controller.credentials)
 
       // Get adapter
       const adapter = getAdapter(controller.brand as ControllerBrand)
@@ -183,7 +183,7 @@ export async function POST(
           } else {
             failedAttempts++
           }
-        } catch (error) {
+        } catch (_error) {
           failedAttempts++
           // Continue with next attempt
         }

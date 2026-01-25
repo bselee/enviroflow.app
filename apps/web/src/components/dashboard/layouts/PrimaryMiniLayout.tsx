@@ -8,7 +8,6 @@ import {
   Activity,
   Settings,
   MoreVertical,
-  Bot,
   Cpu,
   Clock,
   AlertTriangle,
@@ -33,8 +32,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useSensorReadings } from "@/hooks/use-sensor-readings";
-import type { RoomWithControllers, Controller, TimeSeriesPoint, Room } from "@/types";
+import type { Controller, TimeSeriesPoint } from "@/types";
 import type { RoomSummary } from "@/hooks/use-dashboard-data";
 
 // =============================================================================
@@ -538,7 +536,7 @@ export function PrimaryMiniLayout({
   primaryRoomId,
   onPrimaryRoomChange,
   isLoading,
-  onRoomCreated,
+  onRoomCreated: _onRoomCreated,
 }: PrimaryMiniLayoutProps): JSX.Element {
   /**
    * Convert room summaries to display-friendly format.

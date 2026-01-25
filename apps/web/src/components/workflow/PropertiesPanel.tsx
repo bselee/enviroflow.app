@@ -9,7 +9,6 @@ import {
   Sun,
   Bell,
   X,
-  AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,21 +25,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import type {
   WorkflowNode,
   WorkflowNodeType,
-  TriggerNodeData,
-  SensorNodeData,
-  ConditionNodeData,
-  ActionNodeData,
-  DimmerNodeData,
-  NotificationNodeData,
   SensorType,
   ComparisonOperator,
   DeviceType,
   ActionVariant,
-  DimmerCurve,
   NotificationPriority,
   NotificationChannel,
 } from "./types";
@@ -678,7 +669,7 @@ function SensorFields({ getField, updateField, errors }: FieldsProps) {
             </SelectTrigger>
             <SelectContent>
               {(Object.entries(OPERATOR_LABELS) as [ComparisonOperator, string][]).map(
-                ([value, label]) => (
+                ([value, _label]) => (
                   <SelectItem key={value} value={value}>
                     {value}
                   </SelectItem>
@@ -710,7 +701,7 @@ function SensorFields({ getField, updateField, errors }: FieldsProps) {
 /**
  * Fields for Condition node configuration.
  */
-function ConditionFields({ getField, updateField, errors }: FieldsProps) {
+function ConditionFields({ getField, updateField, errors: _errors }: FieldsProps) {
   return (
     <div className="space-y-2">
       <Label>Logic Type</Label>

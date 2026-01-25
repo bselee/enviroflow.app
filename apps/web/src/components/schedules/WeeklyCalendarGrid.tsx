@@ -199,7 +199,7 @@ export function WeeklyCalendarGrid({
           {/* Header */}
           <div className="grid grid-cols-8 sticky top-0 bg-background z-10 border-b">
             <div className="p-2 text-sm font-medium border-r">Time</div>
-            {DAYS.map((day, index) => (
+            {DAYS.map((day, _index) => (
               <div
                 key={day}
                 className="p-2 text-sm font-medium text-center border-r last:border-r-0"

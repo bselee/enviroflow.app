@@ -214,7 +214,7 @@ export function EditControllerDialog({
   }, [controller, onTestConnection]);
 
   // Watch form values
-  const updateCredentials = form.watch("updateCredentials");
+  const _updateCredentials = form.watch("updateCredentials");
 
   if (!controller) return null;
 

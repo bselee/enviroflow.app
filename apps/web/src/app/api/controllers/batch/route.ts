@@ -42,7 +42,7 @@ function getSupabase(): SupabaseClient {
 // Types
 // =============================================================================
 
-interface BatchAssignRoomRequest {
+interface _BatchAssignRoomRequest {
   action: 'assign_room'
   controllerIds: string[]
   data: {
@@ -50,12 +50,12 @@ interface BatchAssignRoomRequest {
   }
 }
 
-interface BatchTestConnectionRequest {
+interface _BatchTestConnectionRequest {
   action: 'test_connection'
   controllerIds: string[]
 }
 
-interface BatchDeleteRequest {
+interface _BatchDeleteRequest {
   action: 'delete'
   controllerIds: string[]
   data: {

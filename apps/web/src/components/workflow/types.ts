@@ -5,7 +5,7 @@
  * Workflows are stored as JSONB in the database with nodes and edges arrays.
  */
 
-import type { Node, Edge, XYPosition, Position } from "@xyflow/react";
+import type { Edge, XYPosition, Position } from "@xyflow/react";
 import type { SensorType } from "@/types";
 
 // Re-export SensorType for consumers of this module

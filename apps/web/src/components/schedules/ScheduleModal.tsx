@@ -27,11 +27,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
-import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Clock, Sun, Sunrise, Sunset, Calendar } from "lucide-react";
+import { Clock, Sunrise, Sunset, Calendar } from "lucide-react";
 import type {
   CreateDeviceScheduleInput,
   DeviceSchedule,

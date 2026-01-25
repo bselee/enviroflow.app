@@ -21,7 +21,6 @@ import {
   XAxis,
   YAxis,
   Tooltip as RechartsTooltip,
-  ReferenceLine,
 } from "recharts";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -265,7 +264,7 @@ function SyncedTimeline({
   metric,
   color,
   syncRef,
-  isSynced,
+  isSynced: _isSynced,
   roomName,
 }: {
   data: TimeSeriesPoint[];

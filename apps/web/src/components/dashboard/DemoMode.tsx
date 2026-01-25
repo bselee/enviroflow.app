@@ -309,7 +309,7 @@ export function DemoModeTransition({
   onTransitionComplete,
 }: DemoModeTransitionProps): React.ReactElement {
   const [isTransitioning, setIsTransitioning] = React.useState(false);
-  const [shouldRender, setShouldRender] = React.useState(isDemoMode);
+  const [_shouldRender, setShouldRender] = React.useState(isDemoMode);
   const prevDemoModeRef = React.useRef(isDemoMode);
 
   React.useEffect(() => {

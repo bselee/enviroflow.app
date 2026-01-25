@@ -650,7 +650,7 @@ export function VPDDial({
   isLoading = false,
   className,
   warningTolerance = DEFAULT_WARNING_TOLERANCE,
-  alertThreshold = DEFAULT_ALERT_THRESHOLD,
+  alertThreshold: _alertThreshold = DEFAULT_ALERT_THRESHOLD,
 }: VPDDialProps): React.ReactElement {
   // Animation tier context for performance-aware rendering
   const { tier } = useAnimationTierContext();
@@ -678,7 +678,7 @@ export function VPDDial({
   // Calculate derived values
   const percent = vpdToPercent(animatedVPD);
   const status = getVPDStatus(currentVPD, optimalRange, warningTolerance);
-  const colors = STATUS_COLORS[status];
+  const _colors = STATUS_COLORS[status];
 
   // Use interpolated color for smoother transitions
   const dynamicGlowColor = isPulseEnabled ? statusColorResult.glowColor : "transparent";

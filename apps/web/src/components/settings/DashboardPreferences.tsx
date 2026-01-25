@@ -19,12 +19,10 @@ import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   useUserPreferences,
-  DEFAULT_USER_PREFERENCES,
   type ViewMode,
   type AnimationQuality,
   type PrimaryMetric,
   type TimelineMetric,
-  type TemperatureUnit,
 } from "@/hooks/use-user-preferences";
 import { RoomSettings, type RoomOption } from "./RoomSettings";
 

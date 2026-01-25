@@ -11,7 +11,7 @@ import {
   getDateRangePreset,
   type AnalyticsSummary,
 } from "@/lib/analytics-utils";
-import type { SensorReading, RoomSettings, DateRangeValue } from "@/types";
+import type { SensorReading, RoomSettings } from "@/types";
 import {
   Select,
   SelectContent,

@@ -29,7 +29,7 @@ const SENSITIVE_FIELDS = [
 /**
  * Regex patterns for sensitive data
  */
-const SENSITIVE_PATTERNS = [
+const _SENSITIVE_PATTERNS = [
   // Email addresses
   /([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g,
   // API keys (common formats)

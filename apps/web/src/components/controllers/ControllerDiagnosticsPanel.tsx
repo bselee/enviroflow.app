@@ -3,18 +3,13 @@
 import React, { useState, useEffect } from "react";
 import {
   Activity,
-  Wifi,
-  WifiOff,
   Clock,
   AlertCircle,
   CheckCircle2,
   RefreshCw,
-  Zap,
   Server,
   Info,
   TrendingUp,
-  TrendingDown,
-  Minus,
   Timer,
   Signal,
   Percent,
@@ -35,7 +30,6 @@ import { toast } from "@/hooks/use-toast";
 import type { Controller } from "@/types";
 import {
   getConnectionHealth,
-  formatLastSeen,
   type ConnectionHealth,
 } from "./ControllerStatusIndicator";
 import { CredentialUpdateModal } from "./CredentialUpdateModal";
@@ -102,7 +96,7 @@ interface MetricCardData {
  */
 function getTroubleshootingSteps(
   brand: string,
-  health: ConnectionHealth
+  _health: ConnectionHealth
 ): string[] {
   const commonSteps = [
     "Verify the device is powered on",
@@ -143,22 +137,6 @@ function getTroubleshootingSteps(
   }
 
   return steps;
-}
-
-/**
- * Get health badge variant for connection status
- */
-function getHealthBadgeVariant(
-  health: ConnectionHealth
-): "default" | "secondary" | "destructive" {
-  switch (health) {
-    case "online":
-      return "default";
-    case "stale":
-      return "secondary";
-    case "offline":
-      return "destructive";
-  }
 }
 
 /**
@@ -204,7 +182,7 @@ export function ControllerDiagnosticsPanel({
   open,
   onOpenChange,
   onRefresh,
-  onTestConnection,
+  onTestConnection: _onTestConnection,
 }: ControllerDiagnosticsPanelProps): JSX.Element {
   const [isTesting, setIsTesting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -321,7 +299,7 @@ export function ControllerDiagnosticsPanel({
         title: "Refreshed",
         description: "Controller data has been updated",
       });
-    } catch (error) {
+    } catch (_error) {
       toast({
         title: "Refresh failed",
         description: "Unable to refresh controller data",

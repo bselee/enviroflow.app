@@ -460,7 +460,7 @@ export function CarouselLayout({
   currentIndex = 0,
   onIndexChange,
   isLoading,
-  onRoomCreated,
+  onRoomCreated: _onRoomCreated,
 }: CarouselLayoutProps): JSX.Element {
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(currentIndex);

@@ -207,7 +207,7 @@ function TrendIndicator({
   const threshold = SIGNIFICANT_CHANGE_THRESHOLDS[type];
   const significant = isSignificantChange(delta, threshold);
   const isIncrease = delta > 0;
-  const isDecrease = delta < 0;
+  const _isDecrease = delta < 0;
 
   // Determine display properties based on direction and significance
   const displayProps = useMemo(() => {

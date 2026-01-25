@@ -39,7 +39,6 @@ import {
 } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { HelpTooltip } from "@/components/ui/HelpTooltip"
 import { cn } from "@/lib/utils"
@@ -111,7 +110,7 @@ export function DimmerScheduleForm({
   onSubmit,
   onCancel,
   controllers,
-  rooms,
+  rooms: _rooms,
   initialData,
   isLoading = false,
 }: DimmerScheduleFormProps) {

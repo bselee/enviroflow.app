@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, Position } from "@xyflow/react";
 import { Play, Clock, Thermometer, MousePointer, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TriggerNodeData, TriggerType } from "../types";

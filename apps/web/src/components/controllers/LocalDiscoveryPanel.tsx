@@ -40,7 +40,7 @@ import {
   type LocalDevice,
   type LocalDiscoveryResult,
 } from '@/lib/local-discovery'
-import type { ControllerBrand } from '@/types'
+import type { ControllerBrand as _ControllerBrand } from '@/types'
 
 interface LocalDiscoveryPanelProps {
   onDeviceSelect?: (device: LocalDevice) => void

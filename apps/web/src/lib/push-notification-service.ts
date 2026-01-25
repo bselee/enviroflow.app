@@ -118,7 +118,7 @@ interface PushTokenRecord {
  * Database record for in-app notifications.
  * Used as MVP fallback when push delivery fails or is unavailable.
  */
-interface InAppNotification {
+interface _InAppNotification {
   id?: string;
   user_id: string;
   title: string;

@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, Position } from "@xyflow/react";
 import { GitBranch, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ConditionNodeData, LogicType } from "../types";
+import type { ConditionNodeData } from "../types";
 
 /**
  * ConditionNode - Logical branching node for workflows

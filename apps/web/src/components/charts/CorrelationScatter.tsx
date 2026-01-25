@@ -161,8 +161,8 @@ function ScatterTooltip({
  */
 function CorrelationStats({
   correlation,
-  xLabel,
-  yLabel,
+  xLabel: _xLabel,
+  yLabel: _yLabel,
   isDark,
 }: {
   correlation: CorrelationResult;

@@ -135,7 +135,7 @@ function calculateTrend(currentAvg: number, previousAvg: number): number {
  * Calculates VPD from temperature and humidity.
  * VPD = SVP * (1 - RH/100) where SVP is saturation vapor pressure.
  */
-function calculateVPD(
+function _calculateVPD(
   temperatureFahrenheit: number,
   humidityPercent: number
 ): number | null {

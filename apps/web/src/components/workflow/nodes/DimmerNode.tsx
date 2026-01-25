@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, Position } from "@xyflow/react";
 import { Sun, Sunrise, Sunset, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { DimmerNodeData, DimmerCurve } from "../types";
+import type { DimmerNodeData } from "../types";
 import { DIMMER_CURVE_LABELS } from "../types";
 
 /**
@@ -24,13 +24,6 @@ import { DIMMER_CURVE_LABELS } from "../types";
  * - Sun icon in header
  * - Shows current calculated level when available
  */
-
-/** Icons for the dimmer schedule visualization */
-const SCHEDULE_ICONS = {
-  sunrise: Sunrise,
-  sunset: Sunset,
-  current: Sun,
-};
 
 interface DimmerNodeProps {
   data: DimmerNodeData;
@@ -146,7 +139,7 @@ export function DimmerNode({ data, selected, id }: DimmerNodeProps) {
 
     // Calculate color intensity based on level
     const intensity = displayLevel / 100;
-    const bgOpacity = Math.round(10 + intensity * 20);
+    const _bgOpacity = Math.round(10 + intensity * 20);
 
     return (
       <div className="mt-2 flex items-center justify-between rounded-md bg-yellow-500/10 px-2 py-1.5">

@@ -296,7 +296,7 @@ export async function GET(
     } catch (adapterError) {
       safeError('[Devices GET] Adapter error:', adapterError)
 
-      const errorMessage =
+      const _errorMessage =
         adapterError instanceof Error ? adapterError.message : 'Unknown adapter error'
 
       return NextResponse.json(

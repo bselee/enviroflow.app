@@ -20,7 +20,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Loader2, Radio, Search, AlertCircle, CheckCircle, RefreshCw, Wifi } from "lucide-react";
+import { Radio, AlertCircle, CheckCircle, RefreshCw, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -37,7 +37,6 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { cn } from "@/lib/utils";
 import type { SensorType, DeviceType } from "@/types";
 
 interface DiscoveredItem {
@@ -89,33 +88,6 @@ const DEVICE_TYPES: Array<{ value: DeviceType; label: string }> = [
   { value: "pump", label: "Pump" },
   { value: "valve", label: "Valve" },
 ];
-
-/**
- * Auto-detect sensor/device type from topic or name
- */
-function autoDetectType(item: DiscoveredItem): string | undefined {
-  const searchText = `${item.topic} ${item.name}`.toLowerCase();
-
-  // Sensor detection
-  if (searchText.includes("temp")) return "temperature";
-  if (searchText.includes("hum")) return "humidity";
-  if (searchText.includes("vpd")) return "vpd";
-  if (searchText.includes("co2") || searchText.includes("carbon")) return "co2";
-  if (searchText.includes("light") || searchText.includes("lux")) return "light";
-  if (searchText.includes("ph")) return "ph";
-  if (searchText.includes("ec") || searchText.includes("conductivity")) return "ec";
-  if (searchText.includes("moisture") || searchText.includes("soil")) return "soil_moisture";
-  if (searchText.includes("pressure") || searchText.includes("baro")) return "pressure";
-
-  // Device detection
-  if (searchText.includes("fan") || searchText.includes("exhaust")) return "fan";
-  if (searchText.includes("light") || searchText.includes("led")) return "light";
-  if (searchText.includes("outlet") || searchText.includes("plug") || searchText.includes("power")) return "outlet";
-  if (searchText.includes("pump")) return "pump";
-  if (searchText.includes("valve")) return "valve";
-
-  return undefined;
-}
 
 /**
  * MQTT Device Mapper Component

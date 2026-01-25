@@ -36,7 +36,7 @@ export function ScheduleBuilder({ controllerId }: ScheduleBuilderProps) {
     loading,
     error,
     controllers,
-    controllersLoading,
+    controllersLoading: _controllersLoading,
     addSchedule,
     updateSchedule,
     deleteSchedule,

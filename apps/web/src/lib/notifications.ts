@@ -350,8 +350,8 @@ async function sendFCM(
  * Note: Requires APNS configuration
  */
 async function sendAPNS(
-  token: string,
-  payload: NotificationPayload
+  _token: string,
+  _payload: NotificationPayload
 ): Promise<void> {
   // APNS requires more complex setup with certificates or tokens
   // For now, throw an error indicating it's not yet implemented

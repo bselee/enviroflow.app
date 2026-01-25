@@ -49,7 +49,7 @@ export function useAnalytics(options: UseAnalyticsOptions = {}): UseAnalyticsRet
     dateRange = getDefaultDateRange(),
     roomId,
     controllerId,
-    userId,
+    userId: _userId,
     refreshInterval = 0,
   } = options;
 
@@ -58,7 +58,7 @@ export function useAnalytics(options: UseAnalyticsOptions = {}): UseAnalyticsRet
   const [error, setError] = useState<Error | null>(null);
 
   // Memoize date strings to prevent unnecessary re-fetches
-  const dateRangeKey = useMemo(
+  const _dateRangeKey = useMemo(
     () => `${dateRange.start.toISOString()}-${dateRange.end.toISOString()}`,
     [dateRange.start, dateRange.end]
   );

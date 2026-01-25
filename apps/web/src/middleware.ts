@@ -9,7 +9,7 @@
  */
 
 import { NextResponse, type NextRequest } from "next/server";
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { createServerClient } from "@supabase/ssr";
 
 /**
  * Routes that require authentication

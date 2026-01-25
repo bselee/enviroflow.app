@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Activity, TrendingDown, TrendingUp, Minus, Info } from "lucide-react";
+import { Activity, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Tooltip,

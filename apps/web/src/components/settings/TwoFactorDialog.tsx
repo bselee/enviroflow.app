@@ -1,12 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import {
   Shield,
   CheckCircle,
   Copy,
-  RefreshCw,
   Loader2,
   AlertTriangle,
   Smartphone,
@@ -20,7 +19,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -58,7 +56,7 @@ interface TwoFactorDialogProps {
 /**
  * Supabase MFA factor type
  */
-interface MFAFactor {
+interface _MFAFactor {
   id: string;
   type: string;
   totp: {

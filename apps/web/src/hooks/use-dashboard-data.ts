@@ -868,7 +868,7 @@ export function useDashboardData(
   /**
    * Utility function to get a specific room's summary by ID.
    */
-  const getRoomSummary = useCallback(
+  const _getRoomSummary = useCallback(
     (roomId: string): RoomSummary | undefined => {
       return roomSummaries.find((s) => s.room.id === roomId);
     },
