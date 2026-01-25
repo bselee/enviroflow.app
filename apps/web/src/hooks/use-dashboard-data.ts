@@ -716,14 +716,14 @@ export function useDashboardData(
    * Determine if we should show demo mode.
    * Demo mode is active when:
    * - Initial loading is complete (not isLoading)
-   * - No real controllers are registered
+   * - No real controllers are registered (neither assigned nor unassigned)
    */
   const shouldShowDemoMode = useMemo(() => {
     // Don't show demo during initial load
     if (isLoading) return false;
-    // Show demo only when no controllers exist
-    return controllers.length === 0;
-  }, [isLoading, controllers.length]);
+    // Show demo only when no controllers exist (check both assigned and unassigned)
+    return controllers.length === 0 && unassignedControllers.length === 0;
+  }, [isLoading, controllers.length, unassignedControllers.length]);
 
   /**
    * Use the demo data updater hook.
@@ -736,7 +736,8 @@ export function useDashboardData(
    * Triggers a smooth 500ms fade-out when first real controller connects.
    */
   useEffect(() => {
-    const currentCount = controllers.length;
+    // Include both assigned and unassigned controllers
+    const currentCount = controllers.length + unassignedControllers.length;
     const previousCount = previousControllersCountRef.current;
 
     // Detect transition: had 0 controllers (demo mode), now have 1+
@@ -751,7 +752,7 @@ export function useDashboardData(
 
     // Update ref for next comparison
     previousControllersCountRef.current = currentCount;
-  }, [controllers.length]);
+  }, [controllers.length, unassignedControllers.length]);
 
   /**
    * Compute room summaries with aggregated sensor data and trends.
@@ -827,10 +828,13 @@ export function useDashboardData(
 
   /**
    * Compute aggregate dashboard metrics across all rooms and controllers.
+   * IMPORTANT: Include both assigned AND unassigned controllers in the count.
    */
   const metrics = useMemo((): DashboardMetrics => {
-    const totalControllers = controllers.length;
-    const onlineControllers = controllers.filter((c) => c.status === 'online').length;
+    // Combine controllers from rooms AND unassigned controllers
+    const allControllers = [...controllers, ...unassignedControllers];
+    const totalControllers = allControllers.length;
+    const onlineControllers = allControllers.filter((c) => c.status === 'online').length;
     const offlineCount = totalControllers - onlineControllers;
 
     // Calculate uptime percentage, handle division by zero
@@ -853,7 +857,7 @@ export function useDashboardData(
       averageHumidity: calculateAverage(humidities),
       averageVPD: calculateAverage(vpds),
     };
-  }, [controllers, rooms.length, roomSummaries]);
+  }, [controllers, unassignedControllers, rooms.length, roomSummaries]);
 
   /**
    * Utility function to get a specific room's summary by ID.

@@ -41,6 +41,7 @@ import { AssignRoomDialog } from "@/components/controllers/AssignRoomDialog";
 import { ControllerDevicesPanel } from "@/components/controllers/ControllerDevicesPanel";
 import { ControllerStatusIndicator, getConnectionHealth } from "@/components/controllers/ControllerStatusIndicator";
 import { ControllerDiagnosticsPanel } from "@/components/controllers/ControllerDiagnosticsPanel";
+import { ControllerSensorPreview } from "@/components/controllers/ControllerSensorPreview";
 import { BulkActionBar } from "@/components/controllers/BulkActionBar";
 import { ErrorGuidance } from "@/components/ui/error-guidance";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
@@ -305,6 +306,16 @@ function ControllerCard({
           </Button>
         </div>
       </div>
+
+      {/* Sensor Data Preview - Live readings with 24h sparklines */}
+      {controller.status === 'online' && (
+        <div className="mt-4 pt-4 border-t border-border">
+          <ControllerSensorPreview
+            controllerId={controller.id}
+            compact={false}
+          />
+        </div>
+      )}
 
       {/* Status warning - click to view diagnostics */}
       {hasIssue && (
