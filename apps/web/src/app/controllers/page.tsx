@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Cpu, Wifi, WifiOff, MoreVertical, Trash2, Loader2, AlertTriangle, Home, Settings, Activity } from "lucide-react";
+import { Plus, Cpu, Wifi, WifiOff, MoreVertical, Trash2, Loader2, AlertTriangle, Home, Settings, Activity, Info } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -158,7 +160,73 @@ function ControllerCard({
               <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" className="w-64">
+            {/* Device Information Section */}
+            <DropdownMenuLabel className="flex items-center gap-2">
+              <Info className="h-4 w-4" />
+              Device Information
+            </DropdownMenuLabel>
+            <div className="px-2 py-1.5 text-xs text-muted-foreground space-y-1">
+              {controller.model && (
+                <div className="flex justify-between">
+                  <span>Model:</span>
+                  <span className="font-medium text-foreground">{controller.model}</span>
+                </div>
+              )}
+              {controller.firmware_version && (
+                <div className="flex justify-between">
+                  <span>Firmware:</span>
+                  <span className="font-medium text-foreground">{controller.firmware_version}</span>
+                </div>
+              )}
+              {controller.capabilities?.devices && (
+                <div className="flex justify-between">
+                  <span>Device Types:</span>
+                  <span className="font-medium text-foreground">{controller.capabilities.devices.length}</span>
+                </div>
+              )}
+              {controller.capabilities?.sensors && (
+                <div className="flex justify-between">
+                  <span>Sensor Types:</span>
+                  <span className="font-medium text-foreground">{controller.capabilities.sensors.length}</span>
+                </div>
+              )}
+            </div>
+
+            <DropdownMenuSeparator />
+
+            {/* Connection Details Section */}
+            <DropdownMenuLabel className="flex items-center gap-2">
+              <Activity className="h-4 w-4" />
+              Connection Status
+            </DropdownMenuLabel>
+            <div className="px-2 py-1.5 text-xs text-muted-foreground space-y-1">
+              <div className="flex justify-between items-center">
+                <span>Status:</span>
+                <Badge
+                  variant={health === "online" ? "default" : "destructive"}
+                  className="text-xs h-5"
+                >
+                  {controller.status}
+                </Badge>
+              </div>
+              <div className="flex justify-between">
+                <span>Last Seen:</span>
+                <span className="font-medium text-foreground">{formatRelativeTime(controller.last_seen)}</span>
+              </div>
+              {controller.last_error && (
+                <div className="pt-1 mt-1 border-t">
+                  <div className="text-destructive text-xs line-clamp-2">
+                    {controller.last_error}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <DropdownMenuSeparator />
+
+            {/* Actions Section */}
+            <DropdownMenuLabel>Actions</DropdownMenuLabel>
             <DropdownMenuItem onClick={() => onViewDiagnostics(controller)}>
               <Activity className="h-4 w-4 mr-2" />
               View Diagnostics
@@ -171,6 +239,9 @@ function ControllerCard({
               <Home className="h-4 w-4 mr-2" />
               Assign to Room
             </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
+
             <DropdownMenuItem
               className="text-destructive"
               onClick={() => onDelete(controller.id)}
@@ -431,6 +502,16 @@ export default function ControllersPage() {
                 rooms={rooms}
                 onClearSelection={clearSelection}
                 onSuccess={refresh}
+                onCreateRoom={async (name: string) => {
+                  const result = await createRoomFromHook({ name });
+                  if (result.success && result.data) {
+                    return {
+                      success: true,
+                      data: { id: result.data.id, name: result.data.name },
+                    };
+                  }
+                  return { success: false, error: result.error || "Failed to create room" };
+                }}
               />
             </>
           ) : (
@@ -532,6 +613,16 @@ export default function ControllersPage() {
           controller={controllerToAssign}
           rooms={rooms}
           onAssign={handleAssignRoom}
+          onCreateRoom={async (name: string) => {
+            const result = await createRoomFromHook({ name });
+            if (result.success && result.data) {
+              return {
+                success: true,
+                data: { id: result.data.id, name: result.data.name },
+              };
+            }
+            return { success: false, error: result.error || "Failed to create room" };
+          }}
         />
 
         {/* Assign Room Dialog - Bulk mode */}
@@ -541,6 +632,16 @@ export default function ControllersPage() {
           controllers={bulkAssignControllers}
           rooms={rooms}
           onAssign={handleAssignRoom}
+          onCreateRoom={async (name: string) => {
+            const result = await createRoomFromHook({ name });
+            if (result.success && result.data) {
+              return {
+                success: true,
+                data: { id: result.data.id, name: result.data.name },
+              };
+            }
+            return { success: false, error: result.error || "Failed to create room" };
+          }}
           isBulkMode={true}
         />
 

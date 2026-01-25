@@ -3,11 +3,13 @@
  *
  * Dialog for assigning or changing a controller's room assignment.
  * Supports assigning to a room or removing from a room.
+ * Includes inline room creation for improved UX.
  */
 "use client";
 
 import { useState } from "react";
-import { Loader2, Home, X } from "lucide-react";
+import { Loader2, Home, X, Plus, Check } from "lucide-react";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -18,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -34,6 +37,8 @@ interface AssignRoomDialogProps {
   controllers?: ControllerWithRoom[];
   rooms: RoomBasic[];
   onAssign: (controllerId: string, roomId: string | null) => Promise<{ success: boolean; error?: string }>;
+  /** Callback to create a new room */
+  onCreateRoom: (name: string, description?: string) => Promise<{ success: boolean; data?: RoomBasic; error?: string }>;
   /** Bulk mode: assign multiple controllers to the same room */
   isBulkMode?: boolean;
 }
@@ -45,11 +50,17 @@ export function AssignRoomDialog({
   controllers = [],
   rooms,
   onAssign,
+  onCreateRoom,
   isBulkMode = false,
 }: AssignRoomDialogProps) {
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Inline room creation state
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false);
+  const [newRoomName, setNewRoomName] = useState("");
+  const [isCreatingRoomSubmitting, setIsCreatingRoomSubmitting] = useState(false);
 
   // Determine which controllers we're working with
   const targetControllers = isBulkMode ? controllers : (controller ? [controller] : []);
@@ -64,8 +75,60 @@ export function AssignRoomDialog({
         setSelectedRoomId(null);
       }
       setError(null);
+      setIsCreatingRoom(false);
+      setNewRoomName("");
     }
     onOpenChange(newOpen);
+  };
+
+  const handleCreateNewRoomClick = () => {
+    setIsCreatingRoom(true);
+    setError(null);
+  };
+
+  const handleCancelCreateRoom = () => {
+    setIsCreatingRoom(false);
+    setNewRoomName("");
+    setError(null);
+  };
+
+  const handleCreateRoomSubmit = async () => {
+    const trimmedName = newRoomName.trim();
+
+    if (!trimmedName) {
+      setError("Room name is required");
+      return;
+    }
+
+    if (trimmedName.length > 100) {
+      setError("Room name must be 100 characters or less");
+      return;
+    }
+
+    setIsCreatingRoomSubmitting(true);
+    setError(null);
+
+    try {
+      const result = await onCreateRoom(trimmedName);
+
+      if (result.success && result.data) {
+        toast.success("Room created", {
+          description: `"${trimmedName}" has been created.`,
+        });
+
+        // Select the newly created room
+        setSelectedRoomId(result.data.id);
+        setIsCreatingRoom(false);
+        setNewRoomName("");
+      } else {
+        setError(result.error || "Failed to create room");
+      }
+    } catch (err) {
+      console.error("Create room error:", err);
+      setError("An unexpected error occurred while creating the room");
+    } finally {
+      setIsCreatingRoomSubmitting(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -197,35 +260,101 @@ export function AssignRoomDialog({
             </div>
           )}
 
-          {/* Room selection */}
+          {/* Room selection or inline creation */}
           <div className="space-y-2">
             <Label htmlFor="room">Select Room</Label>
-            <Select
-              value={selectedRoomId || "none"}
-              onValueChange={(value) =>
-                setSelectedRoomId(value === "none" ? null : value)
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select a room" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No room</SelectItem>
-                {rooms.map((room) => (
-                  <SelectItem key={room.id} value={room.id}>
-                    {room.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
 
-          {/* No rooms available message */}
-          {rooms.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-2">
-              No rooms available. Create a room first to assign controllers.
-            </p>
-          )}
+            {!isCreatingRoom ? (
+              <>
+                <Select
+                  value={selectedRoomId || "none"}
+                  onValueChange={(value) =>
+                    setSelectedRoomId(value === "none" ? null : value)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a room" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No room</SelectItem>
+                    {rooms.map((room) => (
+                      <SelectItem key={room.id} value={room.id}>
+                        {room.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {/* Create new room button */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full mt-2"
+                  onClick={handleCreateNewRoomClick}
+                  disabled={isSubmitting}
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create New Room
+                </Button>
+              </>
+            ) : (
+              // Inline room creation form
+              <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                <div className="space-y-2">
+                  <Label htmlFor="new-room-name">New Room Name</Label>
+                  <Input
+                    id="new-room-name"
+                    placeholder="e.g., Veg Room A, Flower Tent 1"
+                    value={newRoomName}
+                    onChange={(e) => setNewRoomName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !isCreatingRoomSubmitting) {
+                        handleCreateRoomSubmit();
+                      }
+                      if (e.key === "Escape") {
+                        handleCancelCreateRoom();
+                      }
+                    }}
+                    autoFocus
+                    disabled={isCreatingRoomSubmitting}
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCancelCreateRoom}
+                    disabled={isCreatingRoomSubmitting}
+                    className="flex-1"
+                  >
+                    <X className="w-4 h-4 mr-2" />
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleCreateRoomSubmit}
+                    disabled={isCreatingRoomSubmitting || !newRoomName.trim()}
+                    className="flex-1"
+                  >
+                    {isCreatingRoomSubmitting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4 mr-2" />
+                        Create
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Error message */}
           {error && (

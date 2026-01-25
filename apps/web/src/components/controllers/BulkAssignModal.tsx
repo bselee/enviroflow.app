@@ -12,7 +12,8 @@
  */
 
 import { useState } from 'react'
-import { Loader2, CheckCircle, XCircle, Users, MapPin } from 'lucide-react'
+import { Loader2, CheckCircle, XCircle, Users, MapPin, Plus, X, Check } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -30,6 +31,7 @@ import {
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import type { Controller, RoomBasic } from '@/types'
@@ -45,6 +47,8 @@ interface BulkAssignModalProps {
   selectedControllers: Controller[]
   rooms: RoomBasic[]
   onSuccess?: () => void
+  /** Optional callback to create a new room */
+  onCreateRoom?: (name: string) => Promise<{ success: boolean; data?: RoomBasic; error?: string }>
 }
 
 interface AssignResult {
@@ -64,18 +68,81 @@ export function BulkAssignModal({
   selectedControllers,
   rooms,
   onSuccess,
+  onCreateRoom,
 }: BulkAssignModalProps) {
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [result, setResult] = useState<AssignResult | null>(null)
+
+  // Inline room creation state
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false)
+  const [newRoomName, setNewRoomName] = useState('')
+  const [isCreatingRoomSubmitting, setIsCreatingRoomSubmitting] = useState(false)
 
   // Reset state when dialog opens/closes
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
       setSelectedRoomId(null)
       setResult(null)
+      setIsCreatingRoom(false)
+      setNewRoomName('')
     }
     onOpenChange(newOpen)
+  }
+
+  const handleCreateNewRoomClick = () => {
+    setIsCreatingRoom(true)
+    setResult(null)
+  }
+
+  const handleCancelCreateRoom = () => {
+    setIsCreatingRoom(false)
+    setNewRoomName('')
+    setResult(null)
+  }
+
+  const handleCreateRoomSubmit = async () => {
+    if (!onCreateRoom) {
+      toast.error('Room creation is not available')
+      return
+    }
+
+    const trimmedName = newRoomName.trim()
+
+    if (!trimmedName) {
+      setResult({ success: false, error: 'Room name is required' })
+      return
+    }
+
+    if (trimmedName.length > 100) {
+      setResult({ success: false, error: 'Room name must be 100 characters or less' })
+      return
+    }
+
+    setIsCreatingRoomSubmitting(true)
+    setResult(null)
+
+    try {
+      const createResult = await onCreateRoom(trimmedName)
+
+      if (createResult.success && createResult.data) {
+        toast.success('Room created', {
+          description: `"${trimmedName}" has been created.`,
+        })
+
+        // Select the newly created room
+        setSelectedRoomId(createResult.data.id)
+        setIsCreatingRoom(false)
+        setNewRoomName('')
+      } else {
+        setResult({ success: false, error: createResult.error || 'Failed to create room' })
+      }
+    } catch (err) {
+      console.error('[BulkAssign] Create room error:', err)
+      setResult({ success: false, error: 'An unexpected error occurred while creating the room' })
+    } finally {
+      setIsCreatingRoomSubmitting(false)
+    }
   }
 
   const handleSubmit = async () => {
@@ -167,28 +234,103 @@ export function BulkAssignModal({
           {/* Room Selector */}
           <div className="space-y-2">
             <Label htmlFor="room-select">Select Room</Label>
-            <Select
-              value={selectedRoomId || 'unassigned'}
-              onValueChange={(value) => setSelectedRoomId(value === 'unassigned' ? null : value)}
-              disabled={isSubmitting}
-            >
-              <SelectTrigger id="room-select">
-                <SelectValue placeholder="Choose a room" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="unassigned">
-                  <span className="text-muted-foreground">Unassigned</span>
-                </SelectItem>
-                {rooms.map((room) => (
-                  <SelectItem key={room.id} value={room.id}>
-                    {room.name}
-                    {room.description && (
-                      <span className="text-muted-foreground ml-2">- {room.description}</span>
+
+            {!isCreatingRoom ? (
+              <>
+                <Select
+                  value={selectedRoomId || 'unassigned'}
+                  onValueChange={(value) => setSelectedRoomId(value === 'unassigned' ? null : value)}
+                  disabled={isSubmitting}
+                >
+                  <SelectTrigger id="room-select">
+                    <SelectValue placeholder="Choose a room" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unassigned">
+                      <span className="text-muted-foreground">Unassigned</span>
+                    </SelectItem>
+                    {rooms.map((room) => (
+                      <SelectItem key={room.id} value={room.id}>
+                        {room.name}
+                        {room.description && (
+                          <span className="text-muted-foreground ml-2">- {room.description}</span>
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {/* Create new room button */}
+                {onCreateRoom && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full mt-2"
+                    onClick={handleCreateNewRoomClick}
+                    disabled={isSubmitting}
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create New Room
+                  </Button>
+                )}
+              </>
+            ) : (
+              // Inline room creation form
+              <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                <div className="space-y-2">
+                  <Label htmlFor="new-room-name">New Room Name</Label>
+                  <Input
+                    id="new-room-name"
+                    placeholder="e.g., Veg Room A, Flower Tent 1"
+                    value={newRoomName}
+                    onChange={(e) => setNewRoomName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !isCreatingRoomSubmitting) {
+                        handleCreateRoomSubmit()
+                      }
+                      if (e.key === 'Escape') {
+                        handleCancelCreateRoom()
+                      }
+                    }}
+                    autoFocus
+                    disabled={isCreatingRoomSubmitting}
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCancelCreateRoom}
+                    disabled={isCreatingRoomSubmitting}
+                    className="flex-1"
+                  >
+                    <X className="w-4 h-4 mr-2" />
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleCreateRoomSubmit}
+                    disabled={isCreatingRoomSubmitting || !newRoomName.trim()}
+                    className="flex-1"
+                  >
+                    {isCreatingRoomSubmitting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4 mr-2" />
+                        Create
+                      </>
                     )}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Selected Controllers Preview */}

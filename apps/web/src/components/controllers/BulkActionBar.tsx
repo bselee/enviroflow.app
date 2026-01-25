@@ -35,6 +35,8 @@ interface BulkActionBarProps {
   onClearSelection: () => void;
   /** Callback when operations complete successfully */
   onSuccess?: () => void;
+  /** Optional callback to create a new room */
+  onCreateRoom?: (name: string) => Promise<{ success: boolean; data?: RoomBasic; error?: string }>;
   /** Additional CSS classes */
   className?: string;
 }
@@ -46,6 +48,7 @@ export function BulkActionBar({
   rooms,
   onClearSelection,
   onSuccess,
+  onCreateRoom,
   className,
 }: BulkActionBarProps) {
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -171,6 +174,7 @@ export function BulkActionBar({
         selectedControllers={selectedControllers}
         rooms={rooms}
         onSuccess={handleSuccess}
+        onCreateRoom={onCreateRoom}
       />
 
       <BulkTestModal

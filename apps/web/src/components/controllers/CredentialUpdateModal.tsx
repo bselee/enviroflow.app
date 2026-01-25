@@ -15,7 +15,7 @@
 
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
-import { Loader2, CheckCircle, XCircle, Lock, AlertTriangle } from 'lucide-react'
+import { Loader2, CheckCircle, XCircle, Lock, AlertTriangle, Eye, EyeOff } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -129,6 +129,7 @@ export function CredentialUpdateModal({
 }: CredentialUpdateModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [result, setResult] = useState<UpdateResult | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
 
   const {
     register,
@@ -142,6 +143,7 @@ export function CredentialUpdateModal({
     if (!newOpen) {
       reset()
       setResult(null)
+      setShowPassword(false)
     }
     onOpenChange(newOpen)
   }
@@ -261,22 +263,51 @@ export function CredentialUpdateModal({
             {credentialFields.map((field) => (
               <div key={field.name} className="space-y-2">
                 <Label htmlFor={field.name}>{field.label}</Label>
-                <Input
-                  id={field.name}
-                  type={field.type}
-                  placeholder={field.placeholder}
-                  {...register(field.name, {
-                    required: `${field.label} is required`,
-                    ...(field.type === 'email' && {
-                      pattern: {
-                        value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-                        message: 'Invalid email format',
-                      },
-                    }),
-                  })}
-                  disabled={isSubmitting}
-                  autoComplete={field.type === 'password' ? 'current-password' : 'email'}
-                />
+                {field.type === 'password' ? (
+                  <div className="relative">
+                    <Input
+                      id={field.name}
+                      type={showPassword ? "text" : "password"}
+                      placeholder={field.placeholder}
+                      {...register(field.name, {
+                        required: `${field.label} is required`,
+                      })}
+                      disabled={isSubmitting}
+                      autoComplete="current-password"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                      onClick={() => setShowPassword(!showPassword)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </div>
+                ) : (
+                  <Input
+                    id={field.name}
+                    type={field.type}
+                    placeholder={field.placeholder}
+                    {...register(field.name, {
+                      required: `${field.label} is required`,
+                      ...(field.type === 'email' && {
+                        pattern: {
+                          value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+                          message: 'Invalid email format',
+                        },
+                      }),
+                    })}
+                    disabled={isSubmitting}
+                    autoComplete={field.type === 'password' ? 'current-password' : 'email'}
+                  />
+                )}
                 {errors[field.name] && (
                   <p className="text-sm text-destructive">{errors[field.name]?.message}</p>
                 )}
