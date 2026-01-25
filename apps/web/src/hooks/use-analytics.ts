@@ -245,7 +245,7 @@ export function useAnalytics(options: UseAnalyticsOptions = {}): UseAnalyticsRet
     } finally {
       setIsLoading(false);
     }
-  }, [dateRange.start, dateRange.end, roomId, controllerId]);
+  }, [dateRange, roomId, controllerId]);
 
   // Initial fetch and refresh interval
   useEffect(() => {

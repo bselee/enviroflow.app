@@ -19,7 +19,7 @@
  */
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Loader2, Radio, Search, AlertCircle, CheckCircle, RefreshCw, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -128,7 +128,7 @@ export function MQTTDeviceMapper({ credentials, onComplete, onBack }: MQTTDevice
   const [scanComplete, setScanComplete] = useState(false);
 
   // Start discovery scan
-  const startScan = async () => {
+  const startScan = useCallback(async () => {
     setScanning(true);
     setProgress(0);
     setError(null);
@@ -195,12 +195,12 @@ export function MQTTDeviceMapper({ credentials, onComplete, onBack }: MQTTDevice
     } finally {
       setScanning(false);
     }
-  };
+  }, [credentials.topicPrefix]);
 
   // Auto-start scan on mount
   useEffect(() => {
     startScan();
-  }, []);
+  }, [startScan]);
 
   const handleMappingChange = (itemId: string, mappedType: SensorType | DeviceType) => {
     setDiscovered((prev) =>

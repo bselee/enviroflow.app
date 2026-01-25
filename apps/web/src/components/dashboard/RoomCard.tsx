@@ -311,7 +311,10 @@ export function RoomCard({ room, index = 0, isLoading }: RoomCardProps) {
       lastUpdate: latestTimestamp,
       isOnline: onlineCount > 0,
     };
-  }, [controllers, readings]);
+    // getLatestForController is memoized in useSensorReadings with readings dependency,
+    // so we need readings here to trigger recomputation when data changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controllers, readings, getLatestForController]);
 
   // Get temperature chart data from first controller with readings
   const chartData = useMemo(() => {
@@ -322,12 +325,18 @@ export function RoomCard({ room, index = 0, isLoading }: RoomCardProps) {
       }
     }
     return [];
-  }, [controllers, readings]);
+    // getTimeSeries is memoized in useSensorReadings with readings dependency,
+    // so we need readings here to trigger recomputation when data changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controllers, readings, getTimeSeries]);
 
   // Check if any controller has stale data
   const hasStaleData = useMemo(() => {
     return controllers.some((c) => isStale(c.id, 5));
-  }, [controllers, readings]);
+    // isStale is memoized in useSensorReadings with readings dependency,
+    // so we need readings here to trigger recomputation when data changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controllers, readings, isStale]);
 
   // Check if any workflow is active for this room
   const hasActiveWorkflow = false; // TODO: Implement workflow status check

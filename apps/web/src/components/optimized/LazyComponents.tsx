@@ -140,7 +140,7 @@ export const LazyNetworkDiscovery = dynamic(
  * Used in: Dashboard Environment Snapshot
  */
 export const LazyVPDDial = dynamic(
-  () => import('@/components/dashboard/VPDDial'),
+  () => import('@/components/dashboard/VPDDial').then(mod => mod.VPDDial),
   {
     loading: () => <Skeleton className="w-[220px] h-[220px] rounded-full mx-auto" />,
     ssr: false,
@@ -152,7 +152,7 @@ export const LazyVPDDial = dynamic(
  * Used in: Dashboard
  */
 export const LazyActivityLog = dynamic(
-  () => import('@/components/dashboard/ActivityLog'),
+  () => import('@/components/dashboard/ActivityLog').then(mod => mod.ActivityLog),
   {
     loading: () => (
       <div className="space-y-2">
@@ -170,7 +170,7 @@ export const LazyActivityLog = dynamic(
  * Used in: Dashboard, globally
  */
 export const LazySettingsSheet = dynamic(
-  () => import('@/components/settings/SettingsSheet'),
+  () => import('@/components/settings/SettingsSheet').then(mod => mod.SettingsSheet),
   {
     loading: () => null, // Settings triggered by user, no skeleton needed
     ssr: false,

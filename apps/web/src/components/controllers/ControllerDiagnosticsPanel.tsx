@@ -222,7 +222,7 @@ export function ControllerDiagnosticsPanel({
   /**
    * Load historical diagnostics data
    */
-  const loadHistory = async () => {
+  const loadHistory = React.useCallback(async () => {
     try {
       const response = await fetch(`/api/controllers/${controller.id}/diagnostics`);
 
@@ -243,7 +243,7 @@ export function ControllerDiagnosticsPanel({
       // Use mock data on error
       setHistory(generateMockHistoricalData(7));
     }
-  };
+  }, [controller.id]);
 
   /**
    * Calculate current metrics from controller data
@@ -264,7 +264,7 @@ export function ControllerDiagnosticsPanel({
       setMetrics(initialMetrics);
       loadHistory();
     }
-  }, [open, controller]);
+  }, [open, controller, loadHistory]);
 
   /**
    * Run comprehensive diagnostic test

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,32 +20,7 @@ export function TemplateGallery({ onSelectTemplate, onClose }: TemplateGalleryPr
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
-  useEffect(() => {
-    fetchTemplates();
-  }, []);
-
-  useEffect(() => {
-    filterTemplates();
-  }, [templates, searchQuery, selectedCategory]);
-
-  async function fetchTemplates() {
-    try {
-      setLoading(true);
-      const response = await fetch('/api/templates');
-      const data = await response.json();
-
-      if (data.templates) {
-        setTemplates(data.templates);
-        setFilteredTemplates(data.templates);
-      }
-    } catch (error) {
-      console.error('Error fetching templates:', error);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function filterTemplates() {
+  const filterTemplates = useCallback(() => {
     let filtered = [...templates];
 
     // Filter by category
@@ -65,6 +40,31 @@ export function TemplateGallery({ onSelectTemplate, onClose }: TemplateGalleryPr
     }
 
     setFilteredTemplates(filtered);
+  }, [templates, searchQuery, selectedCategory]);
+
+  useEffect(() => {
+    fetchTemplates();
+  }, []);
+
+  useEffect(() => {
+    filterTemplates();
+  }, [filterTemplates]);
+
+  async function fetchTemplates() {
+    try {
+      setLoading(true);
+      const response = await fetch('/api/templates');
+      const data = await response.json();
+
+      if (data.templates) {
+        setTemplates(data.templates);
+        setFilteredTemplates(data.templates);
+      }
+    } catch (error) {
+      console.error('Error fetching templates:', error);
+    } finally {
+      setLoading(false);
+    }
   }
 
   if (loading) {

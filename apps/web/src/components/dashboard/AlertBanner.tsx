@@ -76,7 +76,8 @@ export function AlertBanner({ userId }: AlertBannerProps) {
     return () => {
       channel.unsubscribe()
     }
-  }, [userId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, supabase])
 
   async function loadAlerts() {
     try {

@@ -151,6 +151,8 @@ export function PropertiesPanel({
       setErrors({});
       setIsDirty(false);
     }
+    // Only depend on selectedNode.id to avoid resetting on every data change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedNode?.id]);
 
   /**
