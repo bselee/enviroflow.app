@@ -50,7 +50,7 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 /**
  * Get action color for visual representation
  */
-function getActionColor(action: ScheduleAction | undefined): string {
+function getActionColor(action: ScheduleAction): string {
   switch (action) {
     case "on":
       return "bg-green-500/20 border-green-500";

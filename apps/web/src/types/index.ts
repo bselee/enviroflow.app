@@ -759,8 +759,8 @@ export interface DeviceScheduleConfig {
   start_time?: string;
   /** End time in HH:MM format (optional) */
   end_time?: string;
-  /** Action to perform */
-  action?: DeviceScheduleAction;
+  /** Action to perform (required - defaults to 'on' if not specified) */
+  action: DeviceScheduleAction;
   /** Intensity level for dimming (0-100) */
   level?: number;
   /** Cron expression if trigger_type is 'cron' */
