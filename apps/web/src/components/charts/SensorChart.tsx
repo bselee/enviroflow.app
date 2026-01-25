@@ -154,6 +154,63 @@ const DEFAULT_SENSOR_CONFIGS: Record<SensorType, SensorConfig> = {
     color: "#06b6d4", // Cyan
     gradientId: "ecGradient",
   },
+  soil_moisture: {
+    key: "soil_moisture",
+    label: "Soil Moisture",
+    unit: "%",
+    color: "#84cc16", // Lime
+    gradientId: "soilMoistureGradient",
+    optimalRange: [40, 60],
+  },
+  pressure: {
+    key: "pressure",
+    label: "Pressure",
+    unit: "hPa",
+    color: "#64748b", // Slate
+    gradientId: "pressureGradient",
+  },
+  water_level: {
+    key: "water_level",
+    label: "Water Level",
+    unit: "%",
+    color: "#0ea5e9", // Sky
+    gradientId: "waterLevelGradient",
+  },
+  wind_speed: {
+    key: "wind_speed",
+    label: "Wind Speed",
+    unit: "mph",
+    color: "#a3e635", // Lime
+    gradientId: "windSpeedGradient",
+  },
+  pm25: {
+    key: "pm25",
+    label: "PM2.5",
+    unit: "µg/m³",
+    color: "#f97316", // Orange
+    gradientId: "pm25Gradient",
+  },
+  uv: {
+    key: "uv",
+    label: "UV Index",
+    unit: "",
+    color: "#d946ef", // Fuchsia
+    gradientId: "uvGradient",
+  },
+  solar_radiation: {
+    key: "solar_radiation",
+    label: "Solar Radiation",
+    unit: "W/m²",
+    color: "#fbbf24", // Amber
+    gradientId: "solarRadiationGradient",
+  },
+  rain: {
+    key: "rain",
+    label: "Rainfall",
+    unit: "mm",
+    color: "#22d3ee", // Cyan
+    gradientId: "rainGradient",
+  },
 };
 
 // =============================================================================
