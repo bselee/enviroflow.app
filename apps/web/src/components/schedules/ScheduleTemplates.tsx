@@ -76,7 +76,7 @@ export function ScheduleTemplates({
           <TabsContent value="ai" className="mt-6">
             <div className="space-y-4">
               <div className="text-sm text-muted-foreground">
-                Our AI will analyze your room's sensor history, growth stage, and target conditions
+                Our AI will analyze your room&apos;s sensor history, growth stage, and target conditions
                 to recommend optimal device schedules tailored to your specific environment.
               </div>
               <ScheduleRecommendation
