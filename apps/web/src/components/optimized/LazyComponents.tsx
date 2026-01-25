@@ -85,7 +85,7 @@ export const LazyWorkflowBuilder = dynamic(
  * Used in: Room Cards, Metric Cards
  */
 export const LazyMiniSparkline = dynamic(
-  () => import('@/components/charts/MiniSparkline'),
+  () => import('@/components/charts/MiniSparkline').then(mod => mod.MiniSparkline),
   {
     loading: () => <Skeleton className="h-8 w-full rounded" />,
     ssr: false,
