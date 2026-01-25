@@ -354,13 +354,13 @@ export async function POST(req: NextRequest) {
 
     // Update controller last_seen timestamp and status
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: updateError } = await supabase
-      .from('controllers')
+    const { error: updateError } = await (supabase
+      .from('controllers') as any)
       .update({
         last_seen: timestamp.toISOString(),
         status: 'online',
         last_error: null // Clear any previous errors
-      } as any)
+      })
       .eq('id', controller.id)
 
     if (updateError) {
