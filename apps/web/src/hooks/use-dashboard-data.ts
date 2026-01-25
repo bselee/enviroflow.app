@@ -564,21 +564,11 @@ export function useDashboardData(
       const startTime = new Date();
       startTime.setHours(startTime.getHours() - sensorTimeRangeHours);
 
-      // First, fetch controllers count to calculate dynamic sensor reading limit
-      const { count: controllerCount } = await supabase
-        .from("controllers")
-        .select("id", { count: "exact", head: true });
+      // Use a fixed reasonable limit for sensor readings to avoid sequential query
+      // 2000 readings is enough for ~10 controllers with 24h of data at 3-min intervals
+      const sensorReadingLimit = 2000;
 
-      // Calculate dynamic limit:
-      // Base: 500 readings per controller for 24h at 1 reading per 3 minutes
-      // With minimum of 1000 and maximum of 10000 to prevent excessive queries
-      const readingsPerController = 500;
-      const minLimit = 1000;
-      const maxLimit = 10000;
-      const calculatedLimit = (controllerCount || 1) * readingsPerController;
-      const sensorReadingLimit = Math.max(minLimit, Math.min(maxLimit, calculatedLimit));
-
-      // Fetch rooms with controllers, unassigned controllers, sensor readings, and workflows in parallel
+      // Fetch all data in parallel for faster initial load
       const [roomsResult, unassignedResult, sensorsResult, workflowsResult] = await Promise.all([
         // Fetch rooms with controllers using Supabase relations
         supabase
@@ -602,17 +592,17 @@ export function useDashboardData(
           `)
           .order("created_at", { ascending: false }),
 
-        // Fetch controllers not assigned to any room
+        // Fetch controllers not assigned to any room (only needed fields)
         supabase
           .from("controllers")
-          .select("*")
+          .select("id, user_id, brand, controller_id, name, status, last_seen, room_id, model, firmware_version, capabilities, last_error, created_at")
           .is("room_id", null)
           .order("created_at", { ascending: false }),
 
-        // Fetch sensor readings for the time range with dynamic limit
+        // Fetch sensor readings for the time range (only needed fields for performance)
         supabase
           .from("sensor_readings")
-          .select("*")
+          .select("id, controller_id, sensor_type, value, recorded_at")
           .gte("recorded_at", startTime.toISOString())
           .order("recorded_at", { ascending: false })
           .limit(sensorReadingLimit),
