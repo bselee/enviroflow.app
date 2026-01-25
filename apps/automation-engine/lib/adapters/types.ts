@@ -35,12 +35,13 @@ export interface ControllerAdapter {
 // Credential Types (per brand)
 // ============================================
 
-export type ControllerCredentials = 
+export type ControllerCredentials =
   | ACInfinityCredentials
   | InkbirdCredentials
   | GoveeCredentials
   | CSVUploadCredentials
   | MQTTCredentials
+  | EcowittCredentials
   | GenericCredentials
 
 export interface ACInfinityCredentials {
@@ -57,9 +58,9 @@ export interface InkbirdCredentials {
 
 export interface GoveeCredentials {
   type: 'govee'
-  apiKey?: string
-  // BLE devices discovered via mobile app
-  bleDeviceId?: string
+  apiKey: string
+  // Optional: specific device ID if user has multiple devices
+  deviceId?: string
 }
 
 export interface CSVUploadCredentials {
@@ -69,10 +70,22 @@ export interface CSVUploadCredentials {
 
 export interface MQTTCredentials {
   type: 'mqtt'
-  brokerUrl: string
+  brokerUrl: string      // mqtt://broker.example.com or ws://broker.example.com:8083
+  port: number           // 1883 for MQTT, 8883 for MQTTS, 8083/9001 for WebSocket
   username?: string
   password?: string
-  topic: string
+  topicPrefix: string    // Base topic prefix (e.g., enviroflow/{userId})
+  useTls: boolean        // Use TLS/SSL encryption
+  clientId?: string      // Optional MQTT client ID
+}
+
+export interface EcowittCredentials {
+  type: 'ecowitt'
+  connectionMethod: 'push' | 'tcp' | 'http' | 'cloud'
+  gatewayIP?: string           // Required for tcp/http methods
+  apiKey?: string              // Required for cloud method
+  applicationKey?: string      // Required for cloud method
+  macAddress?: string          // MAC address of gateway
 }
 
 export interface GenericCredentials {
@@ -98,12 +111,13 @@ export interface ControllerMetadata {
   capabilities: ControllerCapabilities
 }
 
-export type ControllerBrand = 
-  | 'ac_infinity' 
-  | 'inkbird' 
-  | 'govee' 
-  | 'csv_upload' 
-  | 'mqtt' 
+export type ControllerBrand =
+  | 'ac_infinity'
+  | 'inkbird'
+  | 'govee'
+  | 'csv_upload'
+  | 'mqtt'
+  | 'ecowitt'
   | 'custom'
 
 export interface ControllerCapabilities {
@@ -127,7 +141,7 @@ export interface SensorCapability {
   maxValue?: number
 }
 
-export type SensorType = 
+export type SensorType =
   | 'temperature'
   | 'humidity'
   | 'vpd'
@@ -137,6 +151,12 @@ export type SensorType =
   | 'ec'
   | 'soil_moisture'
   | 'pressure'
+  | 'water_level'
+  | 'wind_speed'
+  | 'pm25'
+  | 'uv'
+  | 'solar_radiation'
+  | 'rain'
 
 export interface SensorReading {
   port: number

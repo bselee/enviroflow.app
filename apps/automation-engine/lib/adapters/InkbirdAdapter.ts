@@ -155,7 +155,7 @@ export class InkbirdAdapter implements ControllerAdapter, DiscoverableAdapter {
   async discoverDevices(credentials: DiscoveryCredentials): Promise<DiscoveryResult> {
     const { email, password } = credentials
 
-    log('info', 'Starting device discovery', { email: email.replace(/(.{2}).*(@.*)/, '$1***$2') })
+    log('info', 'Starting device discovery', { email: '[REDACTED]' })
 
     try {
       // Step 1: Login
@@ -287,7 +287,7 @@ export class InkbirdAdapter implements ControllerAdapter, DiscoverableAdapter {
     error?: string
   }> {
     log('warn', 'Inkbird login attempted - this will fail due to Tuya dependency', {
-      email: email.replace(/(.{2}).*(@.*)/, '$1***$2')
+      email: '[REDACTED]'
     })
 
     // Return early with informative error - don't waste time trying to connect

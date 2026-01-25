@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import type {
   ActivityLog,
@@ -148,6 +148,9 @@ export function useActivityLogs(options: ActivityLogsOptions = {}): UseActivityL
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Track mounted state to prevent state updates after unmount
+  const isMounted = useRef(true);
+
   /**
    * Fetches activity logs based on the provided options.
    * Includes joins for workflow, room, and controller names.
@@ -190,13 +193,18 @@ export function useActivityLogs(options: ActivityLogsOptions = {}): UseActivityL
         throw new Error(fetchError.message);
       }
 
-      setLogs(data || []);
+      if (isMounted.current) {
+        setLogs(data || []);
+      }
     } catch (err) {
+      if (!isMounted.current) return;
       const errorMessage = err instanceof Error ? err.message : "Failed to fetch activity logs";
       setError(errorMessage);
       console.error("useActivityLogs fetch error:", err);
     } finally {
-      setIsLoading(false);
+      if (isMounted.current) {
+        setIsLoading(false);
+      }
     }
   }, [roomId, workflowId, result, limit, timeRangeHours]);
 
@@ -238,7 +246,12 @@ export function useActivityLogs(options: ActivityLogsOptions = {}): UseActivityL
 
   // Initial fetch on mount or when options change
   useEffect(() => {
+    isMounted.current = true;
     fetchLogs();
+
+    return () => {
+      isMounted.current = false;
+    };
   }, [fetchLogs]);
 
   // Set up real-time subscription for activity log changes

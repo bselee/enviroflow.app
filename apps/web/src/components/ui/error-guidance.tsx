@@ -28,6 +28,7 @@ import {
   ChevronUp,
   CheckCircle2,
   XCircle,
+  BookOpen,
 } from "lucide-react";
 import {
   type ErrorGuidance as ErrorGuidanceType,
@@ -35,7 +36,10 @@ import {
   getErrorGuidance,
   getErrorColor,
   type ControllerBrand,
+  getConnectionDiagnostics,
+  formatLastSeen,
 } from "@/lib/error-guidance";
+import { useRouter } from "next/navigation";
 
 // ============================================
 // Icon Mapping
@@ -72,12 +76,20 @@ interface ErrorGuidanceProps {
   onRetry?: () => void;
   /** Callback when action button is clicked */
   onAction?: (action: string) => void;
+  /** Callback when "View Guide" button is clicked */
+  onViewGuide?: () => void;
   /** Whether to show expanded troubleshooting steps by default */
   defaultExpanded?: boolean;
   /** Custom className */
   className?: string;
   /** Compact mode - shows less detail */
   compact?: boolean;
+  /** Last seen timestamp for offline devices */
+  lastSeen?: string | Date | null;
+  /** Show connection diagnostics for discovery/connection errors */
+  showDiagnostics?: boolean;
+  /** Controller ID for action links */
+  controllerId?: string;
 }
 
 // ============================================
@@ -91,11 +103,17 @@ export function ErrorGuidance({
   statusCode,
   onRetry,
   onAction,
+  onViewGuide,
   defaultExpanded = false,
   className,
   compact = false,
+  lastSeen,
+  showDiagnostics = false,
+  controllerId,
 }: ErrorGuidanceProps) {
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded);
+  const [showDiagnosticsSection, setShowDiagnosticsSection] = React.useState(false);
+  const router = useRouter();
 
   // Get error guidance
   const guidance = React.useMemo(
@@ -107,13 +125,32 @@ export function ErrorGuidance({
   const colors = getErrorColor(guidance.category);
   const Icon = CATEGORY_ICONS[guidance.category];
 
+  // Get connection diagnostics if needed
+  const diagnostics = React.useMemo(
+    () => brand && showDiagnostics ? getConnectionDiagnostics(brand) : null,
+    [brand, showDiagnostics]
+  );
+
   // Handle action button click
   const handleAction = () => {
     if (guidance.primaryAction) {
-      if (guidance.primaryAction.action === "retry" && onRetry) {
+      const action = guidance.primaryAction.action;
+
+      // Handle built-in actions
+      if (action === "retry" && onRetry) {
         onRetry();
+      } else if (action === "update_credentials" && controllerId) {
+        router.push(`/dashboard/controllers/${controllerId}/edit`);
+      } else if (action === "login") {
+        router.push("/login");
+      } else if (action === "refresh") {
+        if (onRetry) {
+          onRetry();
+        } else {
+          window.location.reload();
+        }
       } else if (onAction) {
-        onAction(guidance.primaryAction.action);
+        onAction(action);
       }
     }
   };
@@ -188,6 +225,16 @@ export function ErrorGuidance({
           <CheckCircle2 className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
           <p className="text-sm text-muted-foreground">{guidance.steps[0]}</p>
         </div>
+
+        {/* Last seen time for offline devices */}
+        {guidance.category === "offline" && lastSeen && (
+          <div className="mt-3 p-3 bg-muted/50 rounded-lg">
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium">Last seen:</span>{" "}
+              {formatLastSeen(lastSeen)}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Expandable troubleshooting steps */}
@@ -229,8 +276,19 @@ export function ErrorGuidance({
               </ul>
 
               {/* Help links */}
-              {(guidance.helpUrl || guidance.supportInfo) && (
+              {(guidance.helpUrl || guidance.supportInfo || guidance.brandGuideAvailable) && (
                 <div className="mt-4 pt-3 border-t border-dashed flex flex-wrap gap-2">
+                  {guidance.brandGuideAvailable && onViewGuide && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={onViewGuide}
+                      className="text-xs"
+                    >
+                      <BookOpen className="w-3 h-3 mr-1" />
+                      View Connection Guide
+                    </Button>
+                  )}
                   {guidance.helpUrl && (
                     <a
                       href={guidance.helpUrl}
@@ -249,6 +307,56 @@ export function ErrorGuidance({
                   )}
                 </div>
               )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Connection Diagnostics Section */}
+      {diagnostics && (context === "connection" || context === "discovery") && (
+        <>
+          <button
+            onClick={() => setShowDiagnosticsSection(!showDiagnosticsSection)}
+            className={cn(
+              "w-full px-4 py-2 flex items-center justify-between",
+              "text-sm font-medium border-t",
+              colors.border,
+              "hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            )}
+          >
+            <span className={colors.text}>
+              {showDiagnosticsSection ? "Hide" : "Show"} connection diagnostics
+            </span>
+            {showDiagnosticsSection ? (
+              <ChevronUp className="w-4 h-4" />
+            ) : (
+              <ChevronDown className="w-4 h-4" />
+            )}
+          </button>
+
+          {showDiagnosticsSection && (
+            <div className={cn("px-4 pb-4 border-t", colors.border)}>
+              <h4 className="font-medium mt-3 mb-2 text-sm">{diagnostics.title}</h4>
+              <div className="space-y-3">
+                {diagnostics.checks.map((check, index) => (
+                  <div key={index} className="space-y-1">
+                    <p className="text-sm font-medium">{check.step}</p>
+                    <p className="text-sm text-muted-foreground">{check.description}</p>
+                    <div className="pl-3 border-l-2 border-green-500/30">
+                      <p className="text-xs text-green-600 dark:text-green-400">
+                        Expected: {check.expected}
+                      </p>
+                    </div>
+                    {check.troubleshoot && (
+                      <div className="pl-3 border-l-2 border-amber-500/30">
+                        <p className="text-xs text-amber-600 dark:text-amber-400">
+                          Troubleshoot: {check.troubleshoot}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </>
@@ -348,15 +456,7 @@ export function ConnectionStatus({
   onRetry,
   className,
 }: ConnectionStatusProps) {
-  const lastSeenDate = lastSeen
-    ? typeof lastSeen === "string"
-      ? new Date(lastSeen)
-      : lastSeen
-    : null;
-
-  const lastSeenText = lastSeenDate
-    ? `Last seen: ${lastSeenDate.toLocaleString()}`
-    : undefined;
+  const lastSeenText = lastSeen ? formatLastSeen(lastSeen) : undefined;
 
   if (status === "online") {
     return (
@@ -384,7 +484,7 @@ export function ConnectionStatus({
           <span className="text-muted-foreground">Offline</span>
           {lastSeenText && (
             <span className="text-xs text-muted-foreground/70">
-              ({lastSeenText})
+              (Last seen: {lastSeenText})
             </span>
           )}
         </div>
@@ -394,6 +494,7 @@ export function ConnectionStatus({
             brand={brand}
             context="connection"
             onRetry={onRetry}
+            lastSeen={lastSeen}
             compact
           />
         )}

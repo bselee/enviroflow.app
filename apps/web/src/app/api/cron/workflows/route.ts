@@ -116,14 +116,17 @@ export async function GET(request: NextRequest) {
   const results: ExecutionResult[] = []
   
   try {
-    // Verify cron secret (optional security)
+    // Verify cron secret (REQUIRED for security)
     const cronSecret = process.env.CRON_SECRET
-    if (cronSecret) {
-      const authHeader = request.headers.get('authorization')
-      if (authHeader !== `Bearer ${cronSecret}`) {
-        console.warn('Unauthorized cron request')
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      }
+    if (!cronSecret) {
+      console.error('CRON_SECRET environment variable is not configured')
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
+    }
+
+    const authHeader = request.headers.get('authorization')
+    if (authHeader !== `Bearer ${cronSecret}`) {
+      console.warn('Unauthorized cron request')
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     
     const supabase = getSupabase()

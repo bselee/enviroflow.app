@@ -79,6 +79,9 @@ export type {
   UseUserPreferencesReturn,
 } from "./use-user-preferences";
 
+// Onboarding hook
+export { useOnboarding } from "./use-onboarding";
+
 // Animation tier (performance optimization)
 export {
   useAnimationTier,
@@ -93,6 +96,20 @@ export type {
   UseAnimationTierReturn,
   AnimationTierProviderProps,
 } from "./use-animation-tier";
+
+// Geolocation hook
+export { useGeolocation } from "./use-geolocation";
+export type {
+  UseGeolocationReturn,
+  Coordinates,
+} from "./use-geolocation";
+
+// Date range hook
+export { useDateRange, useDateRangeAsHours } from "./use-date-range";
+export type {
+  UseDateRangeReturn,
+  UseDateRangeOptions,
+} from "./use-date-range";
 
 // Re-export commonly used types from @/types for backwards compatibility
 // Prefer importing directly from @/types for new code
@@ -132,6 +149,8 @@ export type {
   // Analytics types
   AnalyticsData,
   DateRange,
+  DateRangePreset,
+  DateRangeValue,
   // Common types
   ApiResponse,
 } from "@/types";

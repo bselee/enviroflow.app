@@ -393,57 +393,80 @@ export function useControllers(): UseControllersState {
   );
 
   /**
-   * Test connection for a controller
+   * Test connection for a controller with automatic retry
    */
   const testConnection = useCallback(
     async (id: string): Promise<OperationResult<{ isOnline: boolean }>> => {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+      const maxAttempts = 3;
+      const baseDelay = 2000; // 2 seconds
 
-        if (!session?.user) {
-          return { success: false, error: "You must be logged in" };
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+
+          if (!session?.user) {
+            return { success: false, error: "You must be logged in" };
+          }
+
+          // Get controller details
+          const { data: controller, error: fetchError } = await supabase
+            .from("controllers")
+            .select("brand, credentials")
+            .eq("id", id)
+            .eq("user_id", session.user.id)
+            .single();
+
+          if (fetchError || !controller) {
+            return { success: false, error: "Controller not found" };
+          }
+
+          // For now, simulate connection test
+          // In production, this would call the adapter
+          const isOnline = controller.brand !== "csv_upload";
+
+          // Update the controller's online status
+          await supabase
+            .from("controllers")
+            .update({
+              status: isOnline ? 'online' : 'offline',
+              last_seen: new Date().toISOString(),
+              last_error: null,
+            })
+            .eq("id", id);
+
+          // Refresh controllers
+          await fetchControllers();
+
+          return { success: true, data: { isOnline } };
+        } catch (err) {
+          // Log error with attempt number
+          console.error(`Error testing connection (attempt ${attempt}/${maxAttempts}):`,
+            err instanceof Error ? err.message : "Unknown error");
+
+          // If not the last attempt, wait and retry with exponential backoff
+          if (attempt < maxAttempts) {
+            const delay = baseDelay * Math.pow(2, attempt - 1);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+
+          // All retries exhausted
+          return {
+            success: false,
+            error: err instanceof Error
+              ? `Connection test failed after ${maxAttempts} attempts: ${err.message}`
+              : "Connection test failed",
+          };
         }
-
-        // Get controller details
-        const { data: controller, error: fetchError } = await supabase
-          .from("controllers")
-          .select("brand, credentials")
-          .eq("id", id)
-          .eq("user_id", session.user.id)
-          .single();
-
-        if (fetchError || !controller) {
-          return { success: false, error: "Controller not found" };
-        }
-
-        // For now, simulate connection test
-        // In production, this would call the adapter
-        const isOnline = controller.brand !== "csv_upload";
-
-        // Update the controller's online status
-        await supabase
-          .from("controllers")
-          .update({
-            status: isOnline ? 'online' : 'offline',
-            last_seen: new Date().toISOString(),
-            last_error: null,
-          })
-          .eq("id", id);
-
-        // Refresh controllers
-        await fetchControllers();
-
-        return { success: true, data: { isOnline } };
-      } catch (err) {
-        // Log error message only - controller object may contain credentials
-        console.error("Error testing connection:", err instanceof Error ? err.message : "Unknown error");
-        return {
-          success: false,
-          error: err instanceof Error ? err.message : "Connection test failed",
-        };
       }
+
+      // Fallback (should never reach here)
+      return {
+        success: false,
+        error: "Connection test failed",
+      };
     },
     [fetchControllers]
   );

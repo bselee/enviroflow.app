@@ -177,7 +177,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
   async discoverDevices(credentials: DiscoveryCredentials): Promise<DiscoveryResult> {
     const { email, password } = credentials
 
-    log('info', 'Starting device discovery', { email: email.replace(/(.{2}).*(@.*)/, '$1***$2') })
+    log('info', 'Starting device discovery', { email: '[REDACTED]' })
 
     try {
       // Step 1: Login to get token
@@ -344,7 +344,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
     userId?: string
     error?: string
   }> {
-    log('info', 'Attempting login', { email: email.replace(/(.{2}).*(@.*)/, '$1***$2') })
+    log('info', 'Attempting login', { email: '[REDACTED]' })
 
     // Build form-urlencoded body with correct field names
     // Note: AppPasswordL has an 'L' suffix (not a typo!)

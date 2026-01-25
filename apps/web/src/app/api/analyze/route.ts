@@ -118,6 +118,63 @@ function getSupabaseClient() {
   return createClient(url, serviceKey);
 }
 
+// -----------------------------------------------------------------------------
+// Rate Limiting
+// -----------------------------------------------------------------------------
+
+interface RateLimitRecord {
+  count: number;
+  resetAt: number;
+}
+
+const rateLimitStore = new Map<string, RateLimitRecord>();
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 10; // 10 requests per minute for analyze
+const CLEANUP_PROBABILITY = 0.1;
+
+function checkRateLimit(ip: string): { allowed: boolean; retryAfter?: number } {
+  const now = Date.now();
+  const record = rateLimitStore.get(ip);
+
+  // Probabilistic cleanup of expired entries
+  if (Math.random() < CLEANUP_PROBABILITY) {
+    for (const [key, value] of rateLimitStore.entries()) {
+      if (value.resetAt < now) {
+        rateLimitStore.delete(key);
+      }
+    }
+  }
+
+  // New IP or expired window
+  if (!record || record.resetAt < now) {
+    rateLimitStore.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return { allowed: true };
+  }
+
+  // Check if rate limit exceeded
+  if (record.count >= RATE_LIMIT_MAX_REQUESTS) {
+    const retryAfter = Math.ceil((record.resetAt - now) / 1000);
+    return { allowed: false, retryAfter };
+  }
+
+  // Increment and allow
+  record.count++;
+  return { allowed: true };
+}
+
+function getClientIp(request: NextRequest): string {
+  const forwardedFor = request.headers.get('x-forwarded-for');
+  if (forwardedFor) {
+    const firstIp = forwardedFor.split(',')[0].trim();
+    if (firstIp) return firstIp;
+  }
+
+  const realIp = request.headers.get('x-real-ip');
+  if (realIp) return realIp.trim();
+
+  return 'unknown';
+}
+
 // =============================================================================
 // Data Fetching
 // =============================================================================
@@ -487,6 +544,25 @@ async function broadcastInsight(insightId: string): Promise<void> {
  */
 export async function POST(request: NextRequest) {
   try {
+    // Rate limit check - must be first
+    const clientIp = getClientIp(request);
+    const rateCheck = checkRateLimit(clientIp);
+
+    if (!rateCheck.allowed) {
+      console.warn(`[Analyze] Rate limit exceeded: ip=${clientIp}, retryAfter=${rateCheck.retryAfter}s`);
+      return NextResponse.json(
+        {
+          error: 'Too many analysis requests. Please wait before trying again.',
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(rateCheck.retryAfter),
+          },
+        }
+      );
+    }
+
     // Initialize Supabase client for authentication
     const supabase = getSupabaseClient();
 

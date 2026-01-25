@@ -177,6 +177,10 @@ export interface UseDashboardDataReturn {
   isDemoMode: boolean;
   /** True when transitioning from demo to real mode */
   isTransitioningFromDemo: boolean;
+
+  // Raw sensor readings for analytics
+  /** All sensor readings (filtered by time range) */
+  sensorReadings: SensorReading[];
 }
 
 // =============================================================================
@@ -534,6 +538,9 @@ export function useDashboardData(
   // Track refresh interval ID for cleanup
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Debounce ref for realtime refetch (prevents excessive API calls)
+  const realtimeDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
   // Demo mode transition state
   const [isTransitioningFromDemo, setIsTransitioningFromDemo] = useState(false);
   const previousControllersCountRef = useRef<number | null>(null);
@@ -658,6 +665,22 @@ export function useDashboardData(
    */
   const refetch = useCallback(async () => {
     await fetchDashboardData(true);
+  }, [fetchDashboardData]);
+
+  /**
+   * Debounced refetch for realtime events.
+   * Prevents excessive API calls when multiple changes happen quickly.
+   */
+  const debouncedRealtimeRefetch = useCallback(() => {
+    if (realtimeDebounceRef.current) {
+      clearTimeout(realtimeDebounceRef.current);
+    }
+    realtimeDebounceRef.current = setTimeout(() => {
+      if (isMounted.current) {
+        fetchDashboardData(true);
+      }
+      realtimeDebounceRef.current = null;
+    }, 500); // 500ms debounce
   }, [fetchDashboardData]);
 
   // ==========================================================================
@@ -907,8 +930,8 @@ export function useDashboardData(
           table: "rooms",
         },
         () => {
-          // Refetch all data to ensure consistency with relations
-          fetchDashboardData(true);
+          // Debounced refetch to prevent excessive API calls
+          debouncedRealtimeRefetch();
         }
       )
       // Subscribe to controller changes
@@ -920,7 +943,7 @@ export function useDashboardData(
           table: "controllers",
         },
         () => {
-          fetchDashboardData(true);
+          debouncedRealtimeRefetch();
         }
       )
       // Subscribe to new sensor readings (INSERT only for performance)
@@ -962,8 +985,12 @@ export function useDashboardData(
 
     return () => {
       supabase.removeChannel(channel);
+      if (realtimeDebounceRef.current) {
+        clearTimeout(realtimeDebounceRef.current);
+        realtimeDebounceRef.current = null;
+      }
     };
-  }, [fetchDashboardData]);
+  }, [debouncedRealtimeRefetch]);
 
   // ==========================================================================
   // New Computed Values for Dashboard Components
@@ -1268,6 +1295,9 @@ export function useDashboardData(
     // Demo mode state
     isDemoMode: shouldShowDemoMode,
     isTransitioningFromDemo,
+
+    // Raw sensor readings
+    sensorReadings: shouldShowDemoMode ? [] : sensorReadings,
   };
 }
 

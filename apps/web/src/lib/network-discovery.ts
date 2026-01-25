@@ -74,11 +74,16 @@ export interface DiscoveryResponse {
 /**
  * Credentials for cloud-based discovery.
  */
-export interface DiscoveryCredentials {
-  brand: ControllerBrand
-  email: string
-  password: string
-}
+export type DiscoveryCredentials =
+  | {
+      brand: 'ac_infinity' | 'inkbird'
+      email: string
+      password: string
+    }
+  | {
+      brand: 'govee'
+      apiKey: string
+    }
 
 /**
  * Discovery state for UI components.
@@ -140,14 +145,14 @@ export async function discoverDevices(
       headers['Authorization'] = `Bearer ${authToken}`
     }
 
+    const body = credentials.brand === 'govee'
+      ? { brand: credentials.brand, apiKey: credentials.apiKey }
+      : { brand: credentials.brand, email: credentials.email, password: credentials.password }
+
     const response = await fetch('/api/controllers/discover', {
       method: 'POST',
       headers,
-      body: JSON.stringify({
-        brand: credentials.brand,
-        email: credentials.email,
-        password: credentials.password,
-      }),
+      body: JSON.stringify(body),
     })
 
     if (!response.ok) {
@@ -186,7 +191,7 @@ export async function discoverDevices(
  * @returns Array of brand IDs that support discovery
  */
 export function getDiscoverableBrands(): ControllerBrand[] {
-  return ['ac_infinity', 'inkbird']
+  return ['ac_infinity', 'inkbird', 'govee']
 }
 
 /**
@@ -231,9 +236,9 @@ export function getBrandDisplayInfo(brand: ControllerBrand): {
     },
     govee: {
       name: 'Govee',
-      description: 'WiFi Hygrometers',
+      description: 'WiFi Hygrometers, Smart Lights & Plugs',
       icon: 'droplet',
-      helpText: 'Govee devices require the mobile app for discovery.',
+      helpText: 'Enter your Govee API key. Get it from Govee Home app: Account > About Us > Apply for API Key.',
     },
     csv_upload: {
       name: 'CSV Upload',

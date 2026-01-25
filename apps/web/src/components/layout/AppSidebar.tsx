@@ -11,6 +11,7 @@ import {
   Menu,
   X,
   Leaf,
+  Calendar,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ interface AppSidebarProps {
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Automations", href: "/automations", icon: Workflow },
+  { name: "Schedules", href: "/schedules", icon: Calendar },
   { name: "Controllers", href: "/controllers", icon: Cpu },
   { name: "Settings", href: "/settings", icon: Settings },
 ];

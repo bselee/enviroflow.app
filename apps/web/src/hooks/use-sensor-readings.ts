@@ -72,6 +72,7 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
     sensorTypes,
     limit = 100,
     timeRangeHours = 24,
+    dateRange,
   } = options;
 
   const [readings, setReadings] = useState<SensorReading[]>([]);
@@ -103,14 +104,24 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
       setIsLoading(true);
       setError(null);
 
-      // Calculate time range
-      const startTime = new Date();
-      startTime.setHours(startTime.getHours() - timeRangeHours);
+      // Calculate time range - use dateRange if provided, otherwise fall back to timeRangeHours
+      let startTime: Date;
+      let endTime: Date;
+
+      if (dateRange) {
+        startTime = dateRange.from;
+        endTime = dateRange.to;
+      } else {
+        endTime = new Date();
+        startTime = new Date();
+        startTime.setHours(startTime.getHours() - timeRangeHours);
+      }
 
       let query = supabase
         .from("sensor_readings")
         .select("*")
         .gte("recorded_at", startTime.toISOString())
+        .lte("recorded_at", endTime.toISOString())
         .order("recorded_at", { ascending: false })
         .limit(limit * Math.max(controllerIds.length, 1));
 
@@ -139,7 +150,7 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
     } finally {
       setIsLoading(false);
     }
-  }, [controllerIds, sensorTypes, limit, timeRangeHours]);
+  }, [controllerIds, sensorTypes, limit, timeRangeHours, dateRange]);
 
   /**
    * Gets the latest reading for each sensor type for a specific controller.
@@ -311,6 +322,9 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
 
   // Set up real-time subscription for sensor readings changes
   useEffect(() => {
+    // Reset mounted ref on each effect run (important for remount scenarios)
+    mountedRef.current = true;
+
     if (controllerIds.length === 0) {
       setConnectionStatus('connected'); // No subscription needed
       return;

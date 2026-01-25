@@ -170,12 +170,19 @@ function getSupabase(): SupabaseClient {
   return supabase
 }
 
-// Request validation schema
-const discoveryRequestSchema = z.object({
+// Request validation schemas
+const emailPasswordSchema = z.object({
   brand: z.enum(['ac_infinity', 'inkbird']),
   email: z.string().email('Invalid email format'),
   password: z.string().min(1, 'Password is required'),
 })
+
+const goveeSchema = z.object({
+  brand: z.literal('govee'),
+  apiKey: z.string().min(1, 'API key is required'),
+})
+
+const discoveryRequestSchema = z.union([emailPasswordSchema, goveeSchema])
 
 /**
  * POST /api/controllers/discover
@@ -240,7 +247,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { brand, email, password } = validationResult.data
+    const data = validationResult.data
+    const brand = data.brand
 
     // Verify the brand supports discovery
     if (!supportsDiscovery(brand as ControllerBrand)) {
@@ -262,11 +270,21 @@ export async function POST(request: NextRequest) {
     const adapter = getDiscoverableAdapter(brand as ControllerBrand)
 
     // Perform discovery using the adapter
-    const discoveryResult = await adapter.discoverDevices({
-      brand: brand as ControllerBrand,
-      email,
-      password,
-    })
+    // Govee uses a different discovery method with API key
+    let discoveryResult
+    if (brand === 'govee') {
+      const { apiKey } = data as z.infer<typeof goveeSchema>
+      // Cast to GoveeAdapter to access discoverDevicesWithApiKey
+      const goveeAdapter = adapter as import('@enviroflow/automation-engine/adapters').GoveeAdapter
+      discoveryResult = await goveeAdapter.discoverDevicesWithApiKey(apiKey)
+    } else {
+      const { email, password } = data as z.infer<typeof emailPasswordSchema>
+      discoveryResult = await adapter.discoverDevices({
+        brand: brand as ControllerBrand,
+        email,
+        password,
+      })
+    }
 
     if (!discoveryResult.success) {
       // Log discovery failures for monitoring (without credentials)
@@ -394,12 +412,13 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     description: 'Device discovery endpoint for cloud-connected controllers',
-    supportedBrands: ['ac_infinity', 'inkbird'],
+    supportedBrands: ['ac_infinity', 'inkbird', 'govee'],
     method: 'POST',
     requiredFields: {
-      brand: 'Controller brand (ac_infinity, inkbird)',
-      email: 'Account email address',
-      password: 'Account password',
+      brand: 'Controller brand (ac_infinity, inkbird, govee)',
+      'email (ac_infinity, inkbird)': 'Account email address',
+      'password (ac_infinity, inkbird)': 'Account password',
+      'apiKey (govee)': 'Govee API key from Govee Home app',
     },
     optionalHeaders: {
       Authorization: 'Bearer token to check for already-registered devices',
@@ -414,6 +433,7 @@ export async function GET() {
       'Authentication enables marking devices already added to your account',
       'Discovery queries the cloud API, not local network',
       `Rate limited to ${RATE_LIMIT_MAX_REQUESTS} requests per minute per IP`,
+      'Govee requires API key (not email/password). Get from Govee Home app: Account > About Us > Apply for API Key',
     ],
   })
 }

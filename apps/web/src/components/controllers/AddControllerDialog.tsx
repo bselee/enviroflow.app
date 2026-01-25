@@ -31,11 +31,11 @@ import {
   Loader2,
   ArrowLeft,
   ArrowRight,
-  AlertCircle,
   Search,
   Radar,
   Eye,
   EyeOff,
+  RefreshCw,
 } from "lucide-react";
 import {
   Dialog,
@@ -64,7 +64,10 @@ import { cn } from "@/lib/utils";
 import { NetworkDiscovery, type DeviceSelectionResult } from "@/components/controllers/NetworkDiscovery";
 import { supportsDiscovery } from "@/lib/network-discovery";
 import { ErrorGuidance } from "@/components/ui/error-guidance";
+import { HelpTooltip } from "@/components/ui/HelpTooltip";
+import { BrandGuideModal } from "@/components/controllers/BrandGuideModal";
 import type { Brand, ControllerBrand, Controller, DiscoveredDevice } from "@/types";
+import { suggestRoomName, generateDefaultControllerName } from "@/lib/room-suggestions";
 
 // Form validation schemas
 const credentialsSchema = z.object({
@@ -182,8 +185,8 @@ export function AddControllerDialog({
   const [discoveryCredentials, setDiscoveryCredentials] = useState<{ email: string; password: string } | null>(null);
   const [addMode, setAddMode] = useState<"manual" | "discover">("manual");
 
-  // Multi-add state - queue of devices to add
-  const [pendingDevices, setPendingDevices] = useState<DeviceSelectionResult[]>([]);
+  // Multi-add state - queue of devices to add (unused for now, kept for future feature)
+  // const [pendingDevices, setPendingDevices] = useState<DeviceSelectionResult[]>([]);
   const [addingMultiple, setAddingMultiple] = useState(false);
   const [multiAddProgress, setMultiAddProgress] = useState({ current: 0, total: 0, results: [] as Array<{ name: string; success: boolean; error?: string }> });
 
@@ -206,6 +209,12 @@ export function AddControllerDialog({
 
   // Password visibility state
   const [showPassword, setShowPassword] = useState(false);
+
+  // Brand guide modal state
+  const [showBrandGuide, setShowBrandGuide] = useState(false);
+
+  // Geolocation hook for timezone detection (future enhancement: pass to room creation)
+  // const { timezone } = useGeolocation();
 
   // Credentials form
   const credentialsForm = useForm<CredentialsFormData>({
@@ -239,7 +248,7 @@ export function AddControllerDialog({
     setConnectionStatus("idle");
     setConnectionError(null);
     setDiscoveredDevices([]);
-    setPendingDevices([]);
+    // setPendingDevices([]);
     setAddingMultiple(false);
     setMultiAddProgress({ current: 0, total: 0, results: [] });
     setShowPassword(false);
@@ -272,10 +281,30 @@ export function AddControllerDialog({
     setSelectedBrand(brand);
     setAddMode("manual");
     setDiscoveredDevice(null);
-    // Pre-fill controller name based on brand
-    nameForm.setValue("name", `My ${brand.name}`);
+
+    // Smart default: Generate controller name from brand
+    const defaultName = generateDefaultControllerName(brand.name);
+    nameForm.setValue("name", defaultName);
+
+    // Smart default: Pre-select room if user has exactly 1 room
+    if (rooms.length === 1) {
+      nameForm.setValue("roomId", rooms[0].id);
+    } else if (rooms.length === 0) {
+      // If no rooms exist, leave empty (will show "Create New" prompt)
+      nameForm.setValue("roomId", undefined);
+    } else {
+      // Multiple rooms: suggest based on capabilities
+      const suggestion = suggestRoomName(brand.capabilities, brand.id);
+      const matchingRoom = rooms.find(
+        (r) => r.name.toLowerCase() === suggestion.name.toLowerCase()
+      );
+      if (matchingRoom) {
+        nameForm.setValue("roomId", matchingRoom.id);
+      }
+    }
+
     setStep(2);
-  }, [nameForm]);
+  }, [nameForm, rooms]);
 
   /**
    * Handle discovered device selection from NetworkDiscovery component
@@ -291,11 +320,36 @@ export function AddControllerDialog({
     setDiscoveredDevice(device);
     setDiscoveryCredentials(creds);
     setAddMode("discover");
-    // Pre-fill controller name from discovered device
-    nameForm.setValue("name", device.name);
+
+    // Smart default: Use discovered device name or generate from brand + model
+    const defaultName = device.name || generateDefaultControllerName(
+      brand.name,
+      device.model
+    );
+    nameForm.setValue("name", defaultName);
+
+    // Smart default: Pre-select room based on count and capabilities
+    if (rooms.length === 1) {
+      // One room: auto-select it
+      nameForm.setValue("roomId", rooms[0].id);
+    } else if (rooms.length === 0) {
+      // No rooms: leave empty (will show create prompt)
+      nameForm.setValue("roomId", undefined);
+    } else {
+      // Multiple rooms: suggest based on device capabilities
+      const capabilities = device.capabilities || brand.capabilities;
+      const suggestion = suggestRoomName(capabilities, brand.id);
+      const matchingRoom = rooms.find(
+        (r) => r.name.toLowerCase() === suggestion.name.toLowerCase()
+      );
+      if (matchingRoom) {
+        nameForm.setValue("roomId", matchingRoom.id);
+      }
+    }
+
     // Skip credentials step and go directly to name/room step
     setStep(3);
-  }, [brands, nameForm]);
+  }, [brands, nameForm, rooms]);
 
   /**
    * Handle multiple device selection from NetworkDiscovery
@@ -377,7 +431,7 @@ export function AddControllerDialog({
   }, [selectedBrand]);
 
   /**
-   * Handle final submission and connection
+   * Handle final submission and connection with retry logic
    */
   const handleConnect = useCallback(
     async (data: ControllerNameFormData) => {
@@ -388,96 +442,124 @@ export function AddControllerDialog({
       setConnectionError(null);
       setConnectionProgress(10);
 
-      // Track the interval so we can clear it in both catch and finally blocks
-      let progressInterval: NodeJS.Timeout | null = null;
+      // Determine which credentials to use
+      const effectiveCredentials = addMode === "discover" && discoveryCredentials
+        ? discoveryCredentials
+        : credentials;
+
+      // Build the request
+      const addRequest: Parameters<typeof onAdd>[0] = {
+        brand: selectedBrand.id,
+        name: data.name,
+        credentials: effectiveCredentials || undefined,
+        room_id: data.roomId || null,
+      };
+
+      // Include discovered device info if available (skips connection test)
+      if (addMode === "discover" && discoveredDevice) {
+        addRequest.discoveredDevice = discoveredDevice;
+      }
+
+      // Use retry hook for connection test
+      // Skip retry for discovered devices (already validated) or CSV upload (no connection needed)
+      const shouldRetry = addMode !== "discover" && selectedBrand.id !== "csv_upload";
+      const maxAttempts = shouldRetry ? 3 : 1;
 
       try {
-        // Simulate connection progress
-        progressInterval = setInterval(() => {
-          setConnectionProgress((prev) => Math.min(prev + 15, 85));
-        }, 300);
+        // Create retry function
+        const connectWithRetry = async () => {
+          const result = await onAdd(addRequest);
 
-        // Determine which credentials to use:
-        // - For discovery flow: use discoveryCredentials (from NetworkDiscovery)
-        // - For manual flow: use credentials (from credentials form)
-        const effectiveCredentials = addMode === "discover" && discoveryCredentials
-          ? discoveryCredentials
-          : credentials;
+          if (!result.success) {
+            // Throw to trigger retry
+            const error = new Error(result.error || "Connection failed");
+            throw error;
+          }
 
-        // Build the request - include discovered device info if available
-        const addRequest: Parameters<typeof onAdd>[0] = {
-          brand: selectedBrand.id,
-          name: data.name,
-          credentials: effectiveCredentials || undefined,
-          room_id: data.roomId || null,
+          return result;
         };
 
-        // If this is a discovered device, include the device info
-        // This allows the backend to skip the connection test and use pre-validated device info
-        if (addMode === "discover" && discoveredDevice) {
-          addRequest.discoveredDevice = discoveredDevice;
-        }
+        // Execute with retry logic
+        let result;
 
-        // Call the add controller function
-        const result = await onAdd(addRequest);
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
 
-        if (progressInterval) {
-          clearInterval(progressInterval);
-          progressInterval = null;
-        }
+          // Update progress based on attempt
+          const baseProgress = ((attempt - 1) / maxAttempts) * 80;
+          setConnectionProgress(baseProgress + 10);
 
-        if (result.success) {
-          setConnectionProgress(100);
-          setConnectionStatus("success");
+          try {
+            // Notify user of retry attempt
+            if (attempt > 1) {
+              setConnectionError(`Attempt ${attempt}/${maxAttempts}: Retrying connection...`);
 
-          // Store the added controller ID for potential room assignment
-          if (result.data?.id) {
-            setAddedControllerId(result.data.id);
+              // Exponential backoff delay (2s, 4s, 8s)
+              const delay = 2000 * Math.pow(2, attempt - 2);
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
+
+            result = await connectWithRetry();
+
+            // Success
+            setConnectionProgress(100);
+            setConnectionStatus("success");
+            setConnectionError(null);
+
+            // SECURITY: Clear credentials from memory after successful use
+            setCredentials(null);
+            setDiscoveryCredentials(null);
+            credentialsForm.reset();
+
+            // Store the added controller ID for potential room assignment
+            if (result.data?.id) {
+              setAddedControllerId(result.data.id);
+            }
+
+            // Show the device that was added
+            if (discoveredDevice) {
+              setDiscoveredDevices([discoveredDevice.name]);
+            } else if (selectedBrand.id === "ac_infinity") {
+              setDiscoveredDevices(["Controller 69 Pro", "UIS Inline Fan", "UIS Light Bar"]);
+            } else if (selectedBrand.id === "inkbird") {
+              setDiscoveredDevices(["ITC-308 Temp Probe"]);
+            } else {
+              setDiscoveredDevices(["Manual CSV Data Source"]);
+            }
+
+            // Check if we should prompt for room creation
+            const noRoomSelected = !data.roomId || data.roomId === "none";
+            const noRoomsExist = rooms.length === 0;
+            const canCreateRoom = onCreateRoom !== undefined;
+
+            if (noRoomSelected && noRoomsExist && canCreateRoom) {
+              setShowRoomPrompt(true);
+            } else {
+              setTimeout(() => {
+                handleOpenChange(false);
+              }, 2000);
+            }
+
+            break; // Success, exit retry loop
+          } catch (err) {
+            if (attempt < maxAttempts) {
+              // Will retry
+              const errorMsg = err instanceof Error ? err.message : "Connection failed";
+              setConnectionError(`Attempt ${attempt}/${maxAttempts} failed: ${errorMsg}`);
+            } else {
+              // All retries exhausted
+              throw err;
+            }
           }
-
-          // Show the device that was added
-          if (discoveredDevice) {
-            // For discovered devices, show the actual device
-            setDiscoveredDevices([discoveredDevice.name]);
-          } else if (selectedBrand.id === "ac_infinity") {
-            setDiscoveredDevices(["Controller 69 Pro", "UIS Inline Fan", "UIS Light Bar"]);
-          } else if (selectedBrand.id === "inkbird") {
-            setDiscoveredDevices(["ITC-308 Temp Probe"]);
-          } else {
-            setDiscoveredDevices(["Manual CSV Data Source"]);
-          }
-
-          // Check if we should prompt for room creation
-          const noRoomSelected = !data.roomId || data.roomId === "none";
-          const noRoomsExist = rooms.length === 0;
-          const canCreateRoom = onCreateRoom !== undefined;
-
-          if (noRoomSelected && noRoomsExist && canCreateRoom) {
-            // Show room creation prompt instead of auto-closing
-            setShowRoomPrompt(true);
-          } else {
-            // Close dialog after short delay on success
-            setTimeout(() => {
-              handleOpenChange(false);
-            }, 2000);
-          }
-        } else {
-          setConnectionProgress(0);
-          setConnectionStatus("error");
-          setConnectionError(result.error || "Failed to connect");
         }
       } catch (err) {
-        if (progressInterval) {
-          clearInterval(progressInterval);
-          progressInterval = null;
-        }
         setConnectionProgress(0);
         setConnectionStatus("error");
-        setConnectionError(err instanceof Error ? err.message : "Connection failed");
+        const errorMessage = err instanceof Error ? err.message : "Connection failed";
+        setConnectionError(maxAttempts > 1
+          ? `Connection failed after ${maxAttempts} attempts: ${errorMessage}`
+          : errorMessage
+        );
       } finally {
-        if (progressInterval) {
-          clearInterval(progressInterval);
-        }
         setIsConnecting(false);
       }
     },
@@ -731,7 +813,10 @@ export function AddControllerDialog({
 
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email" className="flex items-center">
+                  Email
+                  <HelpTooltip id="controller-email" />
+                </Label>
                 <Input
                   id="email"
                   type="email"
@@ -746,7 +831,10 @@ export function AddControllerDialog({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password" className="flex items-center">
+                  Password
+                  <HelpTooltip id="controller-password" />
+                </Label>
                 <div className="relative">
                   <Input
                     id="password"
@@ -857,7 +945,10 @@ export function AddControllerDialog({
 
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="name">Controller Name</Label>
+                <Label htmlFor="name" className="flex items-center">
+                  Controller Name
+                  <HelpTooltip id="controller-name" />
+                </Label>
                 <Input
                   id="name"
                   placeholder="My Controller"
@@ -871,7 +962,10 @@ export function AddControllerDialog({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="room">Room (Optional)</Label>
+                <Label htmlFor="room" className="flex items-center">
+                  Room (Optional)
+                  <HelpTooltip id="room-assignment" />
+                </Label>
                 <Select
                   value={nameForm.watch("roomId") || "none"}
                   onValueChange={(value) =>
@@ -890,6 +984,16 @@ export function AddControllerDialog({
                     ))}
                   </SelectContent>
                 </Select>
+                {rooms.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    No rooms yet. You can create one after adding this controller.
+                  </p>
+                )}
+                {rooms.length > 1 && selectedBrand && !nameForm.watch("roomId") && (
+                  <p className="text-sm text-muted-foreground">
+                    Suggested: {suggestRoomName(selectedBrand.capabilities, selectedBrand.id).name}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -936,11 +1040,20 @@ export function AddControllerDialog({
                 <Loader2 className="w-12 h-12 mx-auto text-primary animate-spin" />
                 <div>
                   <p className="font-medium">Connecting to {selectedBrand?.name}...</p>
-                  <p className="text-sm text-muted-foreground">
-                    Discovering devices and sensors
-                  </p>
+                  {connectionError && connectionError.includes("Attempt") ? (
+                    <p className="text-sm text-amber-600 dark:text-amber-400 mt-2">
+                      {connectionError}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Discovering devices and sensors
+                    </p>
+                  )}
                 </div>
                 <Progress value={connectionProgress} className="h-2" />
+                <p className="text-xs text-muted-foreground">
+                  This may take up to 30 seconds...
+                </p>
               </div>
             )}
 
@@ -1009,12 +1122,21 @@ export function AddControllerDialog({
                           <Label htmlFor="room-name">Room Name</Label>
                           <Input
                             id="room-name"
-                            placeholder="e.g., Veg Room A, Flower Tent 1"
+                            placeholder={
+                              selectedBrand
+                                ? suggestRoomName(selectedBrand.capabilities, selectedBrand.id).name
+                                : "e.g., Veg Room A, Flower Tent 1"
+                            }
                             value={newRoomName.trim() ? newRoomName : ""}
                             onChange={(e) => setNewRoomName(e.target.value)}
                             autoFocus
                             disabled={isCreatingRoom}
                           />
+                          {selectedBrand && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Suggested: {suggestRoomName(selectedBrand.capabilities, selectedBrand.id).name}
+                            </p>
+                          )}
                         </div>
                         <div className="flex gap-2">
                           <Button
@@ -1103,6 +1225,7 @@ export function AddControllerDialog({
                   brand={selectedBrand?.id}
                   context="connection"
                   onRetry={handleRetry}
+                  onViewGuide={() => setShowBrandGuide(true)}
                   defaultExpanded={true}
                 />
 
@@ -1112,7 +1235,7 @@ export function AddControllerDialog({
                     {addMode === "discover" ? "Back to Discovery" : "Edit Credentials"}
                   </Button>
                   <Button onClick={handleRetry}>
-                    <Loader2 className="w-4 h-4 mr-2" />
+                    <RefreshCw className="w-4 h-4 mr-2" />
                     Retry Connection
                   </Button>
                 </DialogFooter>
@@ -1149,6 +1272,16 @@ export function AddControllerDialog({
 
         {renderStepContent()}
       </DialogContent>
+
+      {/* Brand Guide Modal */}
+      {selectedBrand && (
+        <BrandGuideModal
+          open={showBrandGuide}
+          onOpenChange={setShowBrandGuide}
+          brand={selectedBrand.id}
+          highlightError={connectionError || undefined}
+        />
+      )}
     </Dialog>
   );
 }

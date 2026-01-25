@@ -51,6 +51,8 @@ export interface ErrorGuidance {
   helpUrl?: string
   /** Support contact info */
   supportInfo?: string
+  /** Whether a brand-specific guide is available */
+  brandGuideAvailable?: boolean
 }
 
 // ============================================
@@ -175,44 +177,52 @@ const GUIDANCE_TEMPLATES: Record<ErrorCategory, Omit<ErrorGuidance, 'message'>> 
 
   credentials: {
     category: 'credentials',
-    title: 'Invalid Credentials',
+    title: 'Authentication Failed',
     steps: [
       'Double-check your email address is correct',
       'Verify your password (try logging into the official app)',
       'If you recently changed your password, use the new one',
+      'Some brands require API keys instead of passwords',
       'Reset your password if you\'ve forgotten it'
     ],
     primaryAction: { label: 'Update Credentials', action: 'update_credentials' },
-    retryable: true
+    retryable: true,
+    helpUrl: '/reset-password'
   },
 
   network: {
     category: 'network',
     title: 'Connection Problem',
     steps: [
-      'Check your internet connection',
-      'Try refreshing the page',
+      'Check your internet connection is working',
+      'Verify the controller brand\'s cloud service is online',
       'If using VPN, try disabling it temporarily',
-      'Check if other websites are working'
+      'Check if your firewall is blocking the connection',
+      'Try from a different network (mobile hotspot)',
+      'Contact your network administrator if on corporate network'
     ],
     primaryAction: { label: 'Try Again', action: 'retry' },
     retryable: true,
-    retryAfter: 5
+    retryAfter: 5,
+    helpUrl: '/troubleshooting/network'
   },
 
   offline: {
     category: 'offline',
-    title: 'Controller Offline',
+    title: 'Device Offline',
     steps: [
-      'Check if the controller is powered on',
-      'Verify the controller\'s WiFi connection',
-      'Check if the WiFi indicator light is on',
+      'Check if the controller is powered on and display is lit',
+      'Verify the controller shows online in its official app',
+      'Check if the WiFi/cloud indicator light is on',
+      'Ensure your WiFi router is working properly',
       'Try power cycling the controller (unplug, wait 10 seconds, plug back in)',
-      'Ensure your router is working properly'
+      'Move the controller closer to your WiFi router if signal is weak',
+      'For WiFi controllers: ensure you\'re on 2.4GHz network, not 5GHz'
     ],
     primaryAction: { label: 'Refresh Status', action: 'refresh' },
     retryable: true,
-    retryAfter: 30
+    retryAfter: 30,
+    helpUrl: '/troubleshooting/offline'
   },
 
   not_found: {
@@ -232,7 +242,10 @@ const GUIDANCE_TEMPLATES: Record<ErrorCategory, Omit<ErrorGuidance, 'message'>> 
     title: 'Too Many Requests',
     steps: [
       'You\'ve made too many requests in a short time',
-      'Please wait a moment before trying again',
+      'The controller brand\'s API has rate limits to prevent abuse',
+      'Please wait 60 seconds before trying again',
+      'If this happens frequently, reduce your polling frequency',
+      'Close other apps that might be using the same account',
       'This limit protects the service for all users'
     ],
     primaryAction: { label: 'Wait & Retry', action: 'wait' },
@@ -256,14 +269,17 @@ const GUIDANCE_TEMPLATES: Record<ErrorCategory, Omit<ErrorGuidance, 'message'>> 
     category: 'server',
     title: 'Service Temporarily Unavailable',
     steps: [
-      'Our servers are experiencing issues',
+      'The controller brand\'s servers are experiencing issues',
+      'This could also be a temporary EnviroFlow server problem',
       'This is usually temporary - please try again in a few minutes',
-      'If the problem persists, check our status page'
+      'Check if the controller brand\'s app is working',
+      'If only EnviroFlow is affected, check our status page',
+      'If the problem persists for more than 30 minutes, contact support'
     ],
-    primaryAction: { label: 'Check Status', action: 'check_status' },
+    primaryAction: { label: 'Try Again', action: 'retry' },
     retryable: true,
     retryAfter: 30,
-    helpUrl: 'https://status.enviroflow.app',
+    helpUrl: '/troubleshooting/server-errors',
     supportInfo: 'support@enviroflow.app'
   },
 
@@ -430,18 +446,29 @@ export function getErrorGuidance(
     if (category === 'credentials') {
       guidance.steps = [
         brandInfo.credentialHelp,
-        ...template.steps
+        ...template.steps,
+        `View the ${brandInfo.appName} Connection Guide for detailed troubleshooting`
       ]
     } else if (category === 'offline') {
-      guidance.steps = brandInfo.offlineSteps
+      guidance.steps = [
+        ...brandInfo.offlineSteps,
+        `Check the ${brandInfo.appName} Connection Guide for more help`
+      ]
     } else if (category === 'network' && options?.context === 'connection') {
-      guidance.steps = brandInfo.connectionSteps
+      guidance.steps = [
+        ...brandInfo.connectionSteps,
+        `See the ${brandInfo.appName} Connection Guide for step-by-step instructions`
+      ]
     }
 
     // Add brand support URL if available
     if (brandInfo.supportUrl && (category === 'offline' || category === 'credentials')) {
       guidance.helpUrl = brandInfo.supportUrl
     }
+
+    // Add link to brand-specific guide
+    // This will be rendered as a button in the ErrorGuidance component
+    guidance.brandGuideAvailable = true
   }
 
   // Context-specific adjustments
@@ -527,4 +554,202 @@ export function getErrorColor(category: ErrorCategory): {
     unknown: { bg: 'bg-gray-50 dark:bg-gray-900', text: 'text-gray-800 dark:text-gray-200', border: 'border-gray-200 dark:border-gray-700', icon: 'text-gray-500' }
   }
   return colors[category]
+}
+
+// ============================================
+// Connection Diagnostics
+// ============================================
+
+/**
+ * Connection diagnostic steps for troubleshooting controller discovery
+ */
+export interface ConnectionDiagnostics {
+  title: string
+  checks: Array<{
+    step: string
+    description: string
+    expected: string
+    troubleshoot?: string
+  }>
+}
+
+/**
+ * Get connection diagnostic guide for controller discovery issues
+ */
+export function getConnectionDiagnostics(brand: ControllerBrand): ConnectionDiagnostics {
+  const diagnostics: Record<string, ConnectionDiagnostics> = {
+    ac_infinity: {
+      title: 'AC Infinity Connection Diagnostics',
+      checks: [
+        {
+          step: '1. Verify controller compatibility',
+          description: 'Check if your controller model supports WiFi/cloud features',
+          expected: 'Controller should be 69 WiFi, 69 Pro, 69 Pro+, or AI+ model',
+          troubleshoot: 'Bluetooth-only controllers (67, base 69) are NOT supported. Upgrade to a WiFi-capable model.'
+        },
+        {
+          step: '2. Check WiFi connection',
+          description: 'Verify the controller is connected to your 2.4GHz WiFi network',
+          expected: 'WiFi/cloud icon should be visible on the controller screen',
+          troubleshoot: 'AC Infinity controllers only support 2.4GHz WiFi, not 5GHz. Reconnect via the AC Infinity app.'
+        },
+        {
+          step: '3. Verify cloud connectivity',
+          description: 'Ensure the controller appears online in the AC Infinity app',
+          expected: 'Controller shows "Online" status in the app',
+          troubleshoot: 'Try logging out and back into the AC Infinity app to refresh the connection.'
+        },
+        {
+          step: '4. Test credentials',
+          description: 'Verify you can log into the AC Infinity app with the same credentials',
+          expected: 'Login succeeds in the official app',
+          troubleshoot: 'If login fails, reset your password at acinfinity.com'
+        },
+        {
+          step: '5. Check firewall',
+          description: 'Ensure your network allows connections to acinfinity.com',
+          expected: 'No firewall blocking API requests',
+          troubleshoot: 'Try from a different network (mobile hotspot) to rule out firewall issues.'
+        }
+      ]
+    },
+    ecowitt: {
+      title: 'Ecowitt Connection Diagnostics',
+      checks: [
+        {
+          step: '1. Verify API key',
+          description: 'Check that you have generated an Application Key in the Ecowitt app',
+          expected: 'Application Key and API Key visible in app settings',
+          troubleshoot: 'Generate keys: Ecowitt app > Menu > Settings > API'
+        },
+        {
+          step: '2. Check gateway status',
+          description: 'Verify the weather station gateway is online',
+          expected: 'Gateway shows online in Ecowitt app with recent data',
+          troubleshoot: 'Power cycle the gateway and check WiFi connection'
+        },
+        {
+          step: '3. Verify sensor data',
+          description: 'Check that sensors are reporting data to the gateway',
+          expected: 'Recent readings visible in Ecowitt app',
+          troubleshoot: 'Replace sensor batteries or move sensors closer to gateway'
+        },
+        {
+          step: '4. Test MAC address',
+          description: 'Enter the gateway MAC address correctly (no colons or dashes)',
+          expected: 'MAC address format: ABC123DEF456',
+          troubleshoot: 'Find MAC on gateway label or in Ecowitt app device info'
+        }
+      ]
+    },
+    inkbird: {
+      title: 'Inkbird Connection Diagnostics',
+      checks: [
+        {
+          step: '1. Note: Limited support',
+          description: 'Inkbird direct cloud integration is not yet available',
+          expected: 'Use CSV Upload to import Inkbird data manually',
+          troubleshoot: 'Full Inkbird support is planned for a future update.'
+        }
+      ]
+    },
+    mqtt: {
+      title: 'MQTT Connection Diagnostics',
+      checks: [
+        {
+          step: '1. Verify broker URL',
+          description: 'Check that the broker URL includes the protocol (ws:// or wss://)',
+          expected: 'Format: ws://broker.example.com:9001 or wss://broker.example.com',
+          troubleshoot: 'MQTT over WebSockets requires ws:// (insecure) or wss:// (secure) protocol'
+        },
+        {
+          step: '2. Test broker accessibility',
+          description: 'Ensure the MQTT broker is running and accepting connections',
+          expected: 'Broker responds to connection attempts',
+          troubleshoot: 'Check broker logs and ensure WebSocket port is open'
+        },
+        {
+          step: '3. Verify credentials',
+          description: 'If broker requires authentication, check username/password',
+          expected: 'Credentials match broker configuration',
+          troubleshoot: 'Some brokers allow anonymous connections - try without credentials first'
+        },
+        {
+          step: '4. Check topic',
+          description: 'Verify the MQTT topic matches your device configuration',
+          expected: 'Topic format: enviroflow/sensors/# or similar',
+          troubleshoot: 'Use MQTT client tool (like MQTT Explorer) to verify topic structure'
+        }
+      ]
+    },
+    csv_upload: {
+      title: 'CSV Upload Guide',
+      checks: [
+        {
+          step: '1. Download template',
+          description: 'Use our CSV template for correct formatting',
+          expected: 'Template includes all required columns',
+          troubleshoot: 'Download from: /api/controllers/csv-template'
+        },
+        {
+          step: '2. Format data correctly',
+          description: 'Ensure timestamps are in ISO 8601 format',
+          expected: 'Example: 2024-01-24T12:00:00Z',
+          troubleshoot: 'Use Excel or Google Sheets to format dates properly'
+        },
+        {
+          step: '3. Upload file',
+          description: 'Select your CSV file and upload',
+          expected: 'File size under 10MB, valid CSV format',
+          troubleshoot: 'Remove extra columns not in the template'
+        }
+      ]
+    }
+  }
+
+  return diagnostics[brand] || {
+    title: 'Connection Diagnostics',
+    checks: [
+      {
+        step: '1. Verify credentials',
+        description: 'Check that your credentials are correct',
+        expected: 'Login works in the official app',
+        troubleshoot: 'Try resetting your password'
+      },
+      {
+        step: '2. Check device status',
+        description: 'Verify the device is online',
+        expected: 'Device shows online in the official app',
+        troubleshoot: 'Power cycle the device and check network connection'
+      }
+    ]
+  }
+}
+
+/**
+ * Get last seen time formatted for display
+ */
+export function formatLastSeen(lastSeen: string | Date | null): string {
+  if (!lastSeen) {
+    return 'Never'
+  }
+
+  const date = typeof lastSeen === 'string' ? new Date(lastSeen) : lastSeen
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMinutes = Math.floor(diffMs / 1000 / 60)
+  const diffHours = Math.floor(diffMinutes / 60)
+  const diffDays = Math.floor(diffHours / 24)
+
+  if (diffMinutes < 1) {
+    return 'Just now'
+  } else if (diffMinutes < 60) {
+    return `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`
+  } else if (diffHours < 24) {
+    return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`
+  } else if (diffDays < 7) {
+    return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`
+  } else {
+    return date.toLocaleDateString()
+  }
 }

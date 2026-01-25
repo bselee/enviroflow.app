@@ -27,6 +27,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { HelpTooltip } from "@/components/ui/HelpTooltip";
 import { useRooms } from "@/hooks/use-rooms";
 import type { CreateRoomInput } from "@/types";
 
@@ -176,7 +177,10 @@ export function AddRoomDialog({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Room Name</FormLabel>
+                  <FormLabel className="flex items-center">
+                    Room Name
+                    <HelpTooltip id="room-name" />
+                  </FormLabel>
                   <FormControl>
                     <Input
                       placeholder="e.g., Veg Room A, Flower Tent 1"

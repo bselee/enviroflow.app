@@ -46,6 +46,7 @@ export function useDeviceControl(controllerId: string): UseDeviceControlReturn {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const isMounted = useRef(true)
+  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const supabase = createClient()
 
   /**
@@ -152,7 +153,15 @@ export function useDeviceControl(controllerId: string): UseDeviceControlReturn {
 
         // Refresh devices to get updated state
         // Don't await to avoid blocking the response
-        setTimeout(() => fetchDevices(), 500)
+        if (refreshTimeoutRef.current) {
+          clearTimeout(refreshTimeoutRef.current)
+        }
+        refreshTimeoutRef.current = setTimeout(() => {
+          if (isMounted.current) {
+            fetchDevices()
+          }
+          refreshTimeoutRef.current = null
+        }, 500)
 
         return {
           success: data.success,
@@ -188,6 +197,10 @@ export function useDeviceControl(controllerId: string): UseDeviceControlReturn {
   useEffect(() => {
     return () => {
       isMounted.current = false
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current)
+        refreshTimeoutRef.current = null
+      }
     }
   }, [])
 

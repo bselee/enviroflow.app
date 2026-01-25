@@ -6,6 +6,11 @@
 
 export { SensorChart, SensorChartSkeleton, type SensorChartProps } from "./SensorChart";
 export {
+  SensorChartWithDateRange,
+  SensorChartWithDateRangeCompact,
+  type SensorChartWithDateRangeProps,
+} from "./SensorChartWithDateRange";
+export {
   MiniSparkline,
   calculateTrend,
   type MiniSparklineProps,

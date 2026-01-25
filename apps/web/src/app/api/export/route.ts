@@ -13,8 +13,9 @@
  * - controller_id: UUID (optional, filter by controller)
  *
  * Security:
- * - Requires authentication via Authorization header or x-user-id
+ * - Requires authentication via Authorization header with Bearer token
  * - Only returns data belonging to the authenticated user
+ * - Rate limited to 5 requests per minute per IP
  * - Validates all input parameters
  */
 
@@ -50,6 +51,63 @@ function getSupabase(): SupabaseClient {
     supabase = createClient(url, key);
   }
   return supabase;
+}
+
+// -----------------------------------------------------------------------------
+// Rate Limiting
+// -----------------------------------------------------------------------------
+
+interface RateLimitRecord {
+  count: number;
+  resetAt: number;
+}
+
+const rateLimitStore = new Map<string, RateLimitRecord>();
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 5; // 5 requests per minute for export
+const CLEANUP_PROBABILITY = 0.1;
+
+function checkRateLimit(ip: string): { allowed: boolean; retryAfter?: number } {
+  const now = Date.now();
+  const record = rateLimitStore.get(ip);
+
+  // Probabilistic cleanup of expired entries
+  if (Math.random() < CLEANUP_PROBABILITY) {
+    for (const [key, value] of rateLimitStore.entries()) {
+      if (value.resetAt < now) {
+        rateLimitStore.delete(key);
+      }
+    }
+  }
+
+  // New IP or expired window
+  if (!record || record.resetAt < now) {
+    rateLimitStore.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return { allowed: true };
+  }
+
+  // Check if rate limit exceeded
+  if (record.count >= RATE_LIMIT_MAX_REQUESTS) {
+    const retryAfter = Math.ceil((record.resetAt - now) / 1000);
+    return { allowed: false, retryAfter };
+  }
+
+  // Increment and allow
+  record.count++;
+  return { allowed: true };
+}
+
+function getClientIp(request: NextRequest): string {
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    const firstIp = forwardedFor.split(",")[0].trim();
+    if (firstIp) return firstIp;
+  }
+
+  const realIp = request.headers.get("x-real-ip");
+  if (realIp) return realIp.trim();
+
+  return "unknown";
 }
 
 /**
@@ -114,6 +172,26 @@ function convertToCSV(data: Record<string, unknown>[], columns: string[]): strin
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
+    // Rate limit check - must be first
+    const clientIp = getClientIp(request);
+    const rateCheck = checkRateLimit(clientIp);
+
+    if (!rateCheck.allowed) {
+      console.warn(`[Export] Rate limit exceeded: ip=${clientIp}, retryAfter=${rateCheck.retryAfter}s`);
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Too many export requests. Please wait before trying again.",
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateCheck.retryAfter),
+          },
+        }
+      );
+    }
+
     const supabase = getSupabase();
 
     // Authenticate user
@@ -128,16 +206,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       userId = user?.id || null;
     }
 
-    // Development fallback: x-user-id header
-    if (!userId) {
-      userId = request.headers.get("x-user-id");
-    }
-
     if (!userId) {
       return NextResponse.json(
         {
           success: false,
-          error: "Unauthorized. Provide Authorization header or x-user-id for testing.",
+          error: "Unauthorized. Provide Authorization header with valid Bearer token.",
         },
         { status: 401 }
       );

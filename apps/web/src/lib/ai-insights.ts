@@ -1,12 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { useEffect, useState, useRef } from 'react';
+import { supabase } from '@/lib/supabase';
 
 interface AIInsight {
   id: string;
@@ -27,8 +22,11 @@ interface AIInsight {
 export function useAIInsights() {
   const [insights, setInsights] = useState<AIInsight[]>([]);
   const [loading, setLoading] = useState(true);
+  const isMounted = useRef(true);
 
   useEffect(() => {
+    isMounted.current = true;
+
     // Fetch initial insights
     const fetchInsights = async () => {
       const { data, error } = await supabase
@@ -36,6 +34,8 @@ export function useAIInsights() {
         .select('*')
         .order('created_at', { ascending: false })
         .limit(20);
+
+      if (!isMounted.current) return;
 
       if (!error && data) {
         setInsights(data);
@@ -56,13 +56,14 @@ export function useAIInsights() {
           table: 'ai_insights',
         },
         (payload) => {
-          console.log('New insight received:', payload);
+          if (!isMounted.current) return;
           setInsights((current) => [payload.new as AIInsight, ...current]);
         }
       )
       .subscribe();
 
     return () => {
+      isMounted.current = false;
       supabase.removeChannel(channel);
     };
   }, []);

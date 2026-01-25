@@ -30,68 +30,102 @@ import type { ControllerWithRoom, RoomBasic } from "@/types";
 interface AssignRoomDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  controller: ControllerWithRoom | null;
+  controller?: ControllerWithRoom | null;
+  controllers?: ControllerWithRoom[];
   rooms: RoomBasic[];
   onAssign: (controllerId: string, roomId: string | null) => Promise<{ success: boolean; error?: string }>;
+  /** Bulk mode: assign multiple controllers to the same room */
+  isBulkMode?: boolean;
 }
 
 export function AssignRoomDialog({
   open,
   onOpenChange,
   controller,
+  controllers = [],
   rooms,
   onAssign,
+  isBulkMode = false,
 }: AssignRoomDialogProps) {
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset state when dialog opens with a new controller
+  // Determine which controllers we're working with
+  const targetControllers = isBulkMode ? controllers : (controller ? [controller] : []);
+  const isSingleMode = targetControllers.length === 1;
+
+  // Reset state when dialog opens
   const handleOpenChange = (newOpen: boolean) => {
-    if (newOpen && controller) {
-      setSelectedRoomId(controller.room?.id || null);
+    if (newOpen) {
+      if (isSingleMode && targetControllers[0]) {
+        setSelectedRoomId(targetControllers[0].room?.id || null);
+      } else {
+        setSelectedRoomId(null);
+      }
       setError(null);
     }
     onOpenChange(newOpen);
   };
 
   const handleSubmit = async () => {
-    if (!controller) return;
+    if (targetControllers.length === 0) return;
 
     setIsSubmitting(true);
     setError(null);
 
-    const result = await onAssign(controller.id, selectedRoomId);
+    try {
+      // Assign room to all selected controllers
+      const results = await Promise.all(
+        targetControllers.map((ctrl) => onAssign(ctrl.id, selectedRoomId))
+      );
 
-    setIsSubmitting(false);
+      const failedResults = results.filter((r) => !r.success);
 
-    if (result.success) {
-      onOpenChange(false);
-    } else {
-      setError(result.error || "Failed to update room assignment");
+      if (failedResults.length > 0) {
+        setError(
+          `Failed to update ${failedResults.length} of ${targetControllers.length} controllers`
+        );
+      } else {
+        onOpenChange(false);
+      }
+    } catch (err) {
+      setError("An unexpected error occurred");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleRemoveFromRoom = async () => {
-    if (!controller) return;
+    if (targetControllers.length === 0) return;
 
     setIsSubmitting(true);
     setError(null);
 
-    const result = await onAssign(controller.id, null);
+    try {
+      const results = await Promise.all(
+        targetControllers.map((ctrl) => onAssign(ctrl.id, null))
+      );
 
-    setIsSubmitting(false);
+      const failedResults = results.filter((r) => !r.success);
 
-    if (result.success) {
-      onOpenChange(false);
-    } else {
-      setError(result.error || "Failed to remove from room");
+      if (failedResults.length > 0) {
+        setError(
+          `Failed to remove ${failedResults.length} of ${targetControllers.length} controllers from their rooms`
+        );
+      } else {
+        onOpenChange(false);
+      }
+    } catch (err) {
+      setError("An unexpected error occurred");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  if (!controller) return null;
+  if (targetControllers.length === 0) return null;
 
-  const currentRoomId = controller.room?.id;
+  const currentRoomId = isSingleMode ? targetControllers[0].room?.id : null;
   const hasChanged = selectedRoomId !== currentRoomId;
 
   return (
@@ -103,18 +137,49 @@ export function AssignRoomDialog({
             Assign to Room
           </DialogTitle>
           <DialogDescription>
-            Assign &quot;{controller.name}&quot; to a room for better organization
-            and grouped monitoring.
+            {isBulkMode ? (
+              <>
+                Assign {targetControllers.length} controller{targetControllers.length > 1 ? "s" : ""} to a room for better organization
+                and grouped monitoring.
+              </>
+            ) : (
+              <>
+                Assign &quot;{targetControllers[0].name}&quot; to a room for better organization
+                and grouped monitoring.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
         <div className="py-4 space-y-4">
-          {/* Current room info */}
-          {controller.room && (
+          {/* Bulk mode: Show list of controllers */}
+          {isBulkMode && targetControllers.length > 1 && (
+            <div className="p-3 bg-muted rounded-lg">
+              <p className="text-sm font-medium mb-2">
+                {targetControllers.length} controllers selected:
+              </p>
+              <ul className="text-sm text-muted-foreground space-y-1 max-h-32 overflow-y-auto">
+                {targetControllers.map((ctrl) => (
+                  <li key={ctrl.id} className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                    {ctrl.name}
+                    {ctrl.room && (
+                      <span className="text-xs">
+                        (currently in {ctrl.room.name})
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Single mode: Current room info */}
+          {isSingleMode && targetControllers[0].room && (
             <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
               <div>
                 <p className="text-sm font-medium">Currently in:</p>
-                <p className="text-sm text-muted-foreground">{controller.room.name}</p>
+                <p className="text-sm text-muted-foreground">{targetControllers[0].room.name}</p>
               </div>
               <Button
                 variant="ghost"
@@ -178,15 +243,15 @@ export function AssignRoomDialog({
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={isSubmitting || !hasChanged || (selectedRoomId === null && !controller.room)}
+            disabled={isSubmitting || !hasChanged || (selectedRoomId === null && isSingleMode && !targetControllers[0].room)}
           >
             {isSubmitting ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Saving...
+                {isBulkMode ? "Assigning..." : "Saving..."}
               </>
             ) : (
-              "Save"
+              isBulkMode ? `Assign ${targetControllers.length} Controllers` : "Save"
             )}
           </Button>
         </DialogFooter>
