@@ -34,6 +34,7 @@ import type {
   ActionVariant,
   NotificationPriority,
   NotificationChannel,
+  DimmerCurve,
 } from "./types";
 import {
   SENSOR_TYPE_LABELS,
