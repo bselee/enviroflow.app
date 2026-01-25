@@ -83,7 +83,7 @@ const VIEW_MODES: { value: ViewMode; label: string; description: string }[] = [
     description: "Swipeable cards on mobile",
   },
   {
-    value: "split",
+    value: "split-screen",
     label: "Split View",
     description: "Two-column layout for comparison",
   },

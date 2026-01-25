@@ -9,6 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useUserPreferences } from "@/hooks/use-user-preferences";
 
 // =============================================================================
 // Types
@@ -251,10 +252,10 @@ export function ViewModeSelector({
 /**
  * Custom hook for managing dashboard view mode state.
  *
- * Handles initialization from localStorage, state management,
- * and automatic persistence of changes.
+ * Handles initialization from user preferences, state management,
+ * and automatic persistence of changes to both localStorage and user preferences.
  *
- * @param initialMode - Optional initial mode (defaults to stored or "primary-mini")
+ * @param initialMode - Optional initial mode (defaults to user preferences)
  * @returns Tuple of [currentMode, setMode]
  *
  * @example
@@ -269,32 +270,38 @@ export function ViewModeSelector({
  * ```
  */
 export function useViewMode(initialMode?: ViewMode): [ViewMode, (mode: ViewMode) => void] {
-  // Use provided initial mode or load from storage
+  const { preferences, updatePreference } = useUserPreferences();
+
+  // Use provided initial mode, user preference, or load from legacy storage
   // Note: We use a function initializer to avoid hydration mismatch
   const [mode, setModeState] = useState<ViewMode>(() => {
     if (initialMode) return initialMode;
-    // On SSR, return default; client will hydrate from localStorage
+    // On SSR, return default; client will hydrate from user preferences
     if (typeof window === "undefined") return DEFAULT_VIEW_MODE;
-    return getStoredViewMode();
+
+    // Try legacy localStorage first (for migration)
+    const legacyMode = getStoredViewMode();
+    return legacyMode;
   });
 
-  // Sync with localStorage on mount (handles SSR hydration)
+  // Sync with user preferences on mount and when preferences change
   useEffect(() => {
-    if (!initialMode) {
-      const storedMode = getStoredViewMode();
-      if (storedMode !== mode) {
-        setModeState(storedMode);
-      }
+    if (!initialMode && preferences.viewMode !== mode) {
+      setModeState(preferences.viewMode);
     }
-  }, [initialMode, mode]);
+  }, [initialMode, preferences.viewMode, mode]);
 
   /**
-   * Sets the view mode and persists to localStorage.
+   * Sets the view mode and persists to both localStorage and user preferences.
    */
   const setMode = useCallback((newMode: ViewMode) => {
+    // Update legacy localStorage for backwards compatibility
     setStoredViewMode(newMode);
+    // Update local state
     setModeState(newMode);
-  }, []);
+    // Sync to user preferences (which handles localStorage and server sync)
+    updatePreference("viewMode", newMode);
+  }, [updatePreference]);
 
   return [mode, setMode];
 }

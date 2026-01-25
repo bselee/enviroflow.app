@@ -148,8 +148,17 @@ export async function pollController(
 ): Promise<PollResult> {
   const { id: dbControllerId, user_id, brand, name, credentials } = controller
 
+  console.log(`[pollController] ========== START POLLING ==========`)
+  console.log(`[pollController] Controller: ${name} (${dbControllerId})`)
+  console.log(`[pollController] Brand: ${brand}`)
+  console.log(`[pollController] Controller ID: ${controller.controller_id}`)
+  console.log(`[pollController] User ID: ${user_id}`)
+  console.log(`[pollController] Credentials type: ${typeof credentials}`)
+  console.log(`[pollController] Credentials length: ${typeof credentials === 'string' ? credentials.length : 'N/A'}`)
+
   // Skip CSV upload controllers - they don't poll
   if (brand === 'csv_upload') {
+    console.log(`[pollController] Skipping CSV upload controller`)
     return {
       controllerId: dbControllerId,
       controllerName: name,
@@ -162,6 +171,7 @@ export async function pollController(
 
   // Check if brand is supported
   if (!isBrandSupported(brand)) {
+    console.log(`[pollController] Brand not supported: ${brand}`)
     return {
       controllerId: dbControllerId,
       controllerName: name,
@@ -173,12 +183,16 @@ export async function pollController(
   }
 
   // Decrypt credentials
+  console.log(`[pollController] Attempting to decrypt credentials...`)
   let decryptedCredentials: Record<string, unknown>
   try {
     decryptedCredentials = decryptCredentials(credentials)
+    console.log(`[pollController] ✅ Credentials decrypted successfully`)
+    console.log(`[pollController] Decrypted credential keys: ${Object.keys(decryptedCredentials).join(', ')}`)
   } catch (error) {
     if (error instanceof EncryptionError) {
-      console.error(`[pollController] Encryption error for controller ${dbControllerId}:`, 'Credentials cannot be decrypted')
+      console.error(`[pollController] ❌ Encryption error for controller ${dbControllerId}:`, 'Credentials cannot be decrypted')
+      console.error(`[pollController] Error details:`, error.message)
 
       // Update controller with error
       await supabase
@@ -199,6 +213,7 @@ export async function pollController(
         error: 'Credentials cannot be decrypted'
       }
     }
+    console.error(`[pollController] ❌ Unexpected error during decryption:`, error)
     throw error
   }
 
@@ -215,18 +230,28 @@ export async function pollController(
   }
 
   // Get adapter and connect
+  console.log(`[pollController] Getting adapter for brand: ${brand}`)
   const adapter = getAdapter(brand as ControllerBrand)
+  console.log(`[pollController] Building adapter credentials...`)
   const adapterCredentials = buildAdapterCredentials(
     brand as ControllerBrand,
     decryptedCredentials
   )
+  console.log(`[pollController] Adapter credentials built with type: ${adapterCredentials.type}`)
 
-  console.log(`[pollController] Connecting to ${brand} controller "${name}"`)
+  console.log(`[pollController] Connecting to ${brand} controller "${name}"...`)
 
   const connectionResult = await adapter.connect(adapterCredentials)
 
+  console.log(`[pollController] Connection result:`, {
+    success: connectionResult.success,
+    controllerId: connectionResult.controllerId,
+    hasMetadata: !!connectionResult.metadata,
+    error: connectionResult.error
+  })
+
   if (!connectionResult.success) {
-    console.warn(`[pollController] Failed to connect to ${name}:`, connectionResult.error)
+    console.warn(`[pollController] ❌ Failed to connect to ${name}:`, connectionResult.error)
 
     // Update controller status
     await supabase
@@ -248,11 +273,16 @@ export async function pollController(
     }
   }
 
+  console.log(`[pollController] ✅ Connected successfully, controller ID: ${connectionResult.controllerId}`)
+
   try {
     // Read sensors
+    console.log(`[pollController] Reading sensors from controller ${connectionResult.controllerId}...`)
     const readings = await adapter.readSensors(connectionResult.controllerId)
 
-    console.log(`[pollController] Read ${readings.length} sensors from ${name}`)
+    console.log(`[pollController] ✅ Read ${readings.length} sensor readings`)
+    console.log(`[pollController] Sensor types: ${readings.map(r => r.type).join(', ')}`)
+    console.log(`[pollController] Sensor values:`, readings.map(r => `${r.type}=${r.value}${r.unit}`).join(', '))
 
     // Validate and store readings
     const validReadings: SensorReading[] = []
@@ -261,13 +291,16 @@ export async function pollController(
     for (const reading of readings) {
       if (validateSensorReading(reading)) {
         validReadings.push(reading)
+        console.log(`[pollController] ✅ Valid reading: ${reading.type} = ${reading.value} ${reading.unit} (port ${reading.port})`)
       } else {
-        console.warn(`[pollController] Invalid sensor reading for ${name}:`, {
+        console.warn(`[pollController] ⚠️ Invalid sensor reading for ${name}:`, {
           type: reading.type,
           value: reading.value
         })
       }
     }
+
+    console.log(`[pollController] Valid readings count: ${validReadings.length}`)
 
     // Check if we need to calculate VPD
     const hasVPD = validReadings.some(r => r.type === 'vpd')
@@ -302,7 +335,6 @@ export async function pollController(
     if (validReadings.length > 0) {
       const readingsToInsert = validReadings.map(reading => ({
         controller_id: dbControllerId,
-        user_id: user_id,  // Required by database schema
         port: reading.port,
         sensor_type: reading.type,
         value: reading.value,
@@ -311,17 +343,32 @@ export async function pollController(
         recorded_at: now
       }))
 
-      const { error: insertError } = await supabase
+      console.log(`[pollController] Inserting ${readingsToInsert.length} readings into database...`)
+      console.log(`[pollController] Sample reading:`, JSON.stringify(readingsToInsert[0]))
+
+      const { data: insertData, error: insertError } = await supabase
         .from('sensor_readings')
         .insert(readingsToInsert)
+        .select()
 
       if (insertError) {
-        console.error(`[pollController] Failed to insert readings for ${name}:`, insertError.message)
+        console.error(`[pollController] ❌ Failed to insert readings for ${name}:`, {
+          message: insertError.message,
+          code: insertError.code,
+          details: insertError.details,
+          hint: insertError.hint
+        })
+      } else {
+        console.log(`[pollController] ✅ Successfully inserted ${readingsToInsert.length} readings`)
+        console.log(`[pollController] Insert result count: ${insertData?.length || 0}`)
       }
+    } else {
+      console.log(`[pollController] ⚠️ No valid readings to insert`)
     }
 
     // Update controller status to online
-    await supabase
+    console.log(`[pollController] Updating controller status to online...`)
+    const { error: updateError } = await supabase
       .from('controllers')
       .update({
         status: 'online',
@@ -331,6 +378,13 @@ export async function pollController(
       })
       .eq('id', dbControllerId)
 
+    if (updateError) {
+      console.error(`[pollController] ❌ Failed to update controller status:`, updateError.message)
+    } else {
+      console.log(`[pollController] ✅ Controller status updated to online`)
+    }
+
+    console.log(`[pollController] ========== POLLING COMPLETE: SUCCESS ==========`)
     return {
       controllerId: dbControllerId,
       controllerName: name,
@@ -340,7 +394,8 @@ export async function pollController(
     }
 
   } catch (error) {
-    console.error(`[pollController] Error reading sensors from ${name}:`, error instanceof Error ? error.message : 'Unknown error')
+    console.error(`[pollController] ❌ Error reading sensors from ${name}:`, error instanceof Error ? error.message : 'Unknown error')
+    console.error(`[pollController] Error stack:`, error instanceof Error ? error.stack : undefined)
 
     // Update controller with error but don't mark offline
     // (might be a transient issue)
@@ -352,6 +407,7 @@ export async function pollController(
       })
       .eq('id', dbControllerId)
 
+    console.log(`[pollController] ========== POLLING COMPLETE: FAILED ==========`)
     return {
       controllerId: dbControllerId,
       controllerName: name,
@@ -363,10 +419,12 @@ export async function pollController(
 
   } finally {
     // Always disconnect
+    console.log(`[pollController] Disconnecting from controller...`)
     try {
       await adapter.disconnect(connectionResult.controllerId)
+      console.log(`[pollController] ✅ Disconnected successfully`)
     } catch (disconnectError) {
-      console.warn(`[pollController] Error disconnecting from ${name}:`, disconnectError instanceof Error ? disconnectError.message : 'Unknown')
+      console.warn(`[pollController] ⚠️ Error disconnecting from ${name}:`, disconnectError instanceof Error ? disconnectError.message : 'Unknown')
     }
   }
 }

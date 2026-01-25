@@ -872,13 +872,20 @@ export async function POST(request: NextRequest) {
     // Background: Previously, users had to wait for the cron job to run (up to 5 minutes)
     // Now: Sensor data is fetched immediately and stored in the database
     if (brand !== 'csv_upload') {
-      console.log(`[Controllers POST] Fetching initial sensor data for ${sanitizedName}`)
+      console.log(`[Controllers POST] ========== STARTING INITIAL SENSOR POLL ==========`)
+      console.log(`[Controllers POST] Controller name: ${sanitizedName}`)
+      console.log(`[Controllers POST] Controller brand: ${data.brand}`)
+      console.log(`[Controllers POST] Controller ID: ${data.controller_id}`)
+      console.log(`[Controllers POST] Database ID: ${data.id}`)
+      console.log(`[Controllers POST] Has credentials: ${!!data.credentials}`)
+      console.log(`[Controllers POST] Credentials type: ${typeof data.credentials}`)
+      console.log(`[Controllers POST] Credentials length: ${typeof data.credentials === 'string' ? data.credentials.length : 'N/A'}`)
 
       // CRITICAL FIX: Poll sensors SYNCHRONOUSLY before returning the response
       // setImmediate() doesn't work in serverless environments (Vercel Edge/Lambda)
       // The function terminates immediately after response, so background tasks never run
       try {
-        const pollResult = await pollController(supabase, {
+        const controllerData = {
           id: data.id,
           user_id: userId,
           brand: data.brand,
@@ -888,18 +895,39 @@ export async function POST(request: NextRequest) {
           status: data.status,
           last_seen: data.last_seen,
           last_error: data.last_error,
-        })
+        }
+
+        console.log(`[Controllers POST] Calling pollController with data:`, JSON.stringify({
+          id: controllerData.id,
+          user_id: controllerData.user_id,
+          brand: controllerData.brand,
+          controller_id: controllerData.controller_id,
+          name: controllerData.name,
+          hasCredentials: !!controllerData.credentials,
+          status: controllerData.status,
+        }))
+
+        const pollResult = await pollController(supabase, controllerData)
+
+        console.log(`[Controllers POST] Poll result status: ${pollResult.status}`)
+        console.log(`[Controllers POST] Poll result readings count: ${pollResult.readingsCount}`)
+        console.log(`[Controllers POST] Poll result error: ${pollResult.error || 'none'}`)
 
         if (pollResult.status === 'success') {
-          console.log(`[Controllers POST] Initial sensor data fetched successfully: ${pollResult.readingsCount} readings`)
+          console.log(`[Controllers POST] ✅ Initial sensor data fetched successfully: ${pollResult.readingsCount} readings`)
         } else {
-          console.warn(`[Controllers POST] Initial sensor fetch failed: ${pollResult.error}`)
+          console.warn(`[Controllers POST] ⚠️ Initial sensor fetch failed: ${pollResult.error}`)
         }
       } catch (pollError) {
-        console.error(`[Controllers POST] Error during initial sensor fetch:`, pollError)
+        console.error(`[Controllers POST] ❌ Error during initial sensor fetch:`, pollError)
+        console.error(`[Controllers POST] Error details:`, {
+          message: pollError instanceof Error ? pollError.message : 'Unknown error',
+          stack: pollError instanceof Error ? pollError.stack : undefined
+        })
         // Don't fail the controller creation - this is best-effort
         // Continue with controller creation even if polling fails
       }
+      console.log(`[Controllers POST] ========== COMPLETED INITIAL SENSOR POLL ==========`)
     }
 
     return NextResponse.json({

@@ -139,6 +139,7 @@ export function DashboardContent({
   className,
 }: DashboardContentProps): JSX.Element {
   // View mode state with localStorage persistence
+  // Note: useViewMode handles its own localStorage sync
   const [viewMode, setViewMode] = useViewMode(initialViewMode);
 
   // Layout state for maintaining selections across mode switches

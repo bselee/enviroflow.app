@@ -520,17 +520,21 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
    * Read all sensor values from controller
    */
   async readSensors(controllerId: string): Promise<SensorReading[]> {
+    log('info', `========== readSensors START for ${controllerId} ==========`)
     const stored = tokenStore.get(controllerId)
     if (!stored) {
+      log('error', 'Controller not connected - no token in store')
       throw new Error('Controller not connected. Call connect() first.')
     }
 
     // Check if token is expired
     if (stored.expiresAt < new Date()) {
       tokenStore.delete(controllerId)
+      log('error', 'Authentication token expired')
       throw new Error('Authentication token expired. Please reconnect.')
     }
 
+    log('info', 'Token valid, fetching device settings...')
     // Use getdevModeSettingList endpoint for sensor and device data
     const result = await adapterFetch<ACDeviceSettingResponse>(
       ADAPTER_NAME,
@@ -547,13 +551,19 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       }
     )
 
+    log('info', 'API fetch result:', { success: result.success, hasData: !!result.data, error: result.error })
+
     if (!result.success || !result.data) {
+      log('error', 'Failed to read sensor data', { error: result.error })
       throw new Error(result.error || 'Failed to read sensor data')
     }
 
     const data = result.data
 
+    log('info', 'API response code:', { code: data.code, msg: data.msg, hasData: !!data.data })
+
     if (data.code !== 200 || !data.data) {
+      log('error', 'Failed to get device settings', { code: data.code, msg: data.msg })
       throw new Error(data.msg || 'Failed to get device settings')
     }
 
@@ -698,9 +708,10 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       }
     }
 
-    log('info', `Read ${readings.length} sensor values from ${controllerId}`, {
+    log('info', `========== readSensors COMPLETE: ${readings.length} readings ==========`, {
       sensorCount: readings.length,
-      types: readings.map(r => r.type)
+      types: readings.map(r => r.type),
+      values: readings.map(r => `${r.type}=${r.value}${r.unit}`)
     })
     return readings
   }

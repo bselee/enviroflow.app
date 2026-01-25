@@ -16,7 +16,7 @@ export type TemperatureUnit = "F" | "C";
 /**
  * Dashboard view mode preference.
  */
-export type ViewMode = "primary-mini" | "grid" | "carousel" | "split";
+export type ViewMode = "primary-mini" | "grid" | "carousel" | "split-screen";
 
 /**
  * Animation quality preference.
