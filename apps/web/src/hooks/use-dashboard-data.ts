@@ -592,17 +592,17 @@ export function useDashboardData(
           `)
           .order("created_at", { ascending: false }),
 
-        // Fetch controllers not assigned to any room (only needed fields)
+        // Fetch controllers not assigned to any room
         supabase
           .from("controllers")
-          .select("id, user_id, brand, controller_id, name, status, last_seen, room_id, model, firmware_version, capabilities, last_error, created_at")
+          .select("*")
           .is("room_id", null)
           .order("created_at", { ascending: false }),
 
-        // Fetch sensor readings for the time range (only needed fields for performance)
+        // Fetch sensor readings for the time range
         supabase
           .from("sensor_readings")
-          .select("id, controller_id, sensor_type, value, recorded_at")
+          .select("*")
           .gte("recorded_at", startTime.toISOString())
           .order("recorded_at", { ascending: false })
           .limit(sensorReadingLimit),
