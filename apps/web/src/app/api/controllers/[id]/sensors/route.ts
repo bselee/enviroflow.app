@@ -44,7 +44,7 @@ import {
 // Local Types (for API response formatting)
 // ============================================
 
-type SensorType = 'temperature' | 'humidity' | 'vpd' | 'co2' | 'light' | 'ph' | 'ec' | 'soil_moisture' | 'pressure'
+type SensorType = 'temperature' | 'humidity' | 'vpd' | 'co2' | 'light' | 'ph' | 'ec' | 'soil_moisture' | 'pressure' | 'water_level' | 'wind_speed' | 'pm25' | 'uv' | 'solar_radiation' | 'rain'
 
 interface SensorReading {
   type: SensorType
