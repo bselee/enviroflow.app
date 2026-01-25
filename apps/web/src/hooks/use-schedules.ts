@@ -54,7 +54,7 @@ interface UseSchedulesState {
   /** Delete a schedule */
   deleteSchedule: (id: string) => Promise<OperationResult>;
   /** Toggle schedule active state */
-  toggleSchedule: (id: string, isActive: boolean) => Promise<OperationResult>;
+  toggleSchedule: (id: string, isActive: boolean) => Promise<OperationResult<DeviceSchedule>>;
   /** Get preview of upcoming executions */
   getSchedulePreview: (schedule: CreateDeviceScheduleInput | DeviceSchedule) => SchedulePreview;
   /** Fetch controllers list */
@@ -355,7 +355,7 @@ export function useSchedules(controllerId?: string): UseSchedulesState {
    * Toggle schedule active state
    */
   const toggleSchedule = useCallback(
-    async (id: string, isActive: boolean): Promise<OperationResult> => {
+    async (id: string, isActive: boolean): Promise<OperationResult<DeviceSchedule>> => {
       return updateSchedule(id, { is_active: isActive });
     },
     [updateSchedule]

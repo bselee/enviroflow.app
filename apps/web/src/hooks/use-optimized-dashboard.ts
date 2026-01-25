@@ -192,9 +192,8 @@ export function useOptimizedDashboard(options: OptimizedDashboardOptions = {}) {
     // Downsample to maxChartPoints
     return downsampleTimeSeries(
       dashboardData.timelineData.map(d => ({
-        timestamp: d.timestamp,
-        value: d.temperature || d.humidity || d.vpd || 0,
         ...d,
+        value: d.temperature || d.humidity || d.vpd || 0,
       })),
       maxChartPoints
     )

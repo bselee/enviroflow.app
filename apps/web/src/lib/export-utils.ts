@@ -64,13 +64,13 @@ export function generateExportFilename(
   controllerName: string,
   startDate: Date,
   endDate: Date,
-  format: ExportFormat
+  exportFormat: ExportFormat
 ): string {
   const cleanName = controllerName.toLowerCase().replace(/[^a-z0-9]/g, "_");
   const startStr = format(startDate, "yyyy-MM-dd");
   const endStr = format(endDate, "yyyy-MM-dd");
 
-  return `enviroflow_sensors_${cleanName}_${startStr}_${endStr}.${format}`;
+  return `enviroflow_sensors_${cleanName}_${startStr}_${endStr}.${exportFormat}`;
 }
 
 /**

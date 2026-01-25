@@ -3,6 +3,8 @@ import { Inter } from 'next/font/google'
 import './globals.css'
 import { Toaster } from '@/components/ui/toaster'
 import { AuthProvider } from '@/contexts/AuthContext'
+import { ThemeProvider } from '@/components/providers/ThemeProvider'
+import { TooltipProviderWrapper } from '@/components/ui/TooltipProvider'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -15,6 +17,8 @@ export const metadata: Metadata = {
  * Root Layout Component
  *
  * Wraps the entire application with necessary providers:
+ * - ThemeProvider: Handles light/dark theme state
+ * - TooltipProviderWrapper: Provides tooltip context for help system
  * - AuthProvider: Handles Supabase authentication state
  * - Toaster: Provides toast notification support
  */
@@ -26,9 +30,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <AuthProvider>
-          {children}
-        </AuthProvider>
+        <ThemeProvider>
+          <TooltipProviderWrapper>
+            <AuthProvider>
+              {children}
+            </AuthProvider>
+          </TooltipProviderWrapper>
+        </ThemeProvider>
         <Toaster />
       </body>
     </html>

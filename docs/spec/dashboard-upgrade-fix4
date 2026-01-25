@@ -1,0 +1,903 @@
+# EnviroFlow Dashboard UI/UX Repair Guide
+
+> **Critical UI Issues Identified**: The current dashboard implementation violates core ui-ux-expert agent requirements, resulting in unusable interface with contrast failures, missing theme support, and broken design system implementation.
+
+---
+
+## Table of Contents
+
+1. [Issue Assessment](#1-issue-assessment)
+2. [ui-ux-expert Agent Requirements Review](#2-ui-ux-expert-agent-requirements-review)
+3. [Step-by-Step Repair Plan](#3-step-by-step-repair-plan)
+4. [Component-by-Component Fixes](#4-component-by-component-fixes)
+5. [Quality Verification Checklist](#5-quality-verification-checklist)
+
+---
+
+## 1. Issue Assessment
+
+### Current State Problems
+
+| Issue | Severity | ui-ux-expert Violation |
+|-------|----------|------------------------|
+| Gray text on gray background | **CRITICAL** | WCAG AA contrast failure (accessibility mandate) |
+| No theme-aware colors | **CRITICAL** | Missing `useTheme()` hook - MANDATORY requirement |
+| Invisible chart labels | **CRITICAL** | Accessibility violation |
+| No glassmorphic styling | **HIGH** | Not following design system tokens |
+| Flat, muddy appearance | **HIGH** | No visual hierarchy principle applied |
+| Missing status indicators | **HIGH** | No interaction feedback |
+
+### Root Cause
+
+**The ui-ux-expert agent was not properly engaged during implementation.** The code shows:
+- Direct hardcoded colors instead of theme-responsive classes
+- No use of the ThemeProvider pattern
+- Missing design system tokens from `globals.css`
+- No component structure review
+
+---
+
+## 2. ui-ux-expert Agent Requirements Review
+
+### MANDATORY Requirements (from ui-ux-expert agent skill)
+
+#### Theme Support (NON-NEGOTIABLE)
+
+```typescript
+// EVERY component MUST follow this pattern:
+import { useTheme } from './components/ThemeProvider';
+
+const { isDark } = useTheme();
+
+// Always define both theme variants
+const containerClass = isDark
+  ? "bg-gray-800/50 border-gray-700 text-white"
+  : "bg-white border-gray-200 text-gray-900 shadow-sm";
+
+const textMutedClass = isDark ? "text-gray-400" : "text-gray-500";
+```
+
+**Current code FAILS this**: No `useTheme()` usage detected.
+
+#### Visual Hierarchy (MISSING)
+
+From ui-ux-expert agent:
+> "Guide users' eyes through proper contrast, size, and spacing. Primary actions should be immediately identifiable. Use whitespace intentionally—crowded interfaces confuse users."
+
+**Current code FAILS this**: Everything is the same visual weight.
+
+#### Accessibility First (VIOLATED)
+
+From ui-ux-expert agent:
+> "Color contrast ratios meeting WCAG AA minimum (4.5:1 for text)"
+
+**Current code FAILS this**: Multiple contrast violations.
+
+---
+
+## 3. Step-by-Step Repair Plan
+
+### Phase 1: ThemeProvider Integration (30 minutes)
+
+**Reference**: ui-ux-expert agent - "Theme Support (MANDATORY)"
+
+1. Verify `ThemeProvider.tsx` exists and is properly imported in `app/layout.tsx`
+2. Add `useTheme()` hook to every component
+3. Replace all hardcoded colors with theme-aware classes
+
+### Phase 2: Design System Token Application (45 minutes)
+
+**Reference**: Build Guide Phase 2 + ui-ux-expert agent design tokens
+
+1. Implement glassmorphic card styling
+2. Apply proper color tokens from `globals.css`
+3. Add backdrop blur effects
+
+### Phase 3: Contrast & Accessibility Fixes (30 minutes)
+
+**Reference**: ui-ux-expert agent - "Accessibility First"
+
+1. Fix text contrast ratios
+2. Add semantic HTML elements
+3. Implement focus indicators
+
+### Phase 4: Visual Hierarchy Implementation (45 minutes)
+
+**Reference**: ui-ux-expert agent - "Visual Hierarchy"
+
+1. Differentiate hero metrics from secondary metrics
+2. Add proper spacing and elevation
+3. Implement status color indicators
+
+### Phase 5: Chart Component Repair (60 minutes)
+
+**Reference**: Build Guide Phase 5 + ui-ux-expert chart patterns
+
+1. Fix axis label visibility
+2. Add gradient definitions
+3. Implement glow effects on lines
+4. Add proper grid lines
+
+---
+
+## 4. Component-by-Component Fixes
+
+### 4.1: Main Dashboard Container
+
+**Current Issue**: No theme awareness, flat background
+
+**ui-ux-expert Pattern to Follow**:
+
+```typescript
+// src/app/page.tsx or src/components/dashboard/Dashboard.tsx
+'use client'
+
+import { useTheme } from '@/components/providers/ThemeProvider'
+
+export default function Dashboard() {
+  const { isDark } = useTheme()
+  
+  return (
+    <div className={`min-h-screen ${
+      isDark 
+        ? 'bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900' 
+        : 'bg-gradient-to-br from-gray-50 via-white to-gray-50'
+    }`}>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
+          <div>
+            <h1 className={`text-2xl font-bold ${
+              isDark ? 'text-white' : 'text-gray-900'
+            }`}>
+              Dashboard
+            </h1>
+            <p className={isDark ? 'text-gray-400' : 'text-gray-500'}>
+              Monitor your grow environment
+            </p>
+          </div>
+          
+          <button className={`
+            mt-4 md:mt-0 px-4 py-2 rounded-lg font-medium
+            transition-all duration-200
+            ${isDark 
+              ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+              : 'bg-blue-500 hover:bg-blue-600 text-white shadow-sm'
+            }
+          `}>
+            + Add Room
+          </button>
+        </div>
+        
+        {/* Content */}
+        <RoomCard />
+      </div>
+    </div>
+  )
+}
+```
+
+**Key ui-ux-expert Requirements Applied**:
+- ✅ `useTheme()` hook imported and used
+- ✅ Both light and dark theme variants defined
+- ✅ Proper text contrast (white on dark, gray-900 on light)
+- ✅ Page layout pattern from ui-ux-expert guide
+- ✅ Responsive spacing (mobile-first approach)
+
+---
+
+### 4.2: Hero Metrics Card
+
+**Current Issue**: No glassmorphic effect, poor contrast, no status indicators
+
+**ui-ux-expert Pattern to Follow**:
+
+```typescript
+// src/components/dashboard/RoomCard.tsx
+'use client'
+
+import { useTheme } from '@/components/providers/ThemeProvider'
+import { useVPDStatus } from '@/hooks/useVPDStatus'
+
+interface RoomCardProps {
+  roomName: string
+  controllerName: string
+  vpd: number
+  temperature: number
+  humidity: number
+  lastUpdate: Date
+}
+
+export function RoomCard({ 
+  roomName, 
+  controllerName,
+  vpd, 
+  temperature, 
+  humidity,
+  lastUpdate 
+}: RoomCardProps) {
+  const { isDark } = useTheme()
+  const vpdStatus = useVPDStatus(vpd) // 'optimal' | 'warning' | 'alert'
+  
+  // Status colors following ui-ux-expert guidelines
+  const statusColors = {
+    optimal: isDark ? 'text-green-400' : 'text-green-600',
+    warning: isDark ? 'text-amber-400' : 'text-amber-600',
+    alert: isDark ? 'text-red-400' : 'text-red-600',
+  }
+  
+  const statusBgColors = {
+    optimal: isDark ? 'bg-green-500/10 border-green-500/20' : 'bg-green-50 border-green-200',
+    warning: isDark ? 'bg-amber-500/10 border-amber-500/20' : 'bg-amber-50 border-amber-200',
+    alert: isDark ? 'bg-red-500/10 border-red-500/20' : 'bg-red-50 border-red-200',
+  }
+  
+  return (
+    <div className={`
+      rounded-xl border backdrop-blur-lg shadow-lg
+      transition-all duration-200 hover:shadow-xl
+      ${isDark 
+        ? 'bg-gray-800/50 border-gray-700' 
+        : 'bg-white/70 border-gray-200'
+      }
+    `}>
+      {/* Header */}
+      <div className={`
+        px-6 py-4 border-b
+        ${isDark ? 'border-gray-700' : 'border-gray-200'}
+      `}>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className={`text-lg font-semibold ${
+              isDark ? 'text-white' : 'text-gray-900'
+            }`}>
+              {roomName}
+            </h3>
+            <p className={`text-sm ${
+              isDark ? 'text-gray-400' : 'text-gray-500'
+            }`}>
+              {controllerName}
+            </p>
+          </div>
+          
+          {/* Status Badge */}
+          <div className={`
+            px-3 py-1 rounded-full text-xs font-medium border
+            ${statusBgColors[vpdStatus]}
+            ${statusColors[vpdStatus]}
+          `}>
+            {vpdStatus === 'optimal' ? '● Online' : '● Warning'}
+          </div>
+        </div>
+      </div>
+      
+      {/* Metrics Grid */}
+      <div className="p-6 grid grid-cols-3 gap-6">
+        {/* VPD - Hero Metric */}
+        <div className="col-span-3 md:col-span-1">
+          <div className={`text-sm font-medium mb-1 ${
+            isDark ? 'text-gray-400' : 'text-gray-500'
+          }`}>
+            VPD
+          </div>
+          <div className={`text-4xl font-bold ${statusColors[vpdStatus]}`}>
+            {vpd.toFixed(2)}
+            <span className={`text-lg ml-1 ${
+              isDark ? 'text-gray-500' : 'text-gray-400'
+            }`}>
+              kPa
+            </span>
+          </div>
+          <div className={`text-sm mt-1 ${
+            isDark ? 'text-gray-500' : 'text-gray-400'
+          }`}>
+            Optimal (0.8-1.2)
+          </div>
+        </div>
+        
+        {/* Temperature - Secondary Metric */}
+        <div className="col-span-3 md:col-span-1">
+          <div className={`text-sm font-medium mb-1 ${
+            isDark ? 'text-gray-400' : 'text-gray-500'
+          }`}>
+            TEMP
+          </div>
+          <div className={`text-3xl font-bold ${
+            isDark ? 'text-white' : 'text-gray-900'
+          }`}>
+            {temperature}
+            <span className={`text-lg ml-1 ${
+              isDark ? 'text-gray-500' : 'text-gray-400'
+            }`}>
+              °F
+            </span>
+          </div>
+          <div className={`text-sm mt-1 ${
+            isDark ? 'text-gray-500' : 'text-gray-400'
+          }`}>
+            No trend data
+          </div>
+        </div>
+        
+        {/* Humidity - Secondary Metric */}
+        <div className="col-span-3 md:col-span-1">
+          <div className={`text-sm font-medium mb-1 ${
+            isDark ? 'text-gray-400' : 'text-gray-500'
+          }`}>
+            HUMIDITY
+          </div>
+          <div className={`text-3xl font-bold ${
+            isDark ? 'text-white' : 'text-gray-900'
+          }`}>
+            {humidity}
+            <span className={`text-lg ml-1 ${
+              isDark ? 'text-gray-500' : 'text-gray-400'
+            }`}>
+              %
+            </span>
+          </div>
+          <div className={`text-sm mt-1 ${
+            isDark ? 'text-gray-500' : 'text-gray-400'
+          }`}>
+            No trend data
+          </div>
+        </div>
+      </div>
+      
+      {/* Footer */}
+      <div className={`
+        px-6 py-3 border-t text-xs
+        ${isDark 
+          ? 'border-gray-700 text-gray-500' 
+          : 'border-gray-200 text-gray-400'
+        }
+      `}>
+        Last updated: {lastUpdate.toLocaleTimeString()}
+      </div>
+    </div>
+  )
+}
+```
+
+**Key ui-ux-expert Requirements Applied**:
+- ✅ Glassmorphic card with `backdrop-blur-lg`
+- ✅ Theme-aware borders and backgrounds
+- ✅ High contrast text (WCAG AA compliant)
+- ✅ Visual hierarchy: VPD is larger (hero), temp/humidity smaller (secondary)
+- ✅ Status indicators with color-coded badges
+- ✅ Hover states for interaction feedback
+- ✅ Responsive grid (mobile-first with `md:` breakpoints)
+- ✅ Proper spacing using consistent padding
+
+---
+
+### 4.3: Chart Component Repair
+
+**Current Issue**: Invisible labels, missing gradients, no glow effects
+
+**ui-ux-expert Pattern to Follow**:
+
+```typescript
+// src/components/charts/SensorChart.tsx
+'use client'
+
+import { useTheme } from '@/components/providers/ThemeProvider'
+import { useMemo } from 'react'
+
+interface DataPoint {
+  time: string
+  value: number
+}
+
+interface SensorChartProps {
+  data: DataPoint[]
+  metric: 'vpd' | 'temperature' | 'humidity' | 'co2'
+  optimalMin?: number
+  optimalMax?: number
+}
+
+export function SensorChart({ data, metric, optimalMin, optimalMax }: SensorChartProps) {
+  const { isDark } = useTheme()
+  
+  // Chart dimensions
+  const width = 800
+  const height = 300
+  const padding = { top: 20, right: 20, bottom: 40, left: 50 }
+  
+  // Metric colors (from ui-ux-expert design tokens)
+  const metricColors = {
+    vpd: { line: '#10b981', glow: 'rgba(16, 185, 129, 0.3)' },
+    temperature: { line: '#ef4444', glow: 'rgba(239, 68, 68, 0.3)' },
+    humidity: { line: '#3b82f6', glow: 'rgba(59, 130, 246, 0.3)' },
+    co2: { line: '#f59e0b', glow: 'rgba(245, 158, 11, 0.3)' },
+  }
+  
+  const color = metricColors[metric]
+  
+  // Calculate scales
+  const { xScale, yScale, yMin, yMax } = useMemo(() => {
+    const values = data.map(d => d.value)
+    const yMin = Math.min(...values, optimalMin ?? Infinity) * 0.95
+    const yMax = Math.max(...values, optimalMax ?? -Infinity) * 1.05
+    
+    return {
+      xScale: (index: number) => 
+        padding.left + (index / (data.length - 1)) * (width - padding.left - padding.right),
+      yScale: (value: number) => 
+        padding.top + (1 - (value - yMin) / (yMax - yMin)) * (height - padding.top - padding.bottom),
+      yMin,
+      yMax,
+    }
+  }, [data, optimalMin, optimalMax])
+  
+  // Generate line path
+  const linePath = useMemo(() => {
+    if (data.length === 0) return ''
+    
+    return data.map((d, i) => {
+      const x = xScale(i)
+      const y = yScale(d.value)
+      return i === 0 ? `M ${x} ${y}` : `L ${x} ${y}`
+    }).join(' ')
+  }, [data, xScale, yScale])
+  
+  // Generate area path (for gradient fill)
+  const areaPath = useMemo(() => {
+    if (data.length === 0) return ''
+    
+    const bottomY = height - padding.bottom
+    const path = data.map((d, i) => {
+      const x = xScale(i)
+      const y = yScale(d.value)
+      return i === 0 ? `M ${x} ${bottomY} L ${x} ${y}` : `L ${x} ${y}`
+    }).join(' ')
+    
+    const lastX = xScale(data.length - 1)
+    return `${path} L ${lastX} ${bottomY} Z`
+  }, [data, xScale, yScale])
+  
+  // Y-axis ticks
+  const yTicks = useMemo(() => {
+    const tickCount = 5
+    return Array.from({ length: tickCount }, (_, i) => {
+      const value = yMin + (yMax - yMin) * (i / (tickCount - 1))
+      return {
+        value: value.toFixed(1),
+        y: yScale(value),
+      }
+    })
+  }, [yMin, yMax, yScale])
+  
+  // X-axis ticks (show every 4th label to avoid crowding)
+  const xTicks = useMemo(() => {
+    return data.filter((_, i) => i % 4 === 0 || i === data.length - 1)
+      .map((d, i) => ({
+        label: d.time,
+        x: xScale(i * 4),
+      }))
+  }, [data, xScale])
+  
+  return (
+    <div className={`
+      rounded-xl border backdrop-blur-lg
+      ${isDark 
+        ? 'bg-gray-800/50 border-gray-700' 
+        : 'bg-white/70 border-gray-200'
+      }
+    `}>
+      <div className="p-4">
+        {/* Chart Header */}
+        <div className="flex items-center justify-between mb-4">
+          <h4 className={`text-sm font-semibold ${
+            isDark ? 'text-white' : 'text-gray-900'
+          }`}>
+            {metric.toUpperCase()} (Optimal: {optimalMin}-{optimalMax})
+          </h4>
+          
+          {/* Time Range Selector */}
+          <div className="flex gap-2">
+            {['1H', '6H', '24H'].map(range => (
+              <button
+                key={range}
+                className={`
+                  px-3 py-1 rounded text-xs font-medium
+                  transition-colors duration-200
+                  ${isDark
+                    ? 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                    : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                  }
+                `}
+              >
+                {range}
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        {/* SVG Chart */}
+        <svg 
+          width="100%" 
+          height={height}
+          viewBox={`0 0 ${width} ${height}`}
+          className="overflow-visible"
+        >
+          <defs>
+            {/* Gradient for area fill */}
+            <linearGradient id={`gradient-${metric}`} x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor={color.line} stopOpacity={0.3} />
+              <stop offset="100%" stopColor={color.line} stopOpacity={0.05} />
+            </linearGradient>
+            
+            {/* Glow filter for line */}
+            <filter id={`glow-${metric}`}>
+              <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+              <feMerge>
+                <feMergeNode in="coloredBlur"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+          </defs>
+          
+          {/* Grid lines */}
+          {yTicks.map((tick, i) => (
+            <line
+              key={i}
+              x1={padding.left}
+              y1={tick.y}
+              x2={width - padding.right}
+              y2={tick.y}
+              stroke={isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'}
+              strokeWidth="1"
+              strokeDasharray="4 4"
+            />
+          ))}
+          
+          {/* Optimal range band (if provided) */}
+          {optimalMin && optimalMax && (
+            <rect
+              x={padding.left}
+              y={yScale(optimalMax)}
+              width={width - padding.left - padding.right}
+              height={yScale(optimalMin) - yScale(optimalMax)}
+              fill={color.glow}
+              opacity={0.15}
+            />
+          )}
+          
+          {/* Area fill */}
+          <path
+            d={areaPath}
+            fill={`url(#gradient-${metric})`}
+          />
+          
+          {/* Main line with glow */}
+          <path
+            d={linePath}
+            fill="none"
+            stroke={color.line}
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            filter={`url(#glow-${metric})`}
+          />
+          
+          {/* Y-axis labels */}
+          {yTicks.map((tick, i) => (
+            <text
+              key={i}
+              x={padding.left - 10}
+              y={tick.y}
+              textAnchor="end"
+              alignmentBaseline="middle"
+              className={`text-xs ${
+                isDark ? 'fill-gray-400' : 'fill-gray-500'
+              }`}
+            >
+              {tick.value}
+            </text>
+          ))}
+          
+          {/* X-axis labels */}
+          {xTicks.map((tick, i) => (
+            <text
+              key={i}
+              x={tick.x}
+              y={height - padding.bottom + 20}
+              textAnchor="middle"
+              className={`text-xs ${
+                isDark ? 'fill-gray-400' : 'fill-gray-500'
+              }`}
+            >
+              {tick.label}
+            </text>
+          ))}
+        </svg>
+        
+        {/* Legend */}
+        <div className="flex items-center gap-4 mt-4 text-xs">
+          <div className="flex items-center gap-2">
+            <div 
+              className="w-3 h-3 rounded-full"
+              style={{ backgroundColor: color.line }}
+            />
+            <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>
+              Current
+            </span>
+          </div>
+          {optimalMin && optimalMax && (
+            <div className="flex items-center gap-2">
+              <div 
+                className="w-3 h-3 rounded"
+                style={{ backgroundColor: color.glow }}
+              />
+              <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>
+                Optimal Zone
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+```
+
+**Key ui-ux-expert Requirements Applied**:
+- ✅ **Visible axis labels** with proper contrast (gray-400/500, not invisible)
+- ✅ **Gradient area fill** under the line
+- ✅ **Glow effect** on the main line using SVG filters
+- ✅ **Grid lines** with subtle opacity
+- ✅ **Optimal range visualization** with colored band
+- ✅ **Theme-aware colors** for all text and UI elements
+- ✅ **Proper spacing** and padding
+- ✅ **Responsive SVG** with viewBox
+
+---
+
+## 5. Quality Verification Checklist
+
+### Before Submitting Any Component
+
+Run through the **ui-ux-expert Quality Checklist**:
+
+#### Theme Support
+- [ ] Component imports and uses `useTheme()` hook
+- [ ] All colors have both light and dark variants defined
+- [ ] No hardcoded colors (no `text-gray-500` without theme check)
+- [ ] Glassmorphic effects use `backdrop-blur-lg`
+
+#### Accessibility
+- [ ] Text has 4.5:1 contrast ratio minimum (use [WebAIM Contrast Checker](https://webaim.org/resources/contrastchecker/))
+- [ ] Interactive elements have hover and focus states
+- [ ] Semantic HTML used (`<button>` not `<div onClick>`)
+- [ ] ARIA labels added where needed
+
+#### Visual Hierarchy
+- [ ] Hero metrics are visibly larger than secondary metrics
+- [ ] Status indicators use color AND text/icons
+- [ ] Proper spacing between sections (not cramped)
+- [ ] Cards have elevation (shadow) in light mode
+
+#### Responsiveness
+- [ ] Tested at 320px (mobile)
+- [ ] Tested at 768px (tablet)
+- [ ] Tested at 1280px (desktop)
+- [ ] Uses mobile-first responsive classes (`md:`, `lg:`)
+
+#### Chart Specific
+- [ ] Axis labels are visible in both themes
+- [ ] Grid lines are subtle but present
+- [ ] Legend explains all visual elements
+- [ ] SVG uses viewBox for responsiveness
+
+---
+
+## 6. Implementation Order
+
+### Step 1: Fix ThemeProvider (15 min)
+
+1. Verify `src/components/providers/ThemeProvider.tsx` exists
+2. Verify it's wrapped in `app/layout.tsx`:
+
+```typescript
+// app/layout.tsx
+import { ThemeProvider } from '@/components/providers/ThemeProvider'
+
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <body>
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
+      </body>
+    </html>
+  )
+}
+```
+
+### Step 2: Replace Dashboard Container (30 min)
+
+1. Open `src/app/page.tsx` or `src/components/dashboard/Dashboard.tsx`
+2. Replace with Section 4.1 code
+3. Test light and dark themes work
+
+### Step 3: Replace RoomCard Component (45 min)
+
+1. Open `src/components/dashboard/RoomCard.tsx`
+2. Replace with Section 4.2 code
+3. Test all metrics display correctly
+4. Test status badge colors change based on VPD
+
+### Step 4: Replace SensorChart Component (60 min)
+
+1. Open `src/components/charts/SensorChart.tsx`
+2. Replace with Section 4.3 code
+3. Test axis labels are visible
+4. Test optimal range band shows correctly
+5. Test gradient and glow effects
+
+### Step 5: Run Quality Checklist (30 min)
+
+1. Go through each checkbox in Section 5
+2. Fix any issues found
+3. Test on mobile, tablet, and desktop
+
+---
+
+## 7. Testing Protocol
+
+### Visual Regression Testing
+
+1. **Light Mode**:
+   - Screenshot dashboard
+   - Check contrast with browser DevTools (Lighthouse accessibility)
+   - Verify all text is readable
+
+2. **Dark Mode**:
+   - Toggle theme
+   - Screenshot dashboard
+   - Check contrast again
+   - Verify glassmorphic effects show
+
+3. **Responsive**:
+   - Resize browser from 320px to 1920px
+   - Check layout doesn't break
+   - Verify cards stack properly on mobile
+
+### Accessibility Testing
+
+1. **Keyboard Navigation**:
+   - Tab through all interactive elements
+   - Verify focus indicators are visible
+   - Check no keyboard traps
+
+2. **Screen Reader**:
+   - Use VoiceOver (Mac) or NVDA (Windows)
+   - Verify all metrics are announced
+   - Check status badges are understood
+
+---
+
+## 8. Common Pitfalls to Avoid
+
+### ❌ DON'T DO THIS:
+
+```typescript
+// Hardcoded colors without theme check
+<div className="bg-gray-800 text-gray-400">
+
+// Invisible text (gray on gray)
+<div className="bg-gray-500">
+  <span className="text-gray-400">Can't read this</span>
+</div>
+
+// Missing contrast
+<button className="bg-blue-300 text-blue-200">Bad</button>
+```
+
+### ✅ DO THIS INSTEAD:
+
+```typescript
+// Theme-aware colors
+const { isDark } = useTheme()
+<div className={isDark ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'}>
+
+// High contrast
+<div className={isDark ? 'bg-gray-800' : 'bg-white'}>
+  <span className={isDark ? 'text-gray-300' : 'text-gray-700'}>
+    Can read this clearly
+  </span>
+</div>
+
+// Proper contrast
+<button className={isDark 
+  ? 'bg-blue-600 text-white hover:bg-blue-700'
+  : 'bg-blue-500 text-white hover:bg-blue-600'
+}>
+  Good
+</button>
+```
+
+---
+
+## 9. Success Criteria
+
+The dashboard is **COMPLETE** when:
+
+✅ All text is readable in both light and dark themes (WCAG AA)  
+✅ Glassmorphic cards show backdrop blur effects  
+✅ Status indicators use color + text  
+✅ Charts have visible axis labels and legends  
+✅ VPD is visually prominent (hero metric)  
+✅ Hover states work on all interactive elements  
+✅ Mobile layout stacks cards properly  
+✅ No console errors or warnings  
+✅ Passes Lighthouse accessibility audit (90+ score)  
+
+---
+
+## 10. Getting Help
+
+### If Stuck on Theme Implementation
+
+**Prompt**:
+```
+I'm implementing theme support for EnviroFlow following the ui-ux-expert agent guidelines.
+
+Current code:
+[paste component]
+
+Issue:
+[describe what's not working]
+
+According to ui-ux-expert agent, I need to:
+1. Import useTheme() hook
+2. Define both light and dark variants
+3. Use theme-aware classes
+
+Please show me the corrected version.
+```
+
+### If Stuck on Contrast Issues
+
+**Prompt**:
+```
+I have a contrast issue in my EnviroFlow component:
+[paste problematic code]
+
+The ui-ux-expert agent requires WCAG AA (4.5:1 ratio).
+Current colors: [describe]
+
+What colors should I use for both themes to meet accessibility requirements?
+```
+
+### If Stuck on Chart Implementation
+
+**Prompt**:
+```
+My EnviroFlow chart has invisible labels:
+[paste SensorChart component]
+
+According to the ui-ux-expert agent and Build Guide Phase 5, I need:
+1. Visible axis labels with proper contrast
+2. SVG gradient fills
+3. Glow effects on lines
+
+Please provide the corrected SVG implementation.
+```
+
+---
+
+## Summary
+
+This dashboard implementation **failed** because the **ui-ux-expert agent's mandatory requirements were not followed**. Every component must:
+
+1. **Use `useTheme()` hook** - no exceptions
+2. **Define both light and dark variants** - every color must have both
+3. **Meet WCAG AA contrast** - 4.5:1 minimum
+4. **Apply design system tokens** - from `globals.css`
+5. **Implement visual hierarchy** - hero vs secondary metrics
+6. **Add interaction feedback** - hover, focus, active states
+
+Follow this guide systematically, **component by component**, referencing the ui-ux-expert agent's patterns at each step. Do not skip the quality checklist. This will result in a polished, accessible, theme-aware dashboard that matches the PRD vision.

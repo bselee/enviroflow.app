@@ -10,6 +10,20 @@
   "scripts": {
     "dev": "supabase start",
     "build": "echo 'Automation engine has no build step'",
-    "deploy": "supabase functions deploy"
+    "deploy": "supabase functions deploy",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui"
+  },
+  "dependencies": {
+    "mqtt": "^5.14.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.30",
+    "@vitest/coverage-v8": "^1.6.1",
+    "@vitest/ui": "^1.6.1",
+    "typescript": "^5.9.3",
+    "vitest": "^1.6.1"
   }
 }

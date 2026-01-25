@@ -271,6 +271,9 @@ export async function calculateHealthScore(
   controller: Controller
 ): Promise<HealthScore> {
   const supabase = createServerClient();
+  if (!supabase) {
+    throw new Error('Failed to create Supabase client');
+  }
   const now = new Date();
   const windowStart = new Date(
     now.getTime() - ANALYSIS_WINDOW_HOURS * 60 * 60 * 1000
@@ -333,6 +336,9 @@ export async function calculateAllHealthScores(
   userId: string
 ): Promise<HealthScoreWithController[]> {
   const supabase = createServerClient();
+  if (!supabase) {
+    throw new Error('Failed to create Supabase client');
+  }
 
   // Fetch all controllers for the user
   const { data: controllers, error } = await supabase
@@ -418,6 +424,9 @@ export async function saveHealthScore(
   healthScore: HealthScore
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = createServerClient();
+  if (!supabase) {
+    return { success: false, error: 'Failed to create Supabase client' };
+  }
 
   const { error } = await supabase.from('controller_health').insert({
     controller_id: controllerId,
@@ -441,6 +450,9 @@ export async function getLatestHealthScore(
   controllerId: string
 ): Promise<HealthScore | null> {
   const supabase = createServerClient();
+  if (!supabase) {
+    return null;
+  }
 
   const { data, error } = await supabase
     .from('controller_health')
@@ -473,6 +485,9 @@ export async function detectHealthScoreDrop(
   dropAmount: number | null;
 }> {
   const supabase = createServerClient();
+  if (!supabase) {
+    return { dropped: false, currentScore: null, previousScore: null, dropAmount: null };
+  }
 
   // Get the two most recent health scores
   const { data, error } = await supabase

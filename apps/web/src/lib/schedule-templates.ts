@@ -360,6 +360,7 @@ export const SCHEDULE_TEMPLATES: ScheduleTemplate[] = [
         name: 'Sunrise Trigger',
         trigger_type: 'sunrise',
         schedule: {
+          days: [],
           action: 'on',
           level: 100,
           offset_minutes: 0, // Turn on at sunrise
@@ -370,6 +371,7 @@ export const SCHEDULE_TEMPLATES: ScheduleTemplate[] = [
         name: 'Sunset Trigger',
         trigger_type: 'sunset',
         schedule: {
+          days: [],
           action: 'off',
           offset_minutes: 0, // Turn off at sunset
         },
@@ -379,6 +381,7 @@ export const SCHEDULE_TEMPLATES: ScheduleTemplate[] = [
         name: 'Day Fan',
         trigger_type: 'sunrise',
         schedule: {
+          days: [],
           action: 'set_level',
           level: 70,
         },
@@ -388,6 +391,7 @@ export const SCHEDULE_TEMPLATES: ScheduleTemplate[] = [
         name: 'Night Fan',
         trigger_type: 'sunset',
         schedule: {
+          days: [],
           action: 'set_level',
           level: 30,
         },

@@ -240,6 +240,12 @@ export function getBrandDisplayInfo(brand: ControllerBrand): {
       icon: 'droplet',
       helpText: 'Enter your Govee API key. Get it from Govee Home app: Account > About Us > Apply for API Key.',
     },
+    ecowitt: {
+      name: 'Ecowitt',
+      description: 'Weather Stations & Environmental Sensors',
+      icon: 'cloud',
+      helpText: 'Configure your Ecowitt device to push data via webhook.',
+    },
     csv_upload: {
       name: 'CSV Upload',
       description: 'Manual data import',

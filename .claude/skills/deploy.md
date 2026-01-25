@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Build the project, commit all changes, and deploy directly to main. Use when deploying changes to production.
+description: Build the project, commit all changes, and deploy directly to main. Use when deploying changes to production. Auto-fix Vercel errors with --watch companion.
 allowed-tools: Bash, Read, Glob, Write, Edit
 ---
 
@@ -40,3 +40,37 @@ git push origin main
 - "push changes to production"
 - "deploy these changes"
 - "/deploy"
+
+---
+
+## 🔧 Auto-Fix Vercel Errors
+
+If Vercel build fails after deploy, use the **watch companion**:
+
+```bash
+# After deploy pushes to main:
+node build-fix-loop.js --watch
+```
+
+This will:
+1. Wait for Vercel deployment to complete
+2. If ERROR → fetch logs, fix error, push, repeat
+3. If SUCCESS → print URL, exit
+
+### Setup (one-time)
+
+```bash
+export VERCEL_TOKEN="your-token"        # vercel.com/account/tokens
+export VERCEL_PROJECT_ID="prj_xxx"      # Project Settings → General
+```
+
+### Full Self-Healing Deploy
+
+```bash
+# Option 1: Manual two-step
+/deploy                              # Push to main
+node build-fix-loop.js --watch       # Watch & fix errors
+
+# Option 2: One-liner
+git push origin main && node build-fix-loop.js --watch
+```
