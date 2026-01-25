@@ -55,7 +55,7 @@ const dimmerScheduleSchema = z.object({
   description: z.string().max(500).optional(),
   controller_id: z.string().uuid("Please select a controller"),
   device_port: z.number().min(1, "Device port is required"),
-  schedule_type: z.enum(["sunrise", "sunset", "custom"]),
+  schedule_type: z.enum(["sunrise", "sunset", "custom", "dli_curve"]),
   start_time: z.string().optional(),
   offset_minutes: z.number().min(-120).max(120).optional(),
   duration_minutes: z.number().min(1).max(480),
