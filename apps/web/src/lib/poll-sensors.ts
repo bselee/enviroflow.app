@@ -146,13 +146,12 @@ export async function pollController(
   supabase: SupabaseClient,
   controller: DBController
 ): Promise<PollResult> {
-  const { id: dbControllerId, user_id, brand, name, credentials } = controller
+  const { id: dbControllerId, brand, name, credentials } = controller
 
   console.log(`[pollController] ========== START POLLING ==========`)
   console.log(`[pollController] Controller: ${name} (${dbControllerId})`)
   console.log(`[pollController] Brand: ${brand}`)
   console.log(`[pollController] Controller ID: ${controller.controller_id}`)
-  console.log(`[pollController] User ID: ${user_id}`)
   console.log(`[pollController] Credentials type: ${typeof credentials}`)
   console.log(`[pollController] Credentials length: ${typeof credentials === 'string' ? credentials.length : 'N/A'}`)
 

@@ -98,6 +98,8 @@ export type DeviceType =
   | "pump"
   | "valve";
 
+// DeviceMode is re-exported from './modes' at the bottom of this file
+
 /**
  * Controller capabilities structure
  */
@@ -1366,4 +1368,129 @@ export interface HealthAlert {
 export interface ControllerWithHealth extends Controller {
   health?: HealthScore | null;
 }
+
+// =============================================================================
+// Controller Mode Programming Types
+// =============================================================================
+
+/**
+ * Mode types for AC Infinity controllers
+ */
+export type ControllerModeType = 'off' | 'on' | 'auto' | 'vpd' | 'timer' | 'cycle' | 'schedule';
+
+/**
+ * Device behavior for AUTO mode
+ */
+export type DeviceBehavior = 'cooling' | 'heating' | 'humidify' | 'dehumidify';
+
+/**
+ * Timer type for TIMER mode
+ */
+export type TimerType = 'on' | 'off';
+
+/**
+ * Complete mode configuration for a controller port
+ */
+export interface ModeConfiguration {
+  mode: ControllerModeType;
+  level?: number; // 0-10 for ON mode
+
+  // AUTO mode settings
+  tempTriggerHigh?: number;
+  tempTriggerLow?: number;
+  humidityTriggerHigh?: number;
+  humidityTriggerLow?: number;
+  deviceBehavior?: DeviceBehavior;
+
+  // VPD mode settings
+  vpdTriggerHigh?: number;
+  vpdTriggerLow?: number;
+  leafTempOffset?: number;
+
+  // Shared trigger settings
+  maxLevel?: number; // 0-10
+  minLevel?: number; // 0-10
+  transitionEnabled?: boolean;
+  transitionSpeed?: number; // seconds
+  bufferEnabled?: boolean;
+  bufferValue?: number;
+
+  // TIMER mode settings
+  timerType?: TimerType;
+  timerDuration?: number; // seconds
+
+  // CYCLE mode settings
+  cycleOnDuration?: number; // seconds
+  cycleOffDuration?: number; // seconds
+
+  // SCHEDULE mode settings
+  scheduleStartTime?: string; // HH:MM
+  scheduleEndTime?: string; // HH:MM
+  scheduleDays?: number[]; // 0-6, Sunday=0
+}
+
+/**
+ * Port mode response with current configuration
+ */
+export interface PortModeResponse {
+  port: number;
+  portName: string;
+  deviceType: string;
+  currentMode: ModeConfiguration;
+  supportedModes: ControllerModeType[];
+}
+
+/**
+ * Input for updating port mode
+ */
+export interface UpdatePortModeInput {
+  port: number;
+  mode: ModeConfiguration;
+}
+
+/**
+ * Response from modes list API
+ */
+export interface ModesListResponse {
+  success: boolean;
+  controller_id: string;
+  controller_name: string;
+  ports: PortModeResponse[];
+  error?: string;
+}
+
+// =============================================================================
+// Enhanced Mode Programming Types (Re-export from modes.ts)
+// =============================================================================
+
+/**
+ * Re-export enhanced mode types from dedicated module
+ * These provide more detailed type definitions and utilities for mode programming
+ */
+export type {
+  DeviceMode,
+  ModeInfo,
+  BaseModeConfig,
+  OnModeConfig,
+  AutoModeConfig,
+  VpdModeConfig,
+  TimerModeConfig,
+  CycleModeConfig,
+  ScheduleModeConfig,
+  ScheduleSlot,
+  ModeConfiguration as EnhancedModeConfiguration,
+  PortModeState,
+} from './modes'
+
+/**
+ * Re-export mode type guards
+ */
+export {
+  isOnModeConfig,
+  isAutoModeConfig,
+  isVpdModeConfig,
+  isTimerModeConfig,
+  isCycleModeConfig,
+  isScheduleModeConfig,
+} from './modes'
 

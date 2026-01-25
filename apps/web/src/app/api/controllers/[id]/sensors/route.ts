@@ -656,7 +656,6 @@ export async function GET(
     if (shouldStore && readings.length > 0) {
       const readingsToInsert = validatedReadings.map((r) => ({
         controller_id: id,
-        user_id: userId,
         port: r.port,
         sensor_type: r.type,
         value: r.value,
