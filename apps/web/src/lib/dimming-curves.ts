@@ -8,7 +8,7 @@
  * @module lib/dimming-curves
  */
 
-import type { DimmerCurveType } from '@/types'
+export type { DimmerCurveType } from '@/types'
 
 /**
  * Calculate the intensity value for a dimming schedule based on elapsed time
