@@ -11,24 +11,30 @@
 import { createBrowserClient } from "@supabase/ssr";
 import { createClient as createSupabaseClient, SupabaseClient } from "@supabase/supabase-js";
 
-// Environment variable validation
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// Environment variables - validated lazily to support build-time analysis
+const getSupabaseUrl = () => {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!url) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_SUPABASE_URL environment variable. " +
+        "Please add it to your .env.local file."
+    );
+  }
+  return url;
+};
 
-if (!supabaseUrl) {
-  throw new Error(
-    "Missing NEXT_PUBLIC_SUPABASE_URL environment variable. " +
-      "Please add it to your .env.local file."
-  );
-}
+const getSupabaseAnonKey = () => {
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!key) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_SUPABASE_ANON_KEY environment variable. " +
+        "Please add it to your .env.local file."
+    );
+  }
+  return key;
+};
 
-if (!supabaseAnonKey) {
-  throw new Error(
-    "Missing NEXT_PUBLIC_SUPABASE_ANON_KEY environment variable. " +
-      "Please add it to your .env.local file."
-  );
-}
+const getSupabaseServiceRoleKey = () => process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 /**
  * Singleton browser client instance
@@ -45,7 +51,7 @@ export function createClient(): SupabaseClient {
     return browserClient;
   }
 
-  browserClient = createBrowserClient(supabaseUrl!, supabaseAnonKey!);
+  browserClient = createBrowserClient(getSupabaseUrl(), getSupabaseAnonKey());
   return browserClient;
 }
 
@@ -55,7 +61,14 @@ export function createClient(): SupabaseClient {
  *
  * @deprecated Use createClient() instead for new code
  */
-export const supabase: SupabaseClient = createClient();
+export const supabase: SupabaseClient = (() => {
+  // Lazy initialization to support build-time analysis
+  if (typeof window === 'undefined' && !process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    // Return a placeholder during build - will be properly initialized at runtime
+    return null as unknown as SupabaseClient;
+  }
+  return createClient();
+})();
 
 /**
  * Creates a Supabase client with service role privileges.
@@ -64,7 +77,8 @@ export const supabase: SupabaseClient = createClient();
  * @returns Supabase client with service role privileges, or null if key is missing
  */
 export function createServerClient(): SupabaseClient | null {
-  if (!supabaseServiceRoleKey) {
+  const serviceRoleKey = getSupabaseServiceRoleKey();
+  if (!serviceRoleKey) {
     console.warn(
       "SUPABASE_SERVICE_ROLE_KEY is not set. " +
         "Server-side operations requiring admin access will not work."
@@ -72,7 +86,7 @@ export function createServerClient(): SupabaseClient | null {
     return null;
   }
 
-  return createSupabaseClient(supabaseUrl!, supabaseServiceRoleKey, {
+  return createSupabaseClient(getSupabaseUrl(), serviceRoleKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
