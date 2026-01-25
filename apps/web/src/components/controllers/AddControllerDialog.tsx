@@ -318,7 +318,12 @@ export function AddControllerDialog({
 
     setSelectedBrand(brand);
     setDiscoveredDevice(device);
-    setDiscoveryCredentials(creds);
+    // Only set credentials if both email and password are present
+    setDiscoveryCredentials(
+      creds.email && creds.password
+        ? { email: creds.email, password: creds.password }
+        : null
+    );
     setAddMode("discover");
 
     // Smart default: Use discovered device name or generate from brand + model
