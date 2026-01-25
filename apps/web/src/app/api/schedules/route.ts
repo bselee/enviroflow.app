@@ -56,7 +56,7 @@ function validateScheduleConfig(config: ScheduleConfig): { valid: boolean; error
   }
 
   // Validate action
-  if (!['on', 'off', 'set_level'].includes(config.action)) {
+  if (!config.action || !['on', 'off', 'set_level'].includes(config.action)) {
     return { valid: false, error: 'action must be one of: on, off, set_level' }
   }
 
