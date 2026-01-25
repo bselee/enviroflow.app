@@ -212,7 +212,8 @@ export function useActivityLogs(options: ActivityLogsOptions = {}): UseActivityL
    * Memoized to prevent unnecessary recalculations.
    */
   const formattedLogs: FormattedActivityLog[] = logs.map((log) => {
-    const ts = log.timestamp || log.created_at || new Date().toISOString();
+    // Prefer created_at (required) over legacy timestamp alias
+    const ts = log.created_at;
     return {
     id: log.id,
     timestamp: ts,

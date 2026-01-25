@@ -102,8 +102,8 @@ export type DeviceType =
  * Controller capabilities structure
  */
 export interface ControllerCapabilities {
-  sensors?: SensorType[];
-  devices?: DeviceType[];
+  sensors: SensorType[];
+  devices: DeviceType[];
   supportsDimming?: boolean;
   supportsScheduling?: boolean;
 }
@@ -565,8 +565,8 @@ export interface ActivityLog {
   error_message: string | null;
   ip_address: string | null;
   user_agent: string | null;
-  /** Primary timestamp field (stored as 'created_at' in DB) */
-  created_at?: string;
+  /** Primary timestamp field (stored as 'created_at' in DB, always present) */
+  created_at: string;
   /** Legacy alias for created_at (backwards compatibility) */
   timestamp?: string;
   /** Workflow name from join */
