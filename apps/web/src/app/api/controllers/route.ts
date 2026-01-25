@@ -23,6 +23,7 @@ import {
   EncryptionError,
 } from '@/lib/server-encryption'
 import { sanitizeName, isValidName } from '@/lib/sanitize-input'
+import { pollController } from '@/lib/poll-sensors'
 
 // Import adapter factory and types from automation-engine workspace package
 import {
@@ -66,27 +67,56 @@ function getSupabase(): SupabaseClient {
  */
 function buildAdapterCredentials(
   brand: ControllerBrand,
-  credentials: { email?: string; password?: string }
-): ACInfinityCredentials | InkbirdCredentials | CSVUploadCredentials {
+  credentials: Record<string, unknown>
+): ACInfinityCredentials | InkbirdCredentials | CSVUploadCredentials | import('@enviroflow/automation-engine/adapters').EcowittCredentials | import('@enviroflow/automation-engine/adapters').GoveeCredentials | import('@enviroflow/automation-engine/adapters').MQTTCredentials {
   switch (brand) {
     case 'ac_infinity':
       return {
         type: 'ac_infinity',
-        email: credentials.email || '',
-        password: credentials.password || '',
+        email: (credentials.email as string) || '',
+        password: (credentials.password as string) || '',
       } satisfies ACInfinityCredentials
 
     case 'inkbird':
       return {
         type: 'inkbird',
-        email: credentials.email || '',
-        password: credentials.password || '',
+        email: (credentials.email as string) || '',
+        password: (credentials.password as string) || '',
       } satisfies InkbirdCredentials
 
     case 'csv_upload':
       return {
         type: 'csv_upload',
       } satisfies CSVUploadCredentials
+
+    case 'ecowitt':
+      return {
+        type: 'ecowitt',
+        connectionMethod: (credentials.connectionMethod as 'push' | 'tcp' | 'http' | 'cloud') || 'push',
+        gatewayIP: credentials.gatewayIP as string | undefined,
+        apiKey: credentials.apiKey as string | undefined,
+        applicationKey: credentials.applicationKey as string | undefined,
+        macAddress: credentials.macAddress as string | undefined,
+      } satisfies import('@enviroflow/automation-engine/adapters').EcowittCredentials
+
+    case 'govee':
+      return {
+        type: 'govee',
+        apiKey: (credentials.apiKey as string) || '',
+        deviceId: credentials.deviceId as string | undefined,
+      } satisfies import('@enviroflow/automation-engine/adapters').GoveeCredentials
+
+    case 'mqtt':
+      return {
+        type: 'mqtt',
+        brokerUrl: (credentials.brokerUrl as string) || '',
+        port: (credentials.port as number) || 1883,
+        username: credentials.username as string | undefined,
+        password: credentials.password as string | undefined,
+        topicPrefix: (credentials.topicPrefix as string) || '',
+        useTls: (credentials.useTls as boolean) || false,
+        clientId: credentials.clientId as string | undefined,
+      } satisfies import('@enviroflow/automation-engine/adapters').MQTTCredentials
 
     default:
       // For unsupported brands, throw early with descriptive error
@@ -96,6 +126,217 @@ function buildAdapterCredentials(
 
 // Get supported brands from the adapter factory (single source of truth)
 const SUPPORTED_BRANDS = getSupportedBrands()
+
+/**
+ * Helper function to perform connection test via adapter and return results
+ * Extracted to avoid code duplication and improve error handling
+ */
+async function performConnectionTest(
+  brand: ControllerBrand,
+  credentials: Record<string, unknown>,
+  controllerName: string,
+  discoveredDevice?: unknown
+): Promise<{
+  success: boolean
+  controllerId?: string
+  capabilities?: ControllerCapabilities | Record<string, unknown>
+  model?: string
+  firmwareVersion?: string
+  error?: {
+    error: string
+    errorType: string
+    message: string
+    brand: string
+    guidance: string
+    status: number
+  }
+}> {
+  try {
+    // Get the appropriate adapter for this brand
+    const adapter = getAdapter(brand)
+
+    // Build properly typed credentials for the adapter
+    const adapterCredentials = buildAdapterCredentials(brand, credentials)
+
+    console.log(`[Controllers POST] Testing connection for ${brand}`, {
+      controllerName,
+      hasCredentials: Object.keys(credentials).length > 0,
+    })
+
+    // Test connection via the adapter - this validates credentials
+    // and retrieves controller metadata from the cloud API
+    const connectionResult = await adapter.connect(adapterCredentials)
+
+    if (!connectionResult.success) {
+      // Connection failed - log detailed info for dev team
+      console.error(`[Controllers POST] CONNECTION FAILED`, {
+        timestamp: new Date().toISOString(),
+        brand,
+        error: connectionResult.error,
+        metadata: connectionResult.metadata,
+        context: {
+          hasDiscoveredDevice: !!discoveredDevice,
+          controllerName,
+        }
+      })
+
+      // Classify error for better user guidance
+      const errorMsg = connectionResult.error || ''
+      const lowerMsg = errorMsg.toLowerCase()
+
+      // Brand-specific error classification
+      let errorType = 'connection'
+      let userMessage = errorMsg
+      let guidance = 'Check that your controller is powered on and connected.'
+
+      if (brand === 'ecowitt') {
+        // Ecowitt-specific error messages
+        if (lowerMsg.includes('api key') || lowerMsg.includes('application key')) {
+          errorType = 'credentials'
+          userMessage = 'Invalid API credentials.'
+          guidance = 'Check your API Key and Application Key from the Ecowitt developer portal (api.ecowitt.net). Make sure they are entered correctly with no extra spaces.'
+        } else if (lowerMsg.includes('mac address')) {
+          errorType = 'validation'
+          userMessage = 'Invalid MAC address format.'
+          guidance = 'MAC address should be in format XX:XX:XX:XX:XX:XX. Find it on your gateway device label or in the Ecowitt app.'
+        } else if (lowerMsg.includes('gateway ip') || lowerMsg.includes('tcp') || lowerMsg.includes('connection timeout')) {
+          errorType = 'network'
+          userMessage = 'Could not connect to gateway.'
+          guidance = 'Verify the gateway IP address is correct and the gateway is powered on. For TCP/HTTP methods, ensure the gateway is on the same network.'
+        } else if (lowerMsg.includes('account not found') || lowerMsg.includes('no devices')) {
+          errorType = 'configuration'
+          userMessage = 'No devices found on this account.'
+          guidance = 'Make sure the gateway is registered to your Ecowitt account in the mobile app first.'
+        }
+      } else if (brand === 'govee') {
+        // Govee-specific error messages
+        if (lowerMsg.includes('api key') || lowerMsg.includes('invalid key')) {
+          errorType = 'credentials'
+          userMessage = 'Invalid Govee API key.'
+          guidance = 'Get your API key from Govee Home app: Account > About Us > Apply for API Key. It may take a few minutes to activate after requesting.'
+        } else if (lowerMsg.includes('rate limit')) {
+          errorType = 'rate_limit'
+          userMessage = 'API rate limit exceeded.'
+          guidance = 'Govee limits API requests to 60 per minute per device. Please wait a minute and try again.'
+        }
+      } else if (brand === 'mqtt') {
+        // MQTT-specific error messages
+        if (lowerMsg.includes('broker') || lowerMsg.includes('connection refused')) {
+          errorType = 'network'
+          userMessage = 'Could not connect to MQTT broker.'
+          guidance = 'Check the broker URL, port, and network connectivity. Ensure the broker is running and accessible.'
+        } else if (lowerMsg.includes('authentication') || lowerMsg.includes('unauthorized')) {
+          errorType = 'credentials'
+          userMessage = 'MQTT authentication failed.'
+          guidance = 'Check your MQTT username and password. If the broker doesn\'t require auth, leave these fields empty.'
+        }
+      } else {
+        // Generic brand error classification
+        const isCredentialError = lowerMsg.includes('password') ||
+          lowerMsg.includes('email') ||
+          lowerMsg.includes('authentication') ||
+          lowerMsg.includes('unauthorized')
+
+        if (isCredentialError) {
+          errorType = 'credentials'
+          userMessage = 'Invalid credentials.'
+          guidance = 'Double-check your email and password. Try logging into the official app to verify your credentials work.'
+        } else {
+          guidance = 'Check that your controller is powered on and connected to WiFi.'
+        }
+      }
+
+      return {
+        success: false,
+        error: {
+          error: 'Connection failed',
+          errorType,
+          message: userMessage,
+          brand,
+          guidance,
+          status: 400
+        }
+      }
+    }
+
+    // Connection successful - extract metadata from the adapter response
+    const controllerId = connectionResult.controllerId
+    const capabilities = connectionResult.metadata.capabilities
+    const model = connectionResult.metadata.model
+    const firmwareVersion = connectionResult.metadata.firmwareVersion
+
+    console.log(`[Controllers POST] Connection successful`, {
+      brand,
+      controllerId,
+      model,
+      capabilities: JSON.stringify(capabilities).slice(0, 100)
+    })
+
+    // Disconnect after successful test (we'll reconnect when needed for operations)
+    // This prevents holding connections open unnecessarily
+    await adapter.disconnect(controllerId)
+
+    return {
+      success: true,
+      controllerId,
+      capabilities,
+      model,
+      firmwareVersion
+    }
+
+  } catch (adapterError) {
+    // Handle adapter-level errors (unsupported brand, network issues, etc.)
+    console.error(`[Controllers POST] Adapter error for ${brand}:`, adapterError)
+
+    const errorMessage = adapterError instanceof Error
+      ? adapterError.message
+      : 'An unexpected error occurred while connecting to the controller'
+
+    // Classify error for better user guidance
+    const lowerMsg = errorMessage.toLowerCase()
+    const isNetworkError = lowerMsg.includes('fetch') ||
+      lowerMsg.includes('network') ||
+      lowerMsg.includes('econnrefused') ||
+      lowerMsg.includes('timeout') ||
+      lowerMsg.includes('enotfound')
+    const isCredentialError = lowerMsg.includes('password') ||
+      lowerMsg.includes('email') ||
+      lowerMsg.includes('authentication') ||
+      lowerMsg.includes('invalid') ||
+      lowerMsg.includes('unauthorized')
+
+    // Provide user-friendly error with guidance
+    let userMessage = errorMessage
+    let guidance = ''
+    let errorType = 'unknown'
+
+    if (isCredentialError) {
+      errorType = 'credentials'
+      userMessage = 'Invalid credentials.'
+      guidance = 'Double-check your credentials and try again. Make sure you can log into the official app with these credentials.'
+    } else if (isNetworkError) {
+      errorType = 'network'
+      userMessage = 'Network connection error.'
+      guidance = 'Check your internet connection and try again. The controller service may be temporarily unavailable.'
+    } else {
+      errorType = 'server'
+      userMessage = 'Connection error.'
+      guidance = 'Please try again. If the problem persists, the controller service may be experiencing issues.'
+    }
+
+    return {
+      success: false,
+      error: {
+        error: isNetworkError ? 'Connection error' : 'Controller error',
+        errorType,
+        message: userMessage,
+        brand,
+        guidance,
+        status: isNetworkError ? 503 : 400
+      }
+    }
+  }
+}
 
 /**
  * Convert simplified capabilities (from discovery) to proper ControllerCapabilities format.
@@ -347,11 +588,17 @@ export async function POST(request: NextRequest) {
     let firmwareVersion: string | undefined
     let connectionResult: ConnectionResult | null = null
 
+    // Validate credentials based on brand requirements
     if (brand === 'ac_infinity' || brand === 'inkbird') {
       // Validate required credentials for cloud-connected controllers
       if (!credentials?.email || !credentials?.password) {
         return NextResponse.json(
-          { error: 'Email and password are required for this controller type' },
+          {
+            error: 'Email and password are required',
+            errorType: 'validation',
+            message: `${brandInfo.name} requires your account email and password to connect.`,
+            guidance: 'Enter the same credentials you use for the official mobile app.',
+          },
           { status: 400 }
         )
       }
@@ -360,11 +607,100 @@ export async function POST(request: NextRequest) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
       if (!emailRegex.test(credentials.email)) {
         return NextResponse.json(
-          { error: 'Invalid email format' },
+          {
+            error: 'Invalid email format',
+            errorType: 'validation',
+            message: 'Please enter a valid email address.',
+            guidance: 'Email should be in the format: user@example.com',
+          },
+          { status: 400 }
+        )
+      }
+    } else if (brand === 'ecowitt') {
+      // Validate Ecowitt-specific credentials
+      const connectionMethod = credentials?.connectionMethod as string | undefined
+
+      if (!connectionMethod) {
+        return NextResponse.json(
+          {
+            error: 'Connection method is required',
+            errorType: 'validation',
+            message: 'Ecowitt requires a connection method (push, tcp, http, or cloud).',
+            guidance: 'Select how you want to connect to your Ecowitt gateway.',
+          },
           { status: 400 }
         )
       }
 
+      // Validate based on connection method
+      if (connectionMethod === 'tcp' || connectionMethod === 'http') {
+        if (!credentials?.gatewayIP) {
+          return NextResponse.json(
+            {
+              error: 'Gateway IP address is required',
+              errorType: 'validation',
+              message: `Gateway IP address is required for ${connectionMethod.toUpperCase()} connection method.`,
+              guidance: 'Find your gateway IP in your router\'s DHCP client list or the Ecowitt app.',
+            },
+            { status: 400 }
+          )
+        }
+      } else if (connectionMethod === 'cloud') {
+        if (!credentials?.apiKey || !credentials?.applicationKey || !credentials?.macAddress) {
+          return NextResponse.json(
+            {
+              error: 'Cloud credentials are required',
+              errorType: 'validation',
+              message: 'Cloud connection requires API Key, Application Key, and MAC Address.',
+              guidance: 'Get your API credentials from the Ecowitt developer portal at api.ecowitt.net',
+            },
+            { status: 400 }
+          )
+        }
+      } else if (connectionMethod === 'push') {
+        // Push method requires MAC address
+        if (!credentials?.macAddress) {
+          return NextResponse.json(
+            {
+              error: 'MAC address is required',
+              errorType: 'validation',
+              message: 'MAC address is required for push connection method.',
+              guidance: 'Find the MAC address on the gateway device label or in the Ecowitt app.',
+            },
+            { status: 400 }
+          )
+        }
+      }
+    } else if (brand === 'govee') {
+      // Validate Govee API key
+      if (!credentials?.apiKey) {
+        return NextResponse.json(
+          {
+            error: 'API key is required',
+            errorType: 'validation',
+            message: 'Govee requires an API key to connect.',
+            guidance: 'Get your API key from Govee Home app: Account > About Us > Apply for API Key',
+          },
+          { status: 400 }
+        )
+      }
+    } else if (brand === 'mqtt') {
+      // Validate MQTT credentials
+      if (!credentials?.brokerUrl || !credentials?.topicPrefix) {
+        return NextResponse.json(
+          {
+            error: 'MQTT configuration is required',
+            errorType: 'validation',
+            message: 'MQTT requires broker URL and topic prefix.',
+            guidance: 'Enter your MQTT broker details (e.g., mqtt://broker.example.com)',
+          },
+          { status: 400 }
+        )
+      }
+    }
+
+    // Now handle connection testing based on brand type
+    if (brand === 'ac_infinity' || brand === 'inkbird') {
       // If discoveredDevice is provided, skip connection test - device was already validated during discovery
       if (discoveredDevice && discoveredDevice.deviceId) {
         console.log(`[Controllers POST] Using pre-validated discovered device:`, {
@@ -387,116 +723,34 @@ export async function POST(request: NextRequest) {
         )
       } else {
         // No discovered device - perform connection test via adapter
-        try {
-          // Get the appropriate adapter for this brand
-          const adapter = getAdapter(brand as ControllerBrand)
+        const testResult = await performConnectionTest(brand as ControllerBrand, credentials, name, discoveredDevice)
 
-          // Build properly typed credentials for the adapter
-          const adapterCredentials = buildAdapterCredentials(
-            brand as ControllerBrand,
-            credentials
-          )
-
-          // Test connection via the adapter - this validates credentials
-          // and retrieves controller metadata from the cloud API
-          connectionResult = await adapter.connect(adapterCredentials)
-
-          if (!connectionResult.success) {
-            // Connection failed - log detailed info for dev team
-            console.error(`[Controllers POST] CONNECTION FAILED`, {
-              timestamp: new Date().toISOString(),
-              brand,
-              userId,
-              email: credentials.email,
-              error: connectionResult.error,
-              metadata: connectionResult.metadata,
-              // Log request context for debugging
-              context: {
-                hasDiscoveredDevice: !!discoveredDevice,
-                controllerName: name,
-              }
-            })
-
-            // Classify error for better user guidance
-            const errorMsg = connectionResult.error || ''
-            const isCredentialError = errorMsg.toLowerCase().includes('password') ||
-              errorMsg.toLowerCase().includes('email') ||
-              errorMsg.toLowerCase().includes('authentication')
-
-            return NextResponse.json(
-              {
-                error: 'Connection failed',
-                errorType: isCredentialError ? 'credentials' : 'connection',
-                message: connectionResult.error || 'Unable to connect to controller.',
-                brand: brand,
-                guidance: isCredentialError
-                  ? 'Double-check your email and password. Try logging into the official app to verify your credentials.'
-                  : 'Check that your controller is powered on and connected to WiFi.',
-              },
-              { status: 400 }
-            )
-          }
-
-          // Connection successful - extract metadata from the adapter response
-          controllerId = connectionResult.controllerId
-          capabilities = connectionResult.metadata.capabilities
-          model = connectionResult.metadata.model
-          firmwareVersion = connectionResult.metadata.firmwareVersion
-
-          // Disconnect after successful test (we'll reconnect when needed for operations)
-          // This prevents holding connections open unnecessarily
-          await adapter.disconnect(controllerId)
-
-        } catch (adapterError) {
-          // Handle adapter-level errors (unsupported brand, network issues, etc.)
-          console.error(`[Controllers POST] Adapter error for ${brand}:`, adapterError)
-
-          const errorMessage = adapterError instanceof Error
-            ? adapterError.message
-            : 'An unexpected error occurred while connecting to the controller'
-
-          // Classify error for better user guidance
-          const lowerMsg = errorMessage.toLowerCase()
-          const isNetworkError = lowerMsg.includes('fetch') ||
-            lowerMsg.includes('network') ||
-            lowerMsg.includes('econnrefused') ||
-            lowerMsg.includes('timeout')
-          const isCredentialError = lowerMsg.includes('password') ||
-            lowerMsg.includes('email') ||
-            lowerMsg.includes('authentication') ||
-            lowerMsg.includes('invalid')
-
-          // Provide user-friendly error with guidance
-          let userMessage = errorMessage
-          let guidance = ''
-          let errorType = 'unknown'
-
-          if (isCredentialError) {
-            errorType = 'credentials'
-            userMessage = 'Invalid credentials. Please check your email and password.'
-            guidance = 'Try logging into the official app to verify your credentials work.'
-          } else if (isNetworkError) {
-            errorType = 'network'
-            userMessage = 'Could not connect to the controller service.'
-            guidance = 'Check your internet connection and try again. The controller service may be temporarily unavailable.'
-          } else {
-            errorType = 'server'
-            userMessage = 'An error occurred while connecting to the controller.'
-            guidance = 'Please try again. If the problem persists, the controller service may be experiencing issues.'
-          }
-
-          return NextResponse.json(
-            {
-              error: isNetworkError ? 'Connection error' : 'Controller error',
-              errorType,
-              message: userMessage,
-              brand: brand,
-              guidance,
-            },
-            { status: isNetworkError ? 503 : 400 }
-          )
+        if (!testResult.success) {
+          // Return the error response
+          return NextResponse.json(testResult.error, { status: testResult.error?.status || 400 })
         }
+
+        // Extract connection results
+        controllerId = testResult.controllerId!
+        capabilities = testResult.capabilities!
+        model = testResult.model
+        firmwareVersion = testResult.firmwareVersion
       }
+
+    } else if (brand === 'ecowitt' || brand === 'govee' || brand === 'mqtt') {
+      // Ecowitt, Govee, and MQTT don't support discovery yet - always perform connection test
+      const testResult = await performConnectionTest(brand as ControllerBrand, credentials, name, discoveredDevice)
+
+      if (!testResult.success) {
+        // Return the error response
+        return NextResponse.json(testResult.error, { status: testResult.error?.status || 400 })
+      }
+
+      // Extract connection results
+      controllerId = testResult.controllerId!
+      capabilities = testResult.capabilities!
+      model = testResult.model
+      firmwareVersion = testResult.firmwareVersion
 
     } else if (brand === 'csv_upload') {
       // CSV upload doesn't require connection testing
@@ -612,6 +866,41 @@ export async function POST(request: NextRequest) {
     // Remove credentials from response - never expose encrypted data to client
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { credentials: _, ...safeController } = data
+
+    // CRITICAL UX IMPROVEMENT: Fetch sensor data immediately after adding controller
+    // This prevents the "waiting for data" message users see when they add a controller
+    // Background: Previously, users had to wait for the cron job to run (up to 5 minutes)
+    // Now: Sensor data is fetched immediately and stored in the database
+    if (brand !== 'csv_upload') {
+      console.log(`[Controllers POST] Fetching initial sensor data for ${sanitizedName}`)
+
+      // Run sensor polling in the background (don't block the response)
+      // We use setImmediate to run after the response is sent
+      setImmediate(async () => {
+        try {
+          const pollResult = await pollController(supabase, {
+            id: data.id,
+            user_id: userId,
+            brand: data.brand,
+            controller_id: data.controller_id,
+            name: data.name,
+            credentials: data.credentials,
+            status: data.status,
+            last_seen: data.last_seen,
+            last_error: data.last_error,
+          })
+
+          if (pollResult.status === 'success') {
+            console.log(`[Controllers POST] Initial sensor data fetched successfully: ${pollResult.readingsCount} readings`)
+          } else {
+            console.warn(`[Controllers POST] Initial sensor fetch failed: ${pollResult.error}`)
+          }
+        } catch (pollError) {
+          console.error(`[Controllers POST] Error during initial sensor fetch:`, pollError)
+          // Don't fail the controller creation - this is best-effort
+        }
+      })
+    }
 
     return NextResponse.json({
       controller: safeController,

@@ -75,12 +75,22 @@ const credentialsSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
+// Ecowitt credentials schema
+const ecowittCredentialsSchema = z.object({
+  connectionMethod: z.enum(['push', 'tcp', 'http', 'cloud']),
+  gatewayIP: z.string().optional(),
+  macAddress: z.string().optional(),
+  apiKey: z.string().optional(),
+  applicationKey: z.string().optional(),
+});
+
 const controllerNameSchema = z.object({
   name: z.string().min(1, "Controller name is required").max(50, "Name too long"),
   roomId: z.string().optional(),
 });
 
 type CredentialsFormData = z.infer<typeof credentialsSchema>;
+type EcowittCredentialsFormData = z.infer<typeof ecowittCredentialsSchema>;
 type ControllerNameFormData = z.infer<typeof controllerNameSchema>;
 
 /**
@@ -178,6 +188,7 @@ export function AddControllerDialog({
   const [step, setStep] = useState(1);
   const [selectedBrand, setSelectedBrand] = useState<Brand | null>(null);
   const [credentials, setCredentials] = useState<CredentialsFormData | null>(null);
+  const [ecowittCredentials, setEcowittCredentials] = useState<EcowittCredentialsFormData | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
 
   // Discovery state - for adding devices discovered through network scan
@@ -222,6 +233,18 @@ export function AddControllerDialog({
     defaultValues: { email: "", password: "" },
   });
 
+  // Ecowitt credentials form
+  const ecowittForm = useForm<EcowittCredentialsFormData>({
+    resolver: zodResolver(ecowittCredentialsSchema),
+    defaultValues: {
+      connectionMethod: 'cloud',
+      gatewayIP: '',
+      macAddress: '',
+      apiKey: '',
+      applicationKey: '',
+    },
+  });
+
   // Name form
   const nameForm = useForm<ControllerNameFormData>({
     resolver: zodResolver(controllerNameSchema),
@@ -239,6 +262,7 @@ export function AddControllerDialog({
     setStep(1);
     setSelectedBrand(null);
     setCredentials(null);
+    setEcowittCredentials(null);
     setCsvFile(null);
     setDiscoveredDevice(null);
     setDiscoveryCredentials(null);
@@ -258,8 +282,9 @@ export function AddControllerDialog({
     setRoomCreated(false);
     setAddedControllerId(null);
     credentialsForm.reset();
+    ecowittForm.reset();
     nameForm.reset();
-  }, [credentialsForm, nameForm]);
+  }, [credentialsForm, ecowittForm, nameForm]);
 
   /**
    * Handle dialog close
@@ -417,6 +442,17 @@ export function AddControllerDialog({
   );
 
   /**
+   * Handle Ecowitt credentials submit
+   */
+  const handleEcowittCredentialsSubmit = useCallback(
+    (data: EcowittCredentialsFormData) => {
+      setEcowittCredentials(data);
+      setStep(3);
+    },
+    []
+  );
+
+  /**
    * Handle CSV file selection
    */
   const handleCsvSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -443,15 +479,24 @@ export function AddControllerDialog({
     async (data: ControllerNameFormData) => {
       if (!selectedBrand) return;
 
+      // IMPORTANT: Move to step 4 BEFORE starting connection
+      // This ensures error messages are shown to the user
+      setStep(4);
       setIsConnecting(true);
       setConnectionStatus("connecting");
       setConnectionError(null);
       setConnectionProgress(10);
 
-      // Determine which credentials to use
-      const effectiveCredentials = addMode === "discover" && discoveryCredentials
-        ? discoveryCredentials
-        : credentials;
+      // Determine which credentials to use based on brand
+      let effectiveCredentials: Record<string, unknown> | undefined;
+
+      if (addMode === "discover" && discoveryCredentials) {
+        effectiveCredentials = discoveryCredentials;
+      } else if (selectedBrand.id === 'ecowitt' && ecowittCredentials) {
+        effectiveCredentials = ecowittCredentials;
+      } else {
+        effectiveCredentials = credentials || undefined;
+      }
 
       // Build the request
       const addRequest: Parameters<typeof onAdd>[0] = {
@@ -807,6 +852,118 @@ export function AddControllerDialog({
                 </Button>
               </DialogFooter>
             </div>
+          );
+        }
+
+        if (selectedBrand?.id === "ecowitt") {
+          return (
+            <form onSubmit={ecowittForm.handleSubmit(handleEcowittCredentialsSubmit)} className="space-y-4">
+              <DialogDescription>
+                Configure your Ecowitt gateway connection. Choose how EnviroFlow should connect to your weather gateway.
+              </DialogDescription>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="connectionMethod">Connection Method</Label>
+                  <Select
+                    value={ecowittForm.watch("connectionMethod")}
+                    onValueChange={(value) => ecowittForm.setValue("connectionMethod", value as 'push' | 'tcp' | 'http' | 'cloud')}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select connection method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cloud">Cloud API (Recommended)</SelectItem>
+                      <SelectItem value="push">Push/Webhook</SelectItem>
+                      <SelectItem value="tcp">TCP Direct (GW1000/GW2000/GW3000)</SelectItem>
+                      <SelectItem value="http">HTTP Local API</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {ecowittForm.watch("connectionMethod") === "cloud" && "Uses Ecowitt cloud API. Requires API credentials."}
+                    {ecowittForm.watch("connectionMethod") === "push" && "Gateway pushes data to EnviroFlow webhook."}
+                    {ecowittForm.watch("connectionMethod") === "tcp" && "Direct TCP connection to gateway on local network."}
+                    {ecowittForm.watch("connectionMethod") === "http" && "Local HTTP API (undocumented, may be unstable)."}
+                  </p>
+                </div>
+
+                {(ecowittForm.watch("connectionMethod") === "tcp" || ecowittForm.watch("connectionMethod") === "http") && (
+                  <div className="space-y-2">
+                    <Label htmlFor="gatewayIP">Gateway IP Address</Label>
+                    <Input
+                      id="gatewayIP"
+                      type="text"
+                      placeholder="192.168.1.100"
+                      {...ecowittForm.register("gatewayIP")}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Find in your router&apos;s DHCP client list or Ecowitt app
+                    </p>
+                  </div>
+                )}
+
+                {(ecowittForm.watch("connectionMethod") === "push" || ecowittForm.watch("connectionMethod") === "cloud") && (
+                  <div className="space-y-2">
+                    <Label htmlFor="macAddress">MAC Address</Label>
+                    <Input
+                      id="macAddress"
+                      type="text"
+                      placeholder="XX:XX:XX:XX:XX:XX"
+                      {...ecowittForm.register("macAddress")}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Find on gateway device label or in Ecowitt app
+                    </p>
+                  </div>
+                )}
+
+                {ecowittForm.watch("connectionMethod") === "cloud" && (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="apiKey">API Key</Label>
+                      <Input
+                        id="apiKey"
+                        type="password"
+                        placeholder="Your Ecowitt API key"
+                        {...ecowittForm.register("apiKey")}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="applicationKey">Application Key</Label>
+                      <Input
+                        id="applicationKey"
+                        type="password"
+                        placeholder="Your application key"
+                        {...ecowittForm.register("applicationKey")}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Get credentials from{" "}
+                        <a
+                          href="https://api.ecowitt.net"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline"
+                        >
+                          api.ecowitt.net
+                        </a>
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <DialogFooter className="gap-2">
+                <Button type="button" variant="outline" onClick={() => setStep(1)}>
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Back
+                </Button>
+                <Button type="submit">
+                  Continue
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </DialogFooter>
+            </form>
           );
         }
 
