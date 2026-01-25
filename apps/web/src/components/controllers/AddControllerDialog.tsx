@@ -66,7 +66,7 @@ import { supportsDiscovery } from "@/lib/network-discovery";
 import { ErrorGuidance } from "@/components/ui/error-guidance";
 import { HelpTooltip } from "@/components/ui/HelpTooltip";
 import { BrandGuideModal } from "@/components/controllers/BrandGuideModal";
-import type { Brand, ControllerBrand, Controller, DiscoveredDevice } from "@/types";
+import type { Brand, ControllerBrand, Controller, ControllerCapabilities, DiscoveredDevice } from "@/types";
 import { suggestRoomName, generateDefaultControllerName } from "@/lib/room-suggestions";
 
 // Form validation schemas
@@ -342,7 +342,8 @@ export function AddControllerDialog({
       nameForm.setValue("roomId", undefined);
     } else {
       // Multiple rooms: suggest based on device capabilities
-      const capabilities = device.capabilities || brand.capabilities;
+      // Cast device.capabilities to ControllerCapabilities since the sensors are valid SensorType values
+      const capabilities = (device.capabilities as ControllerCapabilities | undefined) || brand.capabilities;
       const suggestion = suggestRoomName(capabilities, brand.id);
       const matchingRoom = rooms.find(
         (r) => r.name.toLowerCase() === suggestion.name.toLowerCase()
