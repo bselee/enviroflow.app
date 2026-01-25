@@ -263,25 +263,47 @@ export function generateEncryptionKey(): string {
  * Generates cryptographically secure recovery codes.
  * Uses crypto.randomBytes for secure random generation.
  *
+ * Security properties:
+ * - Uses 32-character alphabet (5 bits per character, no modulo bias since 256 % 32 = 0)
+ * - Default 8-character codes provide 40 bits of entropy each
+ * - Guarantees all codes in a batch are unique
+ * - Maximum 1000 attempts to prevent infinite loops on pathological inputs
+ *
  * @param count - Number of codes to generate (default: 8)
  * @param length - Length of each code segment (default: 4)
  * @param segments - Number of segments per code (default: 2)
- * @returns Array of recovery codes in format "XXXX-XXXX"
+ * @returns Array of unique recovery codes in format "XXXX-XXXX"
+ * @throws EncryptionError if unable to generate unique codes
  *
  * @example
  * const codes = generateRecoveryCodes(8, 4, 2)
- * // Returns ["AB12-CD34", "EF56-GH78", ...]
+ * // Returns ["AB12-CD34", "EF56-GH78", ...] (8 unique codes)
  */
 export function generateRecoveryCodes(
   count: number = 8,
   length: number = 4,
   segments: number = 2
 ): string[] {
-  // Use alphanumeric characters that are unambiguous (no 0/O, 1/I/l confusion)
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  const codes: string[] = []
+  // Validate inputs to prevent abuse
+  if (count < 1 || count > 100) {
+    throw new EncryptionError('Recovery code count must be between 1 and 100')
+  }
+  if (length < 2 || length > 10) {
+    throw new EncryptionError('Recovery code segment length must be between 2 and 10')
+  }
+  if (segments < 1 || segments > 5) {
+    throw new EncryptionError('Recovery code segments must be between 1 and 5')
+  }
 
-  for (let i = 0; i < count; i++) {
+  // Use alphanumeric characters that are unambiguous (no 0/O, 1/I/l confusion)
+  // 32 characters = 5 bits of entropy per character
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const codeSet = new Set<string>()
+  const maxAttempts = count * 10 // Safety limit to prevent infinite loops
+  let attempts = 0
+
+  while (codeSet.size < count && attempts < maxAttempts) {
+    attempts++
     const codeSegments: string[] = []
 
     for (let s = 0; s < segments; s++) {
@@ -289,14 +311,21 @@ export function generateRecoveryCodes(
       let segment = ''
 
       for (let j = 0; j < length; j++) {
+        // No modulo bias since 256 % 32 = 0
         segment += chars[randomBuffer[j] % chars.length]
       }
 
       codeSegments.push(segment)
     }
 
-    codes.push(codeSegments.join('-'))
+    codeSet.add(codeSegments.join('-'))
   }
 
-  return codes
+  if (codeSet.size < count) {
+    throw new EncryptionError(
+      `Failed to generate ${count} unique recovery codes after ${maxAttempts} attempts`
+    )
+  }
+
+  return Array.from(codeSet)
 }

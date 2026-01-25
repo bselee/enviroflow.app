@@ -8,6 +8,7 @@ import { EnvironmentSnapshot } from "@/components/dashboard/EnvironmentSnapshot"
 import { IntelligentTimeline } from "@/components/dashboard/IntelligentTimeline";
 import { SmartActionCards, SmartActionCardsSkeleton } from "@/components/dashboard/SmartActionCards";
 import { UnassignedControllersCard } from "@/components/dashboard/UnassignedControllersCard";
+import { AnalyticsSummaryCards } from "@/components/dashboard/AnalyticsSummaryCards";
 import {
   DemoBanner,
   ConnectCTA,
@@ -17,9 +18,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AddRoomDialog } from "@/components/dashboard/AddRoomDialog";
 import { SettingsSheet } from "@/components/settings";
+import { OnboardingTour } from "@/components/OnboardingTour";
 import { useDashboardData } from "@/hooks/use-dashboard-data";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import type { TimeRange } from "@/components/dashboard/IntelligentTimeline";
 import type { RoomOption } from "@/components/settings";
 
@@ -114,6 +117,7 @@ export default function DashboardPage(): JSX.Element {
     offlineControllerSummaries,
     nextScheduledEvent,
     unassignedControllers,
+    sensorReadings,
     // Loading states
     isLoading,
     // Actions
@@ -210,6 +214,9 @@ export default function DashboardPage(): JSX.Element {
 
   return (
     <AppLayout>
+      {/* Onboarding Tour */}
+      <OnboardingTour />
+
       <div className="min-h-screen bg-env-bg">
         {/* Page Header */}
         <PageHeader
@@ -235,6 +242,7 @@ export default function DashboardPage(): JSX.Element {
         />
 
         {/* Main Content */}
+        <ErrorBoundary componentName="Dashboard" showRetry>
         <div className="p-6 lg:p-8 space-y-8">
           {/* Demo Mode Banner - Shows status indicator */}
           {!isLoading && (
@@ -316,6 +324,22 @@ export default function DashboardPage(): JSX.Element {
             )}
           </div>
 
+          {/* Analytics Summary Cards Section */}
+          <div
+            className={cn(
+              "transition-opacity duration-500",
+              isTransitioningFromDemo && "opacity-50"
+            )}
+          >
+            <AnalyticsSummaryCards
+              readings={sensorReadings}
+              roomSettings={rooms.length > 0 ? rooms[0].settings : undefined}
+              defaultPeriod="7d"
+              isLoading={isLoading}
+              enableNavigation={true}
+            />
+          </div>
+
           {/* Smart Action Cards Section */}
           {isLoading ? (
             <SmartActionCardsSkeleton count={2} />
@@ -350,6 +374,7 @@ export default function DashboardPage(): JSX.Element {
             />
           </section>
         </div>
+        </ErrorBoundary>
       </div>
     </AppLayout>
   );

@@ -22,6 +22,7 @@ import {
   encryptCredentials,
   EncryptionError,
 } from '@/lib/server-encryption'
+import { sanitizeName, isValidName } from '@/lib/sanitize-input'
 
 // Import adapter factory and types from automation-engine workspace package
 import {
@@ -331,16 +332,14 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    // Validate name
-    if (!name || typeof name !== 'string' || name.length < 1) {
+    // Validate and sanitize name (strips HTML, removes control chars, enforces length)
+    const sanitizedName = sanitizeName(name)
+    if (!isValidName(sanitizedName)) {
       return NextResponse.json(
-        { error: 'Controller name is required' },
+        { error: 'Controller name is required and must be 1-100 characters' },
         { status: 400 }
       )
     }
-    
-    // Sanitize name (prevent XSS, limit length)
-    const sanitizedName = name.trim().slice(0, 100)
 
     // Connection testing and metadata extraction via adapter factory
     let controllerId: string

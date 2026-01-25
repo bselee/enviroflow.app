@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Cpu, Wifi, WifiOff, MoreVertical, Trash2, Loader2, AlertTriangle, Home, Settings } from "lucide-react";
+import { Plus, Cpu, Wifi, WifiOff, MoreVertical, Trash2, Loader2, AlertTriangle, Home, Settings, Activity } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,10 +33,15 @@ import { cn } from "@/lib/utils";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useControllers } from "@/hooks/use-controllers";
 import { useRooms } from "@/hooks/use-rooms";
+import { useBulkSelection } from "@/hooks/use-bulk-selection";
 import { AddControllerDialog } from "@/components/controllers/AddControllerDialog";
 import { AssignRoomDialog } from "@/components/controllers/AssignRoomDialog";
 import { ControllerDevicesPanel } from "@/components/controllers/ControllerDevicesPanel";
+import { ControllerStatusIndicator, getConnectionHealth } from "@/components/controllers/ControllerStatusIndicator";
+import { ControllerDiagnosticsPanel } from "@/components/controllers/ControllerDiagnosticsPanel";
+import { BulkActionBar } from "@/components/controllers/BulkActionBar";
 import { ErrorGuidance } from "@/components/ui/error-guidance";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { toast } from "@/hooks/use-toast";
 import type { ControllerWithRoom } from "@/types";
 
@@ -60,54 +66,83 @@ function ControllerCard({
   onDelete,
   onAssignRoom,
   onViewDevices,
+  onViewDiagnostics,
+  isSelected = false,
+  onToggleSelect,
+  showCheckbox = false,
 }: {
   controller: ControllerWithRoom;
   onDelete: (id: string) => void;
   onAssignRoom: (controller: ControllerWithRoom) => void;
   onViewDevices: (controller: ControllerWithRoom) => void;
+  onViewDiagnostics: (controller: ControllerWithRoom) => void;
+  isSelected?: boolean;
+  onToggleSelect?: (id: string, event?: React.MouseEvent) => void;
+  showCheckbox?: boolean;
 }) {
-  // Check if controller has been offline for a while
-  const lastSeenDate = controller.last_seen ? new Date(controller.last_seen) : null;
-  const offlineForLong = lastSeenDate
-    ? (Date.now() - lastSeenDate.getTime()) > 24 * 60 * 60 * 1000 // > 24 hours
-    : false;
+  // Get connection health for UI decisions
+  const health = getConnectionHealth(controller.status, controller.last_seen);
+  const hasIssue = health !== "online" && (controller.last_error || health === "offline");
+
+  const handleCardClick = (e: React.MouseEvent) => {
+    // Only handle clicks on the card itself, not on buttons/dropdowns
+    if (
+      showCheckbox &&
+      onToggleSelect &&
+      e.target === e.currentTarget
+    ) {
+      onToggleSelect(controller.id, e);
+    }
+  };
 
   return (
-    <div className={cn(
-      "bg-card rounded-xl border p-5 hover:shadow-md transition-shadow",
-      controller.status !== 'online' && controller.last_error
-        ? "border-destructive/30"
-        : "border-border"
-    )}>
+    <div
+      className={cn(
+        "bg-card rounded-xl border p-5 transition-all relative",
+        hasIssue ? "border-destructive/30" : "border-border",
+        showCheckbox && "cursor-pointer hover:shadow-md",
+        isSelected && "ring-2 ring-primary border-primary bg-primary/5"
+      )}
+      onClick={handleCardClick}
+    >
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-4">
+          {/* Checkbox for bulk selection */}
+          {showCheckbox && onToggleSelect && (
+            <div className="pt-1" onClick={(e) => e.stopPropagation()}>
+              <Checkbox
+                checked={isSelected}
+                onCheckedChange={() => onToggleSelect(controller.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                }}
+                aria-label={`Select ${controller.name}`}
+              />
+            </div>
+          )}
           <div
             className={cn(
               "w-12 h-12 rounded-lg flex items-center justify-center",
-              controller.status === 'online' ? "bg-success/10" : "bg-muted"
+              health === "online" ? "bg-success/10" : "bg-muted"
             )}
           >
-            {controller.status === 'online' ? (
+            {health === "online" ? (
               <Wifi className="w-6 h-6 text-success" />
             ) : (
               <WifiOff className="w-6 h-6 text-muted-foreground" />
             )}
           </div>
           <div>
-            <h3 className="font-semibold text-foreground">{controller.name}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-foreground">{controller.name}</h3>
+              <ControllerStatusIndicator
+                controller={controller}
+                size="sm"
+                onClick={() => onViewDiagnostics(controller)}
+              />
+            </div>
             <p className="text-sm text-muted-foreground capitalize">{controller.brand.replace("_", " ")}</p>
             <div className="flex items-center gap-2 mt-2 flex-wrap">
-              <Badge
-                variant="secondary"
-                className={cn(
-                  "text-xs",
-                  controller.status === 'online'
-                    ? "bg-success/10 text-success"
-                    : "bg-muted text-muted-foreground"
-                )}
-              >
-                {controller.status === 'online' ? "Online" : "Offline"}
-              </Badge>
               {controller.room && (
                 <Badge variant="outline" className="text-xs">
                   {controller.room.name}
@@ -119,11 +154,15 @@ function ControllerCard({
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8">
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => e.stopPropagation()}>
               <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => onViewDiagnostics(controller)}>
+              <Activity className="h-4 w-4 mr-2" />
+              View Diagnostics
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onViewDevices(controller)}>
               <Settings className="h-4 w-4 mr-2" />
               Control Devices
@@ -143,27 +182,31 @@ function ControllerCard({
         </DropdownMenu>
       </div>
 
-      {/* Offline warning with troubleshooting hint */}
-      {controller.status !== 'online' && (controller.last_error || offlineForLong) && (
-        <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-900">
+      {/* Status warning - click to view diagnostics */}
+      {hasIssue && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onViewDiagnostics(controller);
+          }}
+          className="mt-4 w-full p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-900 hover:bg-amber-100 dark:hover:bg-amber-950/40 transition-colors text-left"
+        >
           <div className="flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
-            <div className="text-xs text-amber-700 dark:text-amber-300">
+            <div className="text-xs text-amber-700 dark:text-amber-300 flex-1">
               {controller.last_error ? (
                 <p>{controller.last_error}</p>
-              ) : offlineForLong ? (
-                <p>This controller has been offline for over 24 hours.</p>
-              ) : null}
-              <p className="mt-1 text-amber-600 dark:text-amber-400">
-                {controller.brand === "ac_infinity"
-                  ? "Check that the controller is powered on and connected to 2.4GHz WiFi."
-                  : controller.brand === "inkbird"
-                    ? "Verify the device is powered on and connected to WiFi."
-                    : "Check the device power and network connection."}
+              ) : health === "offline" ? (
+                <p>Controller is offline or unreachable.</p>
+              ) : (
+                <p>Controller has not reported in over 1 hour.</p>
+              )}
+              <p className="mt-1 text-amber-600 dark:text-amber-400 font-medium">
+                Click to view diagnostics and troubleshooting steps
               </p>
             </div>
           </div>
-        </div>
+        </button>
       )}
 
       <div className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground">
@@ -185,17 +228,37 @@ export default function ControllersPage() {
     deleteController,
     addController,
     updateController,
+    testConnection,
     brands,
     rooms,
   } = useControllers();
 
   // Use the rooms hook for room creation
   const { createRoom: createRoomFromHook } = useRooms();
+
+  // Bulk selection state
+  const {
+    selectedCount,
+    isSelected,
+    isAllSelected,
+    isIndeterminate,
+    toggleItem,
+    selectAll,
+    clearSelection,
+    getSelectedItems,
+  } = useBulkSelection({
+    items: controllers,
+    getKey: (controller) => controller.id,
+  });
+
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [controllerToDelete, setControllerToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [controllerToAssign, setControllerToAssign] = useState<ControllerWithRoom | null>(null);
   const [controllerToViewDevices, setControllerToViewDevices] = useState<ControllerWithRoom | null>(null);
+  const [controllerToViewDiagnostics, setControllerToViewDiagnostics] = useState<ControllerWithRoom | null>(null);
+  const [bulkAssignControllers, setBulkAssignControllers] = useState<ControllerWithRoom[]>([]);
+  const [bulkModeEnabled, setBulkModeEnabled] = useState(false);
 
   const handleDelete = async () => {
     if (!controllerToDelete) return;
@@ -241,17 +304,46 @@ export default function ControllersPage() {
     return result;
   };
 
+  // Bulk operations are now handled by BulkActionBar modals
+  // (BulkAssignModal, BulkTestModal, BulkDeleteModal)
+
+  // Toggle bulk mode on mobile
+  const toggleBulkMode = () => {
+    if (bulkModeEnabled) {
+      clearSelection();
+    }
+    setBulkModeEnabled(!bulkModeEnabled);
+  };
+
+  // Desktop: always show checkboxes when there are controllers
+  // Mobile: only show when bulk mode is enabled
+  const showCheckboxes = controllers.length > 0 && (bulkModeEnabled || selectedCount > 0);
+
   return (
     <AppLayout>
+      <ErrorBoundary componentName="Controllers" showRetry>
       <div className="min-h-screen">
         <PageHeader
           title="Controllers"
           description="Manage your connected controllers"
           actions={
-            <Button onClick={() => setIsAddDialogOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Controller
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* Mobile: Bulk mode toggle */}
+              {controllers.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={toggleBulkMode}
+                  className="sm:hidden"
+                >
+                  {bulkModeEnabled ? "Cancel" : "Select"}
+                </Button>
+              )}
+              <Button onClick={() => setIsAddDialogOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Controller
+              </Button>
+            </div>
           }
         />
 
@@ -270,17 +362,77 @@ export default function ControllersPage() {
               />
             </div>
           ) : controllers.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {controllers.map((controller) => (
-                <ControllerCard
-                  key={controller.id}
-                  controller={controller}
-                  onDelete={setControllerToDelete}
-                  onAssignRoom={setControllerToAssign}
-                  onViewDevices={setControllerToViewDevices}
-                />
-              ))}
-            </div>
+            <>
+              {/* Select All checkbox - Desktop only */}
+              {showCheckboxes && (
+                <div className="hidden sm:flex items-center gap-3 mb-4 p-3 bg-muted/50 rounded-lg border">
+                  <Checkbox
+                    checked={isAllSelected}
+                    ref={(el) => {
+                      if (el) {
+                        // Set indeterminate state
+                        el.setAttribute(
+                          "data-state",
+                          isIndeterminate ? "indeterminate" : isAllSelected ? "checked" : "unchecked"
+                        );
+                      }
+                    }}
+                    onCheckedChange={() => {
+                      if (isAllSelected || isIndeterminate) {
+                        clearSelection();
+                      } else {
+                        selectAll();
+                      }
+                    }}
+                    aria-label="Select all controllers"
+                  />
+                  <span className="text-sm font-medium">
+                    {isAllSelected
+                      ? `All ${controllers.length} controllers selected`
+                      : isIndeterminate
+                        ? `${selectedCount} of ${controllers.length} selected`
+                        : "Select all controllers"}
+                  </span>
+                  {selectedCount > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearSelection}
+                      className="ml-auto text-xs"
+                    >
+                      Clear selection
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {/* Controllers grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {controllers.map((controller) => (
+                  <ControllerCard
+                    key={controller.id}
+                    controller={controller}
+                    onDelete={setControllerToDelete}
+                    onAssignRoom={setControllerToAssign}
+                    onViewDevices={setControllerToViewDevices}
+                    onViewDiagnostics={setControllerToViewDiagnostics}
+                    isSelected={isSelected(controller.id)}
+                    onToggleSelect={toggleItem}
+                    showCheckbox={showCheckboxes}
+                  />
+                ))}
+              </div>
+
+              {/* Bulk action bar */}
+              <BulkActionBar
+                selectedCount={selectedCount}
+                totalCount={controllers.length}
+                selectedControllers={getSelectedItems()}
+                rooms={rooms}
+                onClearSelection={clearSelection}
+                onSuccess={refresh}
+              />
+            </>
           ) : (
             <div className="text-center py-16">
               <Cpu className="w-16 h-16 mx-auto text-muted-foreground/50 mb-4" />
@@ -373,13 +525,23 @@ export default function ControllersPage() {
           </AlertDialogContent>
         </AlertDialog>
 
-        {/* Assign Room Dialog */}
+        {/* Assign Room Dialog - Single controller */}
         <AssignRoomDialog
           open={!!controllerToAssign}
           onOpenChange={(open) => !open && setControllerToAssign(null)}
           controller={controllerToAssign}
           rooms={rooms}
           onAssign={handleAssignRoom}
+        />
+
+        {/* Assign Room Dialog - Bulk mode */}
+        <AssignRoomDialog
+          open={bulkAssignControllers.length > 0}
+          onOpenChange={(open) => !open && setBulkAssignControllers([])}
+          controllers={bulkAssignControllers}
+          rooms={rooms}
+          onAssign={handleAssignRoom}
+          isBulkMode={true}
         />
 
         {/* View Devices Dialog */}
@@ -402,7 +564,21 @@ export default function ControllersPage() {
             )}
           </DialogContent>
         </Dialog>
+
+        {/* Diagnostics Dialog */}
+        {controllerToViewDiagnostics && (
+          <ControllerDiagnosticsPanel
+            controller={controllerToViewDiagnostics}
+            open={!!controllerToViewDiagnostics}
+            onOpenChange={(open) => !open && setControllerToViewDiagnostics(null)}
+            onRefresh={refresh}
+            onTestConnection={async (controllerId: string) => {
+              await testConnection(controllerId);
+            }}
+          />
+        )}
       </div>
+      </ErrorBoundary>
     </AppLayout>
   );
 }

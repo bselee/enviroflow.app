@@ -55,11 +55,48 @@ import { cn } from "@/lib/utils";
 import { discoverDevices, supportsDiscovery } from "@/lib/network-discovery";
 import type { ControllerBrand, DiscoveredDevice } from "@/types";
 
-// Form validation schema
+/**
+ * Unified form schema that includes all fields.
+ * Validation is handled via superRefine based on brand selection.
+ */
 const discoveryFormSchema = z.object({
-  brand: z.enum(["ac_infinity", "inkbird"]),
-  email: z.string().email("Please enter a valid email address"),
-  password: z.string().min(1, "Password is required"),
+  brand: z.enum(["ac_infinity", "inkbird", "govee"]),
+  email: z.string().optional(),
+  password: z.string().optional(),
+  apiKey: z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (data.brand === "govee") {
+    // Govee requires API key
+    if (!data.apiKey || data.apiKey.trim().length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "API key is required",
+        path: ["apiKey"],
+      });
+    }
+  } else {
+    // AC Infinity and Inkbird require email/password
+    if (!data.email || data.email.trim().length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Email is required",
+        path: ["email"],
+      });
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Please enter a valid email address",
+        path: ["email"],
+      });
+    }
+    if (!data.password || data.password.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Password is required",
+        path: ["password"],
+      });
+    }
+  }
 });
 
 type DiscoveryFormData = z.infer<typeof discoveryFormSchema>;
@@ -74,6 +111,7 @@ const DISCOVERABLE_BRANDS = [
     description: "Controller 69, UIS Series",
     icon: Cpu,
     helpText: "Enter your AC Infinity app login credentials",
+    authType: "email_password" as const,
   },
   {
     id: "inkbird" as const,
@@ -81,6 +119,15 @@ const DISCOVERABLE_BRANDS = [
     description: "ITC-308, ITC-310T, IHC-200",
     icon: Thermometer,
     helpText: "Enter your Inkbird app login credentials",
+    authType: "email_password" as const,
+  },
+  {
+    id: "govee" as const,
+    name: "Govee",
+    description: "WiFi Hygrometers, Smart Lights & Plugs",
+    icon: Thermometer,
+    helpText: "Enter your Govee API key from the Govee Home app",
+    authType: "api_key" as const,
   },
 ];
 
@@ -90,8 +137,9 @@ const DISCOVERABLE_BRANDS = [
 export interface DeviceSelectionResult {
   device: DiscoveredDevice;
   credentials: {
-    email: string;
-    password: string;
+    email?: string;
+    password?: string;
+    apiKey?: string;
   };
 }
 
@@ -131,15 +179,16 @@ export function NetworkDiscovery({
   authToken,
   className,
 }: NetworkDiscoveryProps) {
-  // Form state
+  // Form state - unified schema includes all fields
   const form = useForm<DiscoveryFormData>({
     resolver: zodResolver(discoveryFormSchema),
     defaultValues: {
       brand: initialBrand && supportsDiscovery(initialBrand)
-        ? initialBrand as "ac_infinity" | "inkbird"
+        ? (initialBrand as "ac_infinity" | "inkbird" | "govee")
         : "ac_infinity",
       email: "",
       password: "",
+      apiKey: "",
     },
   });
 
@@ -155,8 +204,9 @@ export function NetworkDiscovery({
 
   // Store credentials used for successful discovery
   const [discoveryCredentials, setDiscoveryCredentials] = useState<{
-    email: string;
-    password: string;
+    email?: string;
+    password?: string;
+    apiKey?: string;
   } | null>(null);
 
   // Get current brand info
@@ -181,14 +231,12 @@ export function NetworkDiscovery({
       }, 200);
 
       try {
-        const result = await discoverDevices(
-          {
-            brand: data.brand,
-            email: data.email,
-            password: data.password,
-          },
-          authToken
-        );
+        // Build credentials based on brand - fields are validated by schema
+        const credentials = data.brand === 'govee'
+          ? { brand: 'govee' as const, apiKey: data.apiKey || '' }
+          : { brand: data.brand, email: data.email || '', password: data.password || '' };
+
+        const result = await discoverDevices(credentials, authToken);
 
         clearInterval(progressInterval);
 
@@ -204,10 +252,14 @@ export function NetworkDiscovery({
 
         // Store credentials used for successful discovery
         // These will be passed along when devices are selected
-        setDiscoveryCredentials({
-          email: data.email,
-          password: data.password,
-        });
+        if (data.brand === 'govee') {
+          setDiscoveryCredentials({ apiKey: data.apiKey || '' });
+        } else {
+          setDiscoveryCredentials({
+            email: data.email || '',
+            password: data.password || '',
+          });
+        }
 
         if (result.devices.length === 0) {
           setState("no_devices");
@@ -323,9 +375,18 @@ export function NetworkDiscovery({
               <Label>Controller Brand</Label>
               <Select
                 value={form.watch("brand")}
-                onValueChange={(value) =>
-                  form.setValue("brand", value as "ac_infinity" | "inkbird")
-                }
+                onValueChange={(value) => {
+                  const newBrand = value as "ac_infinity" | "inkbird" | "govee";
+                  form.setValue("brand", newBrand);
+                  // Clear errors and reset relevant fields when changing brands
+                  form.clearErrors();
+                  if (newBrand === "govee") {
+                    form.setValue("apiKey", "");
+                  } else {
+                    form.setValue("email", "");
+                    form.setValue("password", "");
+                  }
+                }}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -348,43 +409,65 @@ export function NetworkDiscovery({
               )}
             </div>
 
-            {/* Email Field */}
-            <div className="space-y-2">
-              <Label htmlFor="discover-email">Email</Label>
-              <Input
-                id="discover-email"
-                type="email"
-                placeholder="your@email.com"
-                {...form.register("email")}
-              />
-              {form.formState.errors.email && (
-                <p className="text-sm text-destructive">
-                  {form.formState.errors.email.message}
+            {/* Conditional Credential Fields */}
+            {selectedBrand?.authType === "api_key" ? (
+              // API Key field for Govee
+              <div className="space-y-2">
+                <Label htmlFor="discover-apikey">API Key</Label>
+                <Input
+                  id="discover-apikey"
+                  type="password"
+                  placeholder="Enter your Govee API key"
+                  {...form.register("apiKey")}
+                />
+                {form.formState.errors.apiKey && (
+                  <p className="text-sm text-destructive">
+                    {form.formState.errors.apiKey.message}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Get your API key from Govee Home app: Account &gt; About Us &gt; Apply for API Key
                 </p>
-              )}
-            </div>
+              </div>
+            ) : (
+              // Email/Password fields for AC Infinity and Inkbird
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="discover-email">Email</Label>
+                  <Input
+                    id="discover-email"
+                    type="email"
+                    placeholder="your@email.com"
+                    {...form.register("email")}
+                  />
+                  {form.formState.errors.email && (
+                    <p className="text-sm text-destructive">
+                      {form.formState.errors.email.message}
+                    </p>
+                  )}
+                </div>
 
-            {/* Password Field */}
-            <div className="space-y-2">
-              <Label htmlFor="discover-password">Password</Label>
-              <Input
-                id="discover-password"
-                type="password"
-                placeholder="Enter your password"
-                {...form.register("password")}
-              />
-              {form.formState.errors.password && (
-                <p className="text-sm text-destructive">
-                  {form.formState.errors.password.message}
-                </p>
-              )}
-            </div>
+                <div className="space-y-2">
+                  <Label htmlFor="discover-password">Password</Label>
+                  <Input
+                    id="discover-password"
+                    type="password"
+                    placeholder="Enter your password"
+                    {...form.register("password")}
+                  />
+                  {form.formState.errors.password && (
+                    <p className="text-sm text-destructive">
+                      {form.formState.errors.password.message}
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
 
             {/* Security Note */}
             <p className="text-xs text-muted-foreground bg-muted p-3 rounded-md">
-              Your credentials are used only for discovery and are NOT stored.
-              We connect directly to the {selectedBrand?.name} cloud to find your
-              devices.
+              Your {selectedBrand?.authType === "api_key" ? "API key" : "credentials"} {selectedBrand?.authType === "api_key" ? "is" : "are"} used only for discovery and NOT stored.
+              We connect directly to the {selectedBrand?.name} cloud to find your devices.
             </p>
 
             {/* Submit Button */}

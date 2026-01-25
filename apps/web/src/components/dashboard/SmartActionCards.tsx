@@ -16,10 +16,13 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
- * Alert represents a system notification that may require user attention.
+ * UIAlert represents a display-ready notification for the dashboard.
  * Used for environmental warnings, system errors, or informational messages.
+ *
+ * Note: This is distinct from the database Alert type in @/types/index.ts
+ * which represents persisted alerts with status tracking.
  */
-export interface Alert {
+export interface UIAlert {
   /** Unique identifier for the alert */
   id: string;
   /** Severity level determining visual treatment and priority */
@@ -38,6 +41,11 @@ export interface Alert {
     onClick: () => void;
   };
 }
+
+/**
+ * @deprecated Use UIAlert instead. Kept for backwards compatibility.
+ */
+export type Alert = UIAlert;
 
 /**
  * Automation represents an active or paused automation workflow.
@@ -84,7 +92,7 @@ export interface ScheduledEvent {
  */
 export interface SmartActionCardsProps {
   /** Active alerts requiring user attention */
-  alerts?: Alert[];
+  alerts?: UIAlert[];
   /** Currently running automations */
   activeAutomations?: Automation[];
   /** Controllers that have gone offline */
@@ -111,7 +119,7 @@ interface SmartCard {
   id: string;
   type: CardType;
   priority: number;
-  data: Alert | ControllerSummary[] | ScheduledEvent | Automation;
+  data: UIAlert | ControllerSummary[] | ScheduledEvent | Automation;
 }
 
 /**
@@ -255,7 +263,7 @@ function GlassmorphicCard({
  * AlertCard - Displays critical, warning, or info alerts with optional actions.
  */
 interface AlertCardProps {
-  alert: Alert;
+  alert: UIAlert;
   onDismiss?: (alertId: string) => void;
   animationDelay?: number;
 }
@@ -511,10 +519,10 @@ function AutomationCard({
  * - One-tap controls for common actions
  * - Live countdown timer for scheduled events
  *
- * @example Basic usage
+ * @example Basic usage with UIAlert
  * ```tsx
  * <SmartActionCards
- *   alerts={[{ id: "1", severity: "warning", title: "VPD trending high", ... }]}
+ *   alerts={[{ id: "1", severity: "warning", title: "VPD trending high", message: "...", timestamp: "...", actionable: false }]}
  *   offlineControllers={[{ id: "c1", name: "Controller 1", lastSeen: "..." }]}
  *   nextScheduledEvent={{ name: "Lights off", time: "2024-01-01T18:00:00Z", type: "lights" }}
  * />
@@ -636,7 +644,7 @@ export function SmartActionCards({
             return (
               <AlertCard
                 key={card.id}
-                alert={card.data as Alert}
+                alert={card.data as UIAlert}
                 onDismiss={handleAlertDismiss}
                 animationDelay={index}
               />

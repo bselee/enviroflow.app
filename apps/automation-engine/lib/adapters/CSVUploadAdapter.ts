@@ -46,6 +46,44 @@ interface CSVParseResult {
   rowCount: number
 }
 
+/**
+ * Sensor value bounds for validation
+ * These represent physically reasonable ranges to catch data entry errors
+ */
+const SENSOR_BOUNDS = {
+  temperature: { min: -50, max: 200, unit: '°F' },      // Reasonable temp range
+  humidity: { min: 0, max: 100, unit: '%' },            // Percentage
+  vpd: { min: 0, max: 10, unit: 'kPa' },               // Typical VPD range
+  co2: { min: 0, max: 50000, unit: 'ppm' },            // High CO2 for enrichment scenarios
+  light: { min: 0, max: 200000, unit: 'lux' },         // Direct sunlight ~100k lux
+  ph: { min: 0, max: 14, unit: 'pH' },                 // pH scale
+  ec: { min: 0, max: 20, unit: 'mS/cm' }              // Typical EC range
+} as const
+
+/**
+ * Validate a sensor value is within reasonable bounds
+ */
+function validateSensorValue(
+  type: keyof typeof SENSOR_BOUNDS,
+  value: number,
+  row: number
+): { valid: boolean; error?: string } {
+  const bounds = SENSOR_BOUNDS[type]
+
+  if (!isFinite(value)) {
+    return { valid: false, error: `Row ${row}: ${type} value is not a valid number` }
+  }
+
+  if (value < bounds.min || value > bounds.max) {
+    return {
+      valid: false,
+      error: `Row ${row}: ${type} value ${value} is outside valid range (${bounds.min}-${bounds.max} ${bounds.unit})`
+    }
+  }
+
+  return { valid: true }
+}
+
 // ============================================
 // CSV Upload Adapter Implementation
 // ============================================
@@ -333,58 +371,118 @@ export class CSVUploadAdapter implements ControllerAdapter {
           continue
         }
 
-        // Parse optional sensor values
-        if (headerIndices['temperature'] !== undefined) {
-          const val = parseFloat(values[headerIndices['temperature']])
-          if (!isNaN(val)) entry.temperature = val
+        // Parse optional sensor values with bounds validation
+        let hasValidationError = false
+
+        // Temperature (supports 'temperature' or 'temp' headers)
+        for (const header of ['temperature', 'temp']) {
+          if (headerIndices[header] !== undefined && entry.temperature === undefined) {
+            const val = parseFloat(values[headerIndices[header]])
+            if (!isNaN(val)) {
+              const validation = validateSensorValue('temperature', val, i + 1)
+              if (validation.valid) {
+                entry.temperature = val
+              } else {
+                errors.push(validation.error!)
+                hasValidationError = true
+              }
+            }
+          }
         }
 
-        if (headerIndices['temp'] !== undefined) {
-          const val = parseFloat(values[headerIndices['temp']])
-          if (!isNaN(val)) entry.temperature = val
+        // Humidity (supports 'humidity' or 'rh' headers)
+        for (const header of ['humidity', 'rh']) {
+          if (headerIndices[header] !== undefined && entry.humidity === undefined) {
+            const val = parseFloat(values[headerIndices[header]])
+            if (!isNaN(val)) {
+              const validation = validateSensorValue('humidity', val, i + 1)
+              if (validation.valid) {
+                entry.humidity = val
+              } else {
+                errors.push(validation.error!)
+                hasValidationError = true
+              }
+            }
+          }
         }
 
-        if (headerIndices['humidity'] !== undefined) {
-          const val = parseFloat(values[headerIndices['humidity']])
-          if (!isNaN(val)) entry.humidity = val
-        }
-
-        if (headerIndices['rh'] !== undefined) {
-          const val = parseFloat(values[headerIndices['rh']])
-          if (!isNaN(val)) entry.humidity = val
-        }
-
+        // VPD
         if (headerIndices['vpd'] !== undefined) {
           const val = parseFloat(values[headerIndices['vpd']])
-          if (!isNaN(val)) entry.vpd = val
+          if (!isNaN(val)) {
+            const validation = validateSensorValue('vpd', val, i + 1)
+            if (validation.valid) {
+              entry.vpd = val
+            } else {
+              errors.push(validation.error!)
+              hasValidationError = true
+            }
+          }
         }
 
+        // CO2
         if (headerIndices['co2'] !== undefined) {
           const val = parseFloat(values[headerIndices['co2']])
-          if (!isNaN(val)) entry.co2 = val
+          if (!isNaN(val)) {
+            const validation = validateSensorValue('co2', val, i + 1)
+            if (validation.valid) {
+              entry.co2 = val
+            } else {
+              errors.push(validation.error!)
+              hasValidationError = true
+            }
+          }
         }
 
-        if (headerIndices['light'] !== undefined) {
-          const val = parseFloat(values[headerIndices['light']])
-          if (!isNaN(val)) entry.light = val
+        // Light (supports 'light' or 'lux' headers)
+        for (const header of ['light', 'lux']) {
+          if (headerIndices[header] !== undefined && entry.light === undefined) {
+            const val = parseFloat(values[headerIndices[header]])
+            if (!isNaN(val)) {
+              const validation = validateSensorValue('light', val, i + 1)
+              if (validation.valid) {
+                entry.light = val
+              } else {
+                errors.push(validation.error!)
+                hasValidationError = true
+              }
+            }
+          }
         }
 
-        if (headerIndices['lux'] !== undefined) {
-          const val = parseFloat(values[headerIndices['lux']])
-          if (!isNaN(val)) entry.light = val
-        }
-
+        // pH
         if (headerIndices['ph'] !== undefined) {
           const val = parseFloat(values[headerIndices['ph']])
-          if (!isNaN(val)) entry.ph = val
+          if (!isNaN(val)) {
+            const validation = validateSensorValue('ph', val, i + 1)
+            if (validation.valid) {
+              entry.ph = val
+            } else {
+              errors.push(validation.error!)
+              hasValidationError = true
+            }
+          }
         }
 
+        // EC
         if (headerIndices['ec'] !== undefined) {
           const val = parseFloat(values[headerIndices['ec']])
-          if (!isNaN(val)) entry.ec = val
+          if (!isNaN(val)) {
+            const validation = validateSensorValue('ec', val, i + 1)
+            if (validation.valid) {
+              entry.ec = val
+            } else {
+              errors.push(validation.error!)
+              hasValidationError = true
+            }
+          }
         }
 
-        data.push(entry)
+        // Only add entry if no validation errors (strict mode)
+        // Or if at least one valid value exists (lenient mode - we use this)
+        if (!hasValidationError || Object.keys(entry).length > 1) {
+          data.push(entry)
+        }
 
       } catch (err) {
         errors.push(`Row ${i + 1}: Parse error - ${err instanceof Error ? err.message : 'Unknown'}`)

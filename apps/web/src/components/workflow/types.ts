@@ -6,6 +6,10 @@
  */
 
 import type { Node, Edge, XYPosition, Position } from "@xyflow/react";
+import type { SensorType } from "@/types";
+
+// Re-export SensorType for consumers of this module
+export type { SensorType };
 
 // ============================================================================
 // Trigger Node Types
@@ -51,21 +55,6 @@ export interface TriggerNodeData {
   label: string;
   config: TriggerConfig;
 }
-
-// ============================================================================
-// Sensor Node Types
-// ============================================================================
-
-/** Supported sensor types in the platform */
-export type SensorType =
-  | "temperature"
-  | "humidity"
-  | "vpd"
-  | "co2"
-  | "light"
-  | "soil_moisture"
-  | "ph"
-  | "ec";
 
 /** Comparison operators for threshold comparisons */
 export type ComparisonOperator = ">" | "<" | "=" | ">=" | "<=";

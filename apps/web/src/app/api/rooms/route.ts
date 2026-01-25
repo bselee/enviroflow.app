@@ -14,6 +14,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { sanitizeName, sanitizeDescription } from '@/lib/sanitize-input'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseClient = ReturnType<typeof createClient<any>>
@@ -24,16 +25,17 @@ type SupabaseClient = ReturnType<typeof createClient<any>>
 
 /**
  * Schema for creating a new room
+ * Uses sanitization to strip HTML and normalize whitespace for security
  */
 const CreateRoomSchema = z.object({
   name: z
     .string()
-    .min(1, 'Room name is required')
-    .max(100, 'Room name must be 100 characters or less')
-    .trim(),
+    .transform(sanitizeName)
+    .pipe(z.string().min(1, 'Room name is required').max(100, 'Room name must be 100 characters or less')),
   description: z
     .string()
-    .max(500, 'Description must be 500 characters or less')
+    .transform(sanitizeDescription)
+    .pipe(z.string().max(500, 'Description must be 500 characters or less'))
     .optional()
     .nullable(),
   settings: z.record(z.unknown()).optional().default({}),
