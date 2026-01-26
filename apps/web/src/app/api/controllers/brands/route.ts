@@ -130,6 +130,10 @@ const SUPPORTED_BRANDS = [
   }
 ]
 
+// Disable caching for this route to ensure fresh brand list
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export async function GET() {
   // Filter to show available brands first, then coming soon
   const sortedBrands = [...SUPPORTED_BRANDS].sort((a, b) => {
@@ -143,5 +147,9 @@ export async function GET() {
     totalBrands: sortedBrands.length,
     availableCount: sortedBrands.filter(b => b.status === 'available').length,
     comingSoonCount: sortedBrands.filter(b => b.status === 'coming_soon').length
+  }, {
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+    }
   })
 }
