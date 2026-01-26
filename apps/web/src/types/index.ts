@@ -116,9 +116,10 @@ export interface ControllerCapabilities {
 export interface CredentialField {
   name: string;
   label: string;
-  type: "text" | "email" | "password";
+  type: "text" | "email" | "password" | "select" | "number" | "checkbox";
   required: boolean;
   placeholder?: string;
+  options?: string[]; // For select type fields
 }
 
 /**
