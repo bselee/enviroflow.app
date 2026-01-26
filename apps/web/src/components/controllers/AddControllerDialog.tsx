@@ -551,15 +551,18 @@ export function AddControllerDialog({
 
             result = await connectWithRetry();
 
-            // Success
+            // SECURITY: Clear credentials from memory FIRST (before any status update)
+            // This ensures credentials are cleared even if dialog closes unexpectedly
+            setCredentials(null);
+            setDiscoveryCredentials(null);
+            setEcowittCredentials(null);
+            credentialsForm.reset();
+            ecowittForm.reset();
+
+            // Success - update status after credentials are cleared
             setConnectionProgress(100);
             setConnectionStatus("success");
             setConnectionError(null);
-
-            // SECURITY: Clear credentials from memory after successful use
-            setCredentials(null);
-            setDiscoveryCredentials(null);
-            credentialsForm.reset();
 
             // Store the added controller ID for potential room assignment
             if (result.data?.id) {
@@ -614,20 +617,27 @@ export function AddControllerDialog({
         setIsConnecting(false);
       }
     },
-    [selectedBrand, credentials, discoveryCredentials, addMode, discoveredDevice, onAdd, handleOpenChange, onCreateRoom, rooms.length, credentialsForm]
+    [selectedBrand, credentials, discoveryCredentials, ecowittCredentials, addMode, discoveredDevice, onAdd, handleOpenChange, onCreateRoom, rooms.length, credentialsForm, ecowittForm]
   );
 
   /**
    * Handle retry connection
    */
   const handleRetry = useCallback(() => {
+    // SECURITY: Clear credentials before retry
+    setCredentials(null);
+    setDiscoveryCredentials(null);
+    setEcowittCredentials(null);
+    credentialsForm.reset();
+    ecowittForm.reset();
+
     setConnectionStatus("idle");
     setConnectionError(null);
     setConnectionProgress(0);
     setShowPassword(false);
     // Re-submit the form
     nameForm.handleSubmit(handleConnect)();
-  }, [nameForm, handleConnect]);
+  }, [nameForm, handleConnect, credentialsForm, ecowittForm]);
 
   /**
    * Render step content
@@ -728,70 +738,117 @@ export function AddControllerDialog({
               </DialogDescription>
 
               {/* Available brands */}
-              <div className="space-y-3">
+              <div className="grid gap-3">
                 {availableBrands.map((brand) => (
                   <button
                     key={brand.id}
                     onClick={() => handleBrandSelect(brand)}
-                    className="w-full flex items-center gap-4 p-4 border-2 border-border rounded-lg hover:border-primary hover:bg-primary/5 transition-colors text-left"
+                    className={cn(
+                      "group w-full text-left rounded-xl border-2 border-border bg-card",
+                      "p-4 sm:p-5",
+                      "transition-all duration-200",
+                      "hover:border-primary hover:bg-primary/5 hover:shadow-md",
+                      "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
+                    )}
                   >
-                    <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center shrink-0">
-                      <BrandIcon brand={brand.id} className="w-6 h-6 text-muted-foreground" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-foreground">{brand.name}</span>
-                        {supportsDiscovery(brand.id) && (
-                          <Badge variant="outline" className="text-xs">
-                            <Radar className="w-3 h-3 mr-1" />
-                            Discovery
-                          </Badge>
+                    <div className="flex items-start gap-3 sm:gap-4">
+                      {/* Brand Icon */}
+                      <div className={cn(
+                        "w-11 h-11 sm:w-12 sm:h-12 rounded-lg flex items-center justify-center shrink-0",
+                        "bg-muted group-hover:bg-primary/10 transition-colors"
+                      )}>
+                        <BrandIcon brand={brand.id} className="w-5 h-5 sm:w-6 sm:h-6 text-muted-foreground group-hover:text-primary transition-colors" />
+                      </div>
+
+                      {/* Brand Details */}
+                      <div className="flex-1 min-w-0 space-y-1">
+                        {/* Header Row: Name + Badges */}
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="font-semibold text-foreground text-base">
+                            {brand.name}
+                          </span>
+                          {supportsDiscovery(brand.id) && (
+                            <Badge
+                              variant="secondary"
+                              className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 border-0"
+                            >
+                              <Radar className="w-3 h-3 mr-1" />
+                              Auto-Discovery
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Description */}
+                        <p className="text-sm text-muted-foreground leading-relaxed line-clamp-2">
+                          {brand.description}
+                        </p>
+
+                        {/* Note (if present) */}
+                        {brand.note && (
+                          <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5 flex items-start gap-1.5">
+                            <span className="inline-block w-1 h-1 rounded-full bg-amber-500 mt-1.5 shrink-0" />
+                            <span className="leading-relaxed">{brand.note}</span>
+                          </p>
                         )}
                       </div>
-                      <div className="text-sm text-muted-foreground truncate">
-                        {brand.description}
+
+                      {/* Arrow indicator (shows on hover) */}
+                      <div className="hidden sm:flex items-center justify-center w-8 h-8 rounded-full shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <ArrowRight className="w-4 h-4 text-primary" />
                       </div>
-                      {brand.note && (
-                        <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                          {brand.note}
-                        </div>
-                      )}
                     </div>
-                    <Badge variant="secondary" className="shrink-0">
-                      Available
-                    </Badge>
                   </button>
                 ))}
               </div>
 
               {/* Coming soon brands */}
               {comingSoonBrands.length > 0 && (
-                <>
-                  <div className="text-sm font-medium text-muted-foreground pt-2">
-                    Coming Soon
+                <div className="pt-2">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="h-px flex-1 bg-border" />
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-2">
+                      Coming Soon
+                    </span>
+                    <div className="h-px flex-1 bg-border" />
                   </div>
-                  <div className="space-y-2">
+                  <div className="grid gap-2">
                     {comingSoonBrands.map((brand) => (
                       <div
                         key={brand.id}
-                        className="flex items-center gap-4 p-4 border border-border rounded-lg opacity-60"
+                        className={cn(
+                          "w-full rounded-xl border border-border bg-muted/30",
+                          "p-4 sm:p-5",
+                          "cursor-not-allowed"
+                        )}
                       >
-                        <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center shrink-0">
-                          <BrandIcon brand={brand.id} className="w-6 h-6 text-muted-foreground" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-foreground">{brand.name}</div>
-                          <div className="text-sm text-muted-foreground truncate">
-                            {brand.description}
+                        <div className="flex items-start gap-3 sm:gap-4 opacity-50">
+                          {/* Brand Icon */}
+                          <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                            <BrandIcon brand={brand.id} className="w-5 h-5 sm:w-6 sm:h-6 text-muted-foreground" />
+                          </div>
+
+                          {/* Brand Details */}
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="font-semibold text-foreground text-base">
+                                {brand.name}
+                              </span>
+                              <Badge
+                                variant="outline"
+                                className="text-xs px-2 py-0.5 border-dashed"
+                              >
+                                Coming Soon
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground leading-relaxed line-clamp-2">
+                              {brand.description}
+                            </p>
                           </div>
                         </div>
-                        <Badge variant="outline" className="shrink-0">
-                          Coming Soon
-                        </Badge>
                       </div>
                     ))}
                   </div>
-                </>
+                </div>
               )}
             </TabsContent>
           </Tabs>
@@ -1165,6 +1222,13 @@ export function AddControllerDialog({
                 type="button"
                 variant="outline"
                 onClick={() => {
+                  // SECURITY: Clear credentials when navigating back
+                  setCredentials(null);
+                  setDiscoveryCredentials(null);
+                  setEcowittCredentials(null);
+                  credentialsForm.reset();
+                  ecowittForm.reset();
+
                   // If from discovery, go back to step 1 (discovery tab)
                   // If from manual, go back to credentials (step 2) or step 1
                   if (addMode === "discover") {
@@ -1393,7 +1457,16 @@ export function AddControllerDialog({
                 />
 
                 <DialogFooter className="gap-2">
-                  <Button variant="outline" onClick={() => setStep(addMode === "discover" ? 1 : 2)}>
+                  <Button variant="outline" onClick={() => {
+                    // SECURITY: Clear credentials when navigating back from error state
+                    setCredentials(null);
+                    setDiscoveryCredentials(null);
+                    setEcowittCredentials(null);
+                    credentialsForm.reset();
+                    ecowittForm.reset();
+
+                    setStep(addMode === "discover" ? 1 : 2);
+                  }}>
                     <ArrowLeft className="w-4 h-4 mr-2" />
                     {addMode === "discover" ? "Back to Discovery" : "Edit Credentials"}
                   </Button>
