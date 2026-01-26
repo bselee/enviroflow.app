@@ -27,9 +27,10 @@ import { useControllers } from "@/hooks/use-controllers";
 import { useRooms } from "@/hooks/use-rooms";
 import { AddControllerDialog } from "@/components/controllers/AddControllerDialog";
 import { AssignRoomDialog } from "@/components/controllers/AssignRoomDialog";
+import { ControllerSensorPreview } from "@/components/controllers/ControllerSensorPreview";
 import { ErrorGuidance } from "@/components/ui/error-guidance";
 import { toast } from "@/hooks/use-toast";
-import type { ControllerWithRoom, ControllerBrand } from "@/types";
+import type { ControllerWithRoom } from "@/types";
 
 function formatRelativeTime(timestamp: string | null): string {
   if (!timestamp) return "Never";
@@ -45,6 +46,29 @@ function formatRelativeTime(timestamp: string | null): string {
   if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
   if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
   return then.toLocaleDateString();
+}
+
+/**
+ * Trigger immediate sensor polling for a newly added controller.
+ * This ensures sensor data appears immediately without waiting for the cron job.
+ */
+async function triggerImmediateSensorPoll(controllerId: string): Promise<void> {
+  try {
+    const response = await fetch(`/api/controllers/${controllerId}/sensors`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      // Non-critical error - sensor data will be fetched by cron job later
+      console.warn(`Failed to fetch initial sensor data for controller ${controllerId}:`, response.status);
+    }
+  } catch (error) {
+    // Non-critical error - log but don't show to user
+    console.warn(`Error fetching initial sensor data for controller ${controllerId}:`, error);
+  }
 }
 
 function ControllerCard({
@@ -128,6 +152,15 @@ function ControllerCard({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+      </div>
+
+      {/* Sensor and Device Data Preview */}
+      <div className="mt-4">
+        <ControllerSensorPreview
+          controllerId={controller.id}
+          compact={true}
+          showDevices={true}
+        />
       </div>
 
       {/* Offline warning with troubleshooting hint */}
@@ -310,6 +343,15 @@ export default function ControllersPage() {
             if (result.success) {
               // Force immediate refresh to prevent flashing
               await refresh();
+
+              // Trigger immediate sensor poll to populate data without waiting for cron job
+              if (result.data?.id) {
+                // Fire and forget - don't block on this
+                triggerImmediateSensorPoll(result.data.id).catch(err => {
+                  console.warn('Failed to trigger immediate sensor poll:', err);
+                });
+              }
+
               toast({
                 title: "Controller added",
                 description: `${data.name} has been added successfully.`,
