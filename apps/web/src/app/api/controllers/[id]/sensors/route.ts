@@ -653,6 +653,7 @@ export async function GET(
     }
 
     // Store readings in database
+    // Note: sensor_readings table uses controller relationship for access control, not user_id
     if (shouldStore && readings.length > 0) {
       const readingsToInsert = validatedReadings.map((r) => ({
         controller_id: id,

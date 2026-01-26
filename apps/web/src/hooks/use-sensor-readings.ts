@@ -46,6 +46,7 @@ interface UseSensorReadingsReturn {
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 const POLLING_INTERVAL_MS = 30000; // 30 seconds fallback polling
+const REALTIME_DEBOUNCE_MS = 500; // Debounce realtime updates to prevent rapid re-renders
 
 /**
  * Custom hook for managing sensor readings with Supabase.
@@ -86,6 +87,10 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const mountedRef = useRef(true);
+
+  // Debounce refs for batching realtime updates
+  const pendingReadingsRef = useRef<SensorReading[]>([]);
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   /**
    * Calculate exponential backoff delay.
@@ -286,7 +291,22 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
           // Only add if it's for one of our controllers
           const newReading = payload.new as SensorReading;
           if (controllerIds.includes(newReading.controller_id)) {
-            setReadings(prev => [newReading, ...prev].slice(0, limit * controllerIds.length));
+            // Batch updates with debouncing to prevent rapid re-renders (shaking)
+            pendingReadingsRef.current.push(newReading);
+
+            // Clear existing debounce timeout
+            if (debounceTimeoutRef.current) {
+              clearTimeout(debounceTimeoutRef.current);
+            }
+
+            // Flush pending readings after debounce period
+            debounceTimeoutRef.current = setTimeout(() => {
+              if (mountedRef.current && pendingReadingsRef.current.length > 0) {
+                const newReadings = [...pendingReadingsRef.current];
+                pendingReadingsRef.current = [];
+                setReadings(prev => [...newReadings, ...prev].slice(0, limit * controllerIds.length));
+              }
+            }, REALTIME_DEBOUNCE_MS);
           }
         }
       )
@@ -342,9 +362,14 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
       }
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
       }
+      // Clear pending readings
+      pendingReadingsRef.current = [];
     };
   }, [controllerIds, setupSubscription]);
 
