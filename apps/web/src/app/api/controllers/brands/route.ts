@@ -68,36 +68,31 @@ const SUPPORTED_BRANDS = [
   {
     id: 'govee',
     name: 'Govee',
-    description: 'WiFi Hygrometers, Smart Lights & Plugs',
+    description: 'H5179 WiFi Hygrometer, H5075 Bluetooth Hygrometer',
     logo: '/logos/govee.svg',
-    requiresCredentials: true,
-    credentialFields: [
-      { name: 'apiKey', label: 'API Key', type: 'password', required: true, placeholder: 'Enter your Govee API key' }
-    ],
+    requiresCredentials: false,
+    credentialFields: [],
     capabilities: {
       sensors: ['temperature', 'humidity'],
-      devices: ['light', 'outlet'],
-      supportsDimming: true,
+      devices: [],
+      supportsDimming: false,
       supportsScheduling: false
     },
     marketShare: 15,
-    status: 'available',
-    helpUrl: 'https://govee-public.s3.amazonaws.com/developer-docs/GoveeDeveloperAPIReference.pdf',
-    note: 'API key required. Get your key from Govee Home app: Account > About Us > Apply for API Key.'
+    status: 'coming_soon',
+    note: 'Requires mobile app for Bluetooth pairing. Coming in Phase 2.'
   },
   {
     id: 'mqtt',
-    name: 'MQTT',
-    description: 'Generic MQTT broker for custom IoT devices (Tasmota, ESPHome, Home Assistant)',
+    name: 'MQTT Generic',
+    description: 'Any MQTT-compatible controller, sensor, or home automation hub',
     logo: '/logos/mqtt.svg',
     requiresCredentials: true,
     credentialFields: [
-      { name: 'brokerUrl', label: 'Broker URL', type: 'text', required: true, placeholder: 'mqtt://broker.example.com' },
-      { name: 'port', label: 'Port', type: 'text', required: true, placeholder: '1883' },
+      { name: 'brokerUrl', label: 'Broker URL', type: 'text', required: true, placeholder: 'mqtt://localhost:1883' },
       { name: 'username', label: 'Username', type: 'text', required: false, placeholder: 'Optional' },
       { name: 'password', label: 'Password', type: 'password', required: false, placeholder: 'Optional' },
-      { name: 'topicPrefix', label: 'Topic Prefix', type: 'text', required: true, placeholder: 'enviroflow' },
-      { name: 'useTls', label: 'Use TLS', type: 'text', required: false, placeholder: 'false' }
+      { name: 'topic', label: 'Topic Prefix', type: 'text', required: true, placeholder: 'sensors/room1' }
     ],
     capabilities: {
       sensors: ['temperature', 'humidity', 'vpd', 'co2', 'light'],
@@ -106,30 +101,32 @@ const SUPPORTED_BRANDS = [
       supportsScheduling: true
     },
     marketShare: 5,
-    status: 'available',
-    helpUrl: 'https://docs.enviroflow.app/mqtt',
-    note: 'For DIY builds, Home Assistant, Tasmota, ESPHome, and custom MQTT devices'
+    status: 'coming_soon',
+    note: 'For DIY builds, Home Assistant, and custom setups. Coming in Phase 2.'
   },
   {
     id: 'ecowitt',
     name: 'Ecowitt',
-    description: 'GW1100/GW2000/GW3000 Gateways with soil, weather & air quality sensors',
+    description: 'GW1100/GW2000/GW3000 Gateways, Weather Sensors, IoT Devices',
     logo: '/logos/ecowitt.svg',
     requiresCredentials: true,
     credentialFields: [
-      { name: 'connectionMethod', label: 'Connection Method', type: 'text', required: true, placeholder: 'push' },
-      { name: 'macAddress', label: 'Gateway MAC Address', type: 'text', required: true, placeholder: 'AA:BB:CC:DD:EE:FF' },
-      { name: 'gatewayIP', label: 'Gateway IP (for TCP/HTTP)', type: 'text', required: false, placeholder: '192.168.1.100' }
+      { name: 'connectionMethod', label: 'Connection Method', type: 'select', required: true },
+      { name: 'gatewayIP', label: 'Gateway IP', type: 'text', required: false, placeholder: '192.168.1.100' },
+      { name: 'macAddress', label: 'MAC Address', type: 'text', required: false, placeholder: 'XX:XX:XX:XX:XX:XX' },
+      { name: 'apiKey', label: 'API Key', type: 'password', required: false },
+      { name: 'applicationKey', label: 'Application Key', type: 'password', required: false }
     ],
     capabilities: {
-      sensors: ['temperature', 'humidity', 'pressure', 'soil_moisture', 'uv', 'wind_speed', 'pm25', 'co2'],
+      sensors: ['temperature', 'humidity', 'pressure', 'soil_moisture', 'wind_speed', 'uv', 'solar_radiation', 'rain', 'pm25', 'co2'],
       devices: ['valve', 'outlet'],
       supportsDimming: false,
-      supportsScheduling: false
+      supportsScheduling: true
     },
     marketShare: 8,
     status: 'available',
-    helpUrl: 'https://www.ecowitt.com/shop/homePage'
+    note: 'Multiple connection methods: Cloud API, Push/Webhook, TCP Direct, or HTTP Local. Push mode requires gateway configuration.',
+    helpUrl: 'https://api.ecowitt.net'
   }
 ]
 

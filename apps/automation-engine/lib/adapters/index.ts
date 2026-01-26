@@ -6,8 +6,9 @@
  * - Inkbird (ITC-308, ITC-310T, IHC-200)
  * - CSV Upload (Manual data for any brand)
  * - MQTT (Generic MQTT devices - Tasmota, ESPHome, etc.)
- * - Ecowitt (Weather Gateways - GW1100, GW2000, GW3000)
- * - Govee (H5179 sensors, Smart LED lights, Smart plugs - API-based)
+ *
+ * Coming soon:
+ * - Govee (BLE - mobile only)
  */
 
 import { ACInfinityAdapter } from './ACInfinityAdapter'
@@ -15,7 +16,6 @@ import { InkbirdAdapter } from './InkbirdAdapter'
 import { CSVUploadAdapter, generateCSVTemplate, validateCSVHeaders } from './CSVUploadAdapter'
 import { MQTTAdapter, handleMQTTMessage, clearMessageStore } from './MQTTAdapter'
 import { EcowittAdapter } from './EcowittAdapter'
-import { GoveeAdapter } from './GoveeAdapter'
 import type {
   ControllerAdapter,
   ControllerBrand,
@@ -44,7 +44,10 @@ export function getAdapter(brand: ControllerBrand): ControllerAdapter {
       return new CSVUploadAdapter()
     
     case 'govee':
-      return new GoveeAdapter()
+      throw new Error(
+        'Govee adapter requires BLE and is only available in the mobile app. ' +
+        'Use CSV Upload as a fallback on web.'
+      )
     
     case 'mqtt':
       return new MQTTAdapter()
@@ -57,7 +60,7 @@ export function getAdapter(brand: ControllerBrand): ControllerAdapter {
         'Custom adapters require manual configuration. ' +
         'Contact support for assistance.'
       )
-
+    
     default:
       throw new Error(`Unknown controller brand: ${brand}`)
   }
@@ -72,8 +75,7 @@ export function isBrandSupported(brand: string): brand is ControllerBrand {
     'inkbird',
     'csv_upload',
     'mqtt',
-    'ecowitt',
-    'govee'
+    'ecowitt'
   ]
   return supportedBrands.includes(brand as ControllerBrand)
 }
@@ -82,7 +84,7 @@ export function isBrandSupported(brand: string): brand is ControllerBrand {
  * Check if a brand supports cloud-based device discovery
  */
 export function supportsDiscovery(brand: ControllerBrand): boolean {
-  const discoverableBrands: ControllerBrand[] = ['ac_infinity', 'inkbird', 'govee', 'mqtt']
+  const discoverableBrands: ControllerBrand[] = ['ac_infinity', 'inkbird']
   return discoverableBrands.includes(brand)
 }
 
@@ -97,21 +99,17 @@ export function supportsDiscovery(brand: ControllerBrand): boolean {
 export function getDiscoverableAdapter(brand: ControllerBrand): DiscoverableAdapter {
   if (!supportsDiscovery(brand)) {
     throw new Error(
-      `Brand "${brand}" does not support discovery. ` +
-      'Only AC Infinity, Inkbird, Govee, and MQTT currently support this feature.'
+      `Brand "${brand}" does not support cloud discovery. ` +
+      'Only AC Infinity and Inkbird currently support this feature.'
     )
   }
 
-  // ACInfinityAdapter, InkbirdAdapter, GoveeAdapter, and MQTTAdapter implement DiscoverableAdapter
+  // Both ACInfinityAdapter and InkbirdAdapter implement DiscoverableAdapter
   switch (brand) {
     case 'ac_infinity':
       return new ACInfinityAdapter()
     case 'inkbird':
       return new InkbirdAdapter()
-    case 'govee':
-      return new GoveeAdapter()
-    case 'mqtt':
-      return new MQTTAdapter()
     default:
       throw new Error(`Unknown discoverable brand: ${brand}`)
   }
@@ -121,7 +119,7 @@ export function getDiscoverableAdapter(brand: ControllerBrand): DiscoverableAdap
  * Get list of brands that support cloud discovery
  */
 export function getDiscoverableBrands(): ControllerBrand[] {
-  return ['ac_infinity', 'inkbird', 'govee', 'mqtt']
+  return ['ac_infinity', 'inkbird']
 }
 
 /**
@@ -161,8 +159,8 @@ export function getSupportedBrands() {
         supportsDimming: false
       },
       marketShare: '25%',
-      status: 'coming_soon',
-      note: 'Uses Tuya platform - cloud integration pending. Use CSV Upload as fallback.'
+      status: 'unsupported',
+      note: 'Inkbird devices use the Tuya IoT platform. Direct email/password login is not supported. Please use CSV Upload adapter for manual data entry, or integrate via Home Assistant with Tuya.'
     },
     {
       id: 'csv_upload',
@@ -182,19 +180,17 @@ export function getSupportedBrands() {
     {
       id: 'govee',
       name: 'Govee',
-      description: 'H5179 WiFi Hygrometer, Smart LED Lights, Smart Plugs',
-      requiresCredentials: true,
-      credentialFields: [
-        { name: 'apiKey', label: 'API Key', type: 'password', required: true, placeholder: 'Get from Govee Home app: Account > About Us > Apply for API Key' }
-      ],
+      description: 'H5179 WiFi Hygrometer (Bluetooth, mobile app only)',
+      requiresCredentials: false,
+      credentialFields: [],
       capabilities: {
         sensors: ['temperature', 'humidity'],
-        devices: ['light', 'outlet'],
-        supportsDimming: true
+        devices: [],
+        supportsDimming: false
       },
       marketShare: '15%',
-      status: 'available',
-      note: 'Requires API key from Govee Home app. Rate limited to 60 requests/min per device.'
+      status: 'coming_soon',
+      note: 'Requires mobile app for BLE pairing'
     },
     {
       id: 'mqtt',
@@ -202,41 +198,40 @@ export function getSupportedBrands() {
       description: 'Tasmota, ESPHome, or any MQTT-compatible device',
       requiresCredentials: true,
       credentialFields: [
-        { name: 'brokerUrl', label: 'Broker URL', type: 'text', required: true, placeholder: 'mqtt://broker.example.com' },
-        { name: 'port', label: 'Port', type: 'number', required: true, placeholder: '1883' },
-        { name: 'topicPrefix', label: 'Topic Prefix', type: 'text', required: true, placeholder: 'enviroflow/sensors' },
-        { name: 'useTls', label: 'Use TLS/SSL', type: 'checkbox', required: false },
+        { name: 'brokerUrl', label: 'Broker URL', type: 'text', required: true, placeholder: 'ws://broker.example.com:8083' },
         { name: 'username', label: 'Username', type: 'text', required: false },
         { name: 'password', label: 'Password', type: 'password', required: false },
-        { name: 'clientId', label: 'Client ID (optional)', type: 'text', required: false, placeholder: 'enviroflow_device' }
+        { name: 'topic', label: 'Topic', type: 'text', required: true, placeholder: 'tasmota/living_room' }
       ],
       capabilities: {
-        sensors: ['temperature', 'humidity', 'vpd', 'co2', 'light', 'ph', 'ec', 'soil_moisture', 'pressure'],
+        sensors: ['temperature', 'humidity', 'vpd', 'co2', 'light'],
         devices: ['fan', 'light', 'outlet'],
         supportsDimming: true
       },
       marketShare: '5%',
       status: 'available',
-      note: 'Supports MQTT, MQTTS, WebSocket (ws://), and secure WebSocket (wss://)'
+      note: 'Requires WebSocket-enabled MQTT broker'
     },
     {
       id: 'ecowitt',
-      name: 'Ecowitt Weather Gateway',
-      description: 'GW1100, GW2000, GW3000 with RF sensors for temperature, humidity, soil moisture, and more',
+      name: 'Ecowitt',
+      description: 'GW1100/GW2000/GW3000 Gateways, Weather Sensors, IoT Devices',
       requiresCredentials: true,
       credentialFields: [
-        { name: 'connectionMethod', label: 'Connection Method', type: 'select', required: true, options: ['push', 'tcp', 'http', 'cloud'] },
-        { name: 'gatewayIP', label: 'Gateway IP Address', type: 'text', required: false, placeholder: '192.168.1.100' },
+        { name: 'connectionMethod', label: 'Connection Method', type: 'select', required: true, options: ['cloud', 'push', 'tcp', 'http'] },
+        { name: 'gatewayIP', label: 'Gateway IP', type: 'text', required: false, placeholder: '192.168.1.100' },
         { name: 'macAddress', label: 'MAC Address', type: 'text', required: false, placeholder: 'XX:XX:XX:XX:XX:XX' },
-        { name: 'apiKey', label: 'API Key (for cloud)', type: 'password', required: false },
-        { name: 'applicationKey', label: 'Application Key (for cloud)', type: 'password', required: false }
+        { name: 'apiKey', label: 'API Key', type: 'password', required: false },
+        { name: 'applicationKey', label: 'Application Key', type: 'password', required: false }
       ],
       capabilities: {
-        sensors: ['temperature', 'humidity', 'pressure', 'soil_moisture', 'uv', 'solar_radiation', 'wind', 'rain'],
-        devices: ['valve', 'plug'],
+        sensors: ['temperature', 'humidity', 'pressure', 'soil_moisture', 'wind_speed', 'uv', 'solar_radiation', 'rain', 'pm25', 'co2'],
+        devices: ['valve', 'outlet'],
         supportsDimming: false
       },
-      status: 'available'
+      marketShare: '8%',
+      status: 'available',
+      note: 'Push mode requires configuring gateway to send data to EnviroFlow webhook'
     }
   ]
 }
@@ -251,7 +246,6 @@ export { InkbirdAdapter } from './InkbirdAdapter'
 export { CSVUploadAdapter, generateCSVTemplate, validateCSVHeaders } from './CSVUploadAdapter'
 export { MQTTAdapter, handleMQTTMessage, clearMessageStore } from './MQTTAdapter'
 export { EcowittAdapter } from './EcowittAdapter'
-export { GoveeAdapter } from './GoveeAdapter'
 
 // Retry utilities
 export {
