@@ -3,24 +3,68 @@
 /**
  * ControllerSensorPreview Component
  *
- * Displays a compact preview of sensor data for a controller including:
+ * Displays a compact preview of sensor data AND connected devices for a controller:
  * - Current temperature, humidity, and VPD values
  * - A mini sparkline chart showing 24-hour trends
+ * - Connected devices (fans, lights, outlets) with current state
  * - Built-in sensor indicator
  *
  * Inspired by AC Infinity's elegant data visualization.
  */
 
-import { useMemo } from "react";
-import { Thermometer, Droplets, Gauge, Activity, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { useMemo, useEffect } from "react";
+import { Thermometer, Droplets, Gauge, Activity, TrendingUp, TrendingDown, Minus, Fan, Lightbulb, Power, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSensorReadings } from "@/hooks/use-sensor-readings";
+import { useDeviceControl, type DeviceState } from "@/hooks/use-device-control";
 import type { AggregatedSensorData, TimeSeriesPoint } from "@/types";
 
 interface ControllerSensorPreviewProps {
   controllerId: string;
   className?: string;
   compact?: boolean;
+  showDevices?: boolean;
+}
+
+/**
+ * Get icon for device type
+ */
+function getDeviceIcon(deviceType: string) {
+  switch (deviceType.toLowerCase()) {
+    case 'fan':
+      return Fan;
+    case 'light':
+      return Lightbulb;
+    case 'outlet':
+      return Power;
+    default:
+      return Zap;
+  }
+}
+
+/**
+ * Compact device status display
+ */
+function DeviceStatusBadge({ device }: { device: DeviceState }) {
+  const Icon = getDeviceIcon(device.deviceType);
+
+  return (
+    <div className={cn(
+      "flex items-center gap-1.5 px-2 py-1 rounded-md text-xs",
+      device.isOn
+        ? "bg-green-500/10 text-green-600 dark:text-green-400"
+        : "bg-muted text-muted-foreground"
+    )}>
+      <Icon className="w-3 h-3" />
+      <span className="font-medium truncate max-w-[60px]">{device.name}</span>
+      {device.isOn && device.supportsDimming && (
+        <span className="text-[10px] opacity-75">{device.level}%</span>
+      )}
+      {device.isOn && !device.supportsDimming && (
+        <span className="text-[10px] opacity-75">ON</span>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -155,14 +199,31 @@ function calculateTrend(data: TimeSeriesPoint[]): "up" | "down" | "stable" {
 export function ControllerSensorPreview({
   controllerId,
   className,
-  compact = false
+  compact = false,
+  showDevices = true
 }: ControllerSensorPreviewProps) {
   // Fetch sensor readings for this controller
-  const { readings, isLoading, getLatestForController, getTimeSeries, connectionStatus } = useSensorReadings({
+  // ✅ FIX: Disable realtime to prevent N WebSocket connections (one per controller card)
+  // The parent page (controllers/page.tsx) will refresh data via use-controllers realtime
+  const { readings, isLoading, getLatestForController, getTimeSeries, connectionStatus, refetch } = useSensorReadings({
     controllerIds: [controllerId],
     timeRangeHours: 24,
     limit: 200,
+    enableRealtime: false, // Disable realtime to reduce WebSocket connections
   });
+
+  // Fetch connected devices
+  const { devices, isLoading: devicesLoading } = useDeviceControl(controllerId);
+
+  // Auto-refresh sensor data every 30 seconds when realtime is disabled
+  // This ensures data stays fresh without WebSocket overhead
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refetch();
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [refetch]);
 
   // Get latest aggregated data
   const latestData = useMemo((): AggregatedSensorData => {
@@ -182,13 +243,16 @@ export function ControllerSensorPreview({
   // Check if we have any data
   const hasData = latestData.temperature || latestData.humidity || latestData.vpd;
 
-  if (isLoading) {
+  // Check if we have any device data
+  const hasDevices = devices.length > 0;
+
+  if (isLoading && devicesLoading) {
     return (
       <div className={cn("animate-pulse bg-muted rounded-md h-16", className)} />
     );
   }
 
-  if (!hasData) {
+  if (!hasData && !hasDevices) {
     return (
       <div className={cn(
         "flex items-center justify-center text-muted-foreground text-xs py-3 border rounded-md border-dashed",
@@ -201,38 +265,49 @@ export function ControllerSensorPreview({
   }
 
   if (compact) {
-    // Compact inline view
+    // Compact inline view with sensors and devices
     return (
-      <div className={cn("flex items-center gap-4 text-sm", className)}>
-        {latestData.temperature && (
-          <SensorValue
-            icon={Thermometer}
-            label="Temp"
-            value={latestData.temperature.value}
-            unit={latestData.temperature.unit}
-            trend={tempTrend}
-            color="text-red-500"
-          />
-        )}
-        {latestData.humidity && (
-          <SensorValue
-            icon={Droplets}
-            label="Humidity"
-            value={latestData.humidity.value}
-            unit={latestData.humidity.unit}
-            trend={humidityTrend}
-            color="text-blue-500"
-          />
-        )}
-        {latestData.vpd && (
-          <SensorValue
-            icon={Gauge}
-            label="VPD"
-            value={latestData.vpd.value}
-            unit={latestData.vpd.unit}
-            trend={vpdTrend}
-            color="text-green-500"
-          />
+      <div className={cn("space-y-2", className)}>
+        {/* Sensor values */}
+        <div className="flex items-center gap-4 text-sm">
+          {latestData.temperature && (
+            <SensorValue
+              icon={Thermometer}
+              label="Temp"
+              value={latestData.temperature.value}
+              unit={latestData.temperature.unit}
+              trend={tempTrend}
+              color="text-red-500"
+            />
+          )}
+          {latestData.humidity && (
+            <SensorValue
+              icon={Droplets}
+              label="Humidity"
+              value={latestData.humidity.value}
+              unit={latestData.humidity.unit}
+              trend={humidityTrend}
+              color="text-blue-500"
+            />
+          )}
+          {latestData.vpd && (
+            <SensorValue
+              icon={Gauge}
+              label="VPD"
+              value={latestData.vpd.value}
+              unit={latestData.vpd.unit}
+              trend={vpdTrend}
+              color="text-green-500"
+            />
+          )}
+        </div>
+        {/* Connected devices */}
+        {showDevices && hasDevices && (
+          <div className="flex flex-wrap gap-1.5">
+            {devices.map((device) => (
+              <DeviceStatusBadge key={device.port} device={device} />
+            ))}
+          </div>
         )}
       </div>
     );
@@ -310,8 +385,54 @@ export function ControllerSensorPreview({
         </div>
       </div>
 
+      {/* Connected Devices Section */}
+      {showDevices && hasDevices && (
+        <div className="pt-3 border-t">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-muted-foreground">
+              Connected Devices ({devices.length})
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {devices.map((device) => {
+              const Icon = getDeviceIcon(device.deviceType);
+              return (
+                <div
+                  key={device.port}
+                  className={cn(
+                    "flex items-center gap-2 p-2 rounded-lg border text-sm",
+                    device.isOn
+                      ? "bg-green-500/5 border-green-500/20"
+                      : "bg-muted/50 border-border"
+                  )}
+                >
+                  <div className={cn(
+                    "w-8 h-8 rounded-md flex items-center justify-center",
+                    device.isOn ? "bg-green-500/10" : "bg-muted"
+                  )}>
+                    <Icon className={cn(
+                      "w-4 h-4",
+                      device.isOn ? "text-green-500" : "text-muted-foreground"
+                    )} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium truncate">{device.name}</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      Port {device.port} • {device.deviceType}
+                      {device.isOn && device.supportsDimming && ` • ${device.level}%`}
+                      {device.isOn && !device.supportsDimming && ' • ON'}
+                      {!device.isOn && ' • OFF'}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Connection status indicator */}
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
+      <div className="flex items-center justify-between text-xs text-muted-foreground pt-2">
         <div className="flex items-center gap-1">
           <div className={cn(
             "w-1.5 h-1.5 rounded-full",

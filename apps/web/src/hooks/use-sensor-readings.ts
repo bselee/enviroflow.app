@@ -40,6 +40,19 @@ interface UseSensorReadingsReturn {
   isStale: (controllerId: string, thresholdMinutes?: number) => boolean;
 }
 
+/**
+ * Extended configuration options for sensor readings hook.
+ * Includes option to disable realtime subscriptions for performance.
+ */
+interface SensorReadingsOptionsExtended extends SensorReadingsOptions {
+  /**
+   * Enable realtime subscriptions for live updates.
+   * Set to false to reduce WebSocket connections when using multiple instances.
+   * Default: true
+   */
+  enableRealtime?: boolean;
+}
+
 // =============================================================================
 // Constants
 // =============================================================================
@@ -67,13 +80,14 @@ const REALTIME_DEBOUNCE_MS = 500; // Debounce realtime updates to prevent rapid 
  * console.log(latest.temperature?.value); // 72.5
  * ```
  */
-export function useSensorReadings(options: SensorReadingsOptions = {}): UseSensorReadingsReturn {
+export function useSensorReadings(options: SensorReadingsOptionsExtended = {}): UseSensorReadingsReturn {
   const {
     controllerIds = [],
     sensorTypes,
     limit = 100,
     timeRangeHours = 24,
     dateRange,
+    enableRealtime = true, // Default to true for backward compatibility
   } = options;
 
   const [readings, setReadings] = useState<SensorReading[]>([]);
@@ -345,6 +359,12 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
     // Reset mounted ref on each effect run (important for remount scenarios)
     mountedRef.current = true;
 
+    // Skip realtime if disabled (reduces WebSocket connections)
+    if (!enableRealtime) {
+      setConnectionStatus('connected'); // Mark as connected but using polling/manual refresh
+      return;
+    }
+
     if (controllerIds.length === 0) {
       setConnectionStatus('connected'); // No subscription needed
       return;
@@ -371,7 +391,8 @@ export function useSensorReadings(options: SensorReadingsOptions = {}): UseSenso
       // Clear pending readings
       pendingReadingsRef.current = [];
     };
-  }, [controllerIds, setupSubscription]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controllerIds, enableRealtime]); // ✅ FIX: Remove setupSubscription from deps to prevent re-subscription
 
   return {
     readings,

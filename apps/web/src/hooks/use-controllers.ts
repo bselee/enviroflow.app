@@ -82,10 +82,22 @@ export function useControllers(): UseControllersState {
   // Track if component is mounted to prevent state updates after unmount
   const isMounted = useRef(true);
 
+  // Debounce flag to prevent multiple rapid refetches
+  const lastFetchTime = useRef(0);
+  const FETCH_DEBOUNCE_MS = 500; // Minimum time between fetches
+
   /**
    * Fetch all controllers for the current user
    */
-  const fetchControllers = useCallback(async () => {
+  const fetchControllers = useCallback(async (skipDebounce = false) => {
+    // Debounce rapid refetches to prevent race conditions
+    const now = Date.now();
+    if (!skipDebounce && now - lastFetchTime.current < FETCH_DEBOUNCE_MS) {
+      console.log("[Controllers] Skipping fetch - too soon since last fetch");
+      return;
+    }
+    lastFetchTime.current = now;
+
     try {
       if (isMounted.current) {
         setLoading(true);
@@ -325,8 +337,8 @@ export function useControllers(): UseControllersState {
           return { success: false, error: data.error || "Failed to add controller" };
         }
 
-        // Refresh the controllers list
-        await fetchControllers();
+        // Refresh the controllers list - skip debounce for immediate update
+        await fetchControllers(true);
 
         return { success: true, data: data.controller };
       } catch (err) {
@@ -388,8 +400,8 @@ export function useControllers(): UseControllersState {
           return { success: false, error: updateError.message };
         }
 
-        // Refresh the controllers list
-        await fetchControllers();
+        // Refresh the controllers list - skip debounce for immediate update
+        await fetchControllers(true);
 
         return { success: true, data };
       } catch (err) {
@@ -428,8 +440,8 @@ export function useControllers(): UseControllersState {
           return { success: false, error: deleteError.message };
         }
 
-        // Refresh the controllers list
-        await fetchControllers();
+        // Refresh the controllers list - skip debounce for immediate update
+        await fetchControllers(true);
 
         return { success: true };
       } catch (err) {
@@ -488,8 +500,8 @@ export function useControllers(): UseControllersState {
             })
             .eq("id", id);
 
-          // Refresh controllers
-          await fetchControllers();
+          // Refresh controllers - skip debounce for immediate update
+          await fetchControllers(true);
 
           return { success: true, data: { isOnline } };
         } catch (err) {
@@ -571,7 +583,7 @@ export function useControllers(): UseControllersState {
   // Initial data fetch
   useEffect(() => {
     isMounted.current = true;
-    fetchControllers();
+    fetchControllers(true); // Initial fetch, skip debounce
     fetchBrands();
     fetchRooms();
 
@@ -601,9 +613,9 @@ export function useControllers(): UseControllersState {
             filter: `user_id=eq.${session.user.id}`,
           },
           () => {
-            // Refresh on any change
+            // Refresh on any change - use debouncing to prevent race conditions
             console.log("[Controllers] Realtime update received");
-            fetchControllers();
+            fetchControllers(); // Use debounced version
           }
         )
         .subscribe();
@@ -622,7 +634,8 @@ export function useControllers(): UseControllersState {
         supabase.removeChannel(channel);
       }
     };
-  }, [fetchControllers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // ✅ FIX: Only subscribe once on mount, not on every fetchControllers change
 
   return {
     controllers,
