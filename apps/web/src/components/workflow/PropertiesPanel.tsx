@@ -9,6 +9,9 @@ import {
   Sun,
   Bell,
   X,
+  Settings,
+  CheckCircle,
+  Filter,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -25,6 +28,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useControllers } from "@/hooks/use-controllers";
+import { useControllerPorts } from "@/hooks/use-controller-ports";
 import type {
   WorkflowNode,
   WorkflowNodeType,
@@ -35,6 +40,7 @@ import type {
   NotificationPriority,
   NotificationChannel,
   DimmerCurve,
+  DeviceModeType,
 } from "./types";
 import {
   SENSOR_TYPE_LABELS,
@@ -45,6 +51,7 @@ import {
   NOTIFICATION_PRIORITY_LABELS,
   NOTIFICATION_CHANNEL_LABELS,
   MESSAGE_VARIABLES,
+  MODE_LABELS,
 } from "./types";
 
 /**
@@ -101,6 +108,21 @@ const NODE_TYPE_CONFIG: Record<
     label: "Notification",
     icon: Bell,
     colorClass: "text-purple-500",
+  },
+  mode: {
+    label: "Mode Programming",
+    icon: Settings,
+    colorClass: "text-indigo-500",
+  },
+  verified_action: {
+    label: "Verified Action",
+    icon: CheckCircle,
+    colorClass: "text-emerald-500",
+  },
+  port_condition: {
+    label: "Port Condition",
+    icon: Filter,
+    colorClass: "text-pink-500",
   },
 };
 
@@ -275,6 +297,78 @@ export function PropertiesPanel({
         }
         break;
       }
+
+      case "mode": {
+        if (!getField<string>("config.controllerId")) {
+          newErrors["config.controllerId"] = "Controller is required";
+        }
+        if (!getField<number>("config.port")) {
+          newErrors["config.port"] = "Port is required";
+        }
+        if (!getField<string>("config.mode")) {
+          newErrors["config.mode"] = "Mode is required";
+        }
+
+        // Mode-specific validation
+        const mode = getField<DeviceModeType>("config.mode");
+        if (mode === "auto") {
+          const autoConfig = getField<Record<string, unknown>>("config.autoConfig", {});
+          if (autoConfig.tempHighEnabled && autoConfig.tempLowEnabled) {
+            const tempLow = autoConfig.tempLowTrigger as number | undefined;
+            const tempHigh = autoConfig.tempHighTrigger as number | undefined;
+            if (tempLow !== undefined && tempHigh !== undefined && tempLow >= tempHigh) {
+              newErrors["config.autoConfig.tempTriggers"] = "Low temp must be less than high temp";
+            }
+          }
+          if (autoConfig.humidityHighEnabled && autoConfig.humidityLowEnabled) {
+            const humLow = autoConfig.humidityLowTrigger as number | undefined;
+            const humHigh = autoConfig.humidityHighTrigger as number | undefined;
+            if (humLow !== undefined && humHigh !== undefined && humLow >= humHigh) {
+              newErrors["config.autoConfig.humidityTriggers"] = "Low humidity must be less than high humidity";
+            }
+          }
+        } else if (mode === "vpd") {
+          const vpdConfig = getField<Record<string, unknown>>("config.vpdConfig", {});
+          if (vpdConfig.vpdHighEnabled && vpdConfig.vpdLowEnabled) {
+            const vpdLow = vpdConfig.vpdLowTrigger as number | undefined;
+            const vpdHigh = vpdConfig.vpdHighTrigger as number | undefined;
+            if (vpdLow !== undefined && vpdHigh !== undefined && vpdLow >= vpdHigh) {
+              newErrors["config.vpdConfig.vpdTriggers"] = "Low VPD must be less than high VPD";
+            }
+          }
+        }
+        break;
+      }
+
+      case "verified_action": {
+        if (!getField<string>("config.controllerId")) {
+          newErrors["config.controllerId"] = "Controller is required";
+        }
+        if (!getField<number>("config.port")) {
+          newErrors["config.port"] = "Port is required";
+        }
+        if (!getField<string>("config.action")) {
+          newErrors["config.action"] = "Action is required";
+        }
+        const verifyTimeout = getField<number>("config.verifyTimeout", 5);
+        if (verifyTimeout < 1) {
+          newErrors["config.verifyTimeout"] = "Timeout must be at least 1 second";
+        }
+        break;
+      }
+
+      case "port_condition": {
+        if (!getField<string>("config.controllerId")) {
+          newErrors["config.controllerId"] = "Controller is required";
+        }
+        if (!getField<number>("config.port")) {
+          newErrors["config.port"] = "Port is required";
+        }
+        if (!getField<string>("config.condition")) {
+          newErrors["config.condition"] = "Condition is required";
+        }
+        break;
+      }
     }
 
     setErrors(newErrors);
@@ -403,6 +497,30 @@ export function PropertiesPanel({
 
           {selectedNode.type === "notification" && (
             <NotificationFields
+              getField={getField}
+              updateField={updateField}
+              errors={errors}
+            />
+          )}
+
+          {selectedNode.type === "mode" && (
+            <ModeFields
+              getField={getField}
+              updateField={updateField}
+              errors={errors}
+            />
+          )}
+
+          {selectedNode.type === "verified_action" && (
+            <VerifiedActionFields
+              getField={getField}
+              updateField={updateField}
+              errors={errors}
+            />
+          )}
+
+          {selectedNode.type === "port_condition" && (
+            <PortConditionFields
               getField={getField}
               updateField={updateField}
               errors={errors}
@@ -1104,6 +1222,720 @@ function NotificationFields({ getField, updateField, errors }: FieldsProps) {
           ))}
         </div>
       </div>
+    </>
+  );
+}
+
+/**
+ * Fields for Mode Programming node configuration.
+ */
+function ModeFields({ getField, updateField, errors }: FieldsProps) {
+  const { controllers } = useControllers();
+  const controllerId = getField<string>("config.controllerId", "");
+  const { ports } = useControllerPorts({ controllerId, enabled: !!controllerId });
+  const mode = getField<DeviceModeType | undefined>("config.mode");
+
+  return (
+    <>
+      {/* Controller Selection */}
+      <div className="space-y-2">
+        <Label>Controller</Label>
+        <Select
+          value={controllerId}
+          onValueChange={(value) => {
+            const ctrl = controllers.find((c) => c.id === value);
+            updateField("config.controllerId", value);
+            updateField("config.controllerName", ctrl?.name);
+            updateField("config.port", undefined); // Reset port when controller changes
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select controller" />
+          </SelectTrigger>
+          <SelectContent>
+            {controllers.filter(c => c.brand === 'ac_infinity').map((ctrl) => (
+              <SelectItem key={ctrl.id} value={ctrl.id}>
+                {ctrl.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {errors["config.controllerId"] && (
+          <p className="text-xs text-destructive">{errors["config.controllerId"]}</p>
+        )}
+      </div>
+
+      {/* Port Selection */}
+      {controllerId && (
+        <div className="space-y-2">
+          <Label>Port</Label>
+          <Select
+            value={getField<number | undefined>("config.port")?.toString() || ""}
+            onValueChange={(value) => {
+              const portNum = parseInt(value);
+              const port = ports.find(p => p.port_number === portNum);
+              updateField("config.port", portNum);
+              updateField("config.portName", port?.port_name);
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select port" />
+            </SelectTrigger>
+            <SelectContent>
+              {ports.map((port) => (
+                <SelectItem key={port.port_number} value={port.port_number.toString()}>
+                  Port {port.port_number}{port.port_name ? ` - ${port.port_name}` : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {errors["config.port"] && (
+            <p className="text-xs text-destructive">{errors["config.port"]}</p>
+          )}
+        </div>
+      )}
+
+      {/* Mode Type Selection */}
+      <div className="space-y-2">
+        <Label>Mode Type</Label>
+        <Select
+          value={mode}
+          onValueChange={(value) => updateField("config.mode", value)}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select mode" />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.entries(MODE_LABELS) as [DeviceModeType, string][]).map(
+              ([value, label]) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              )
+            )}
+          </SelectContent>
+        </Select>
+        {errors["config.mode"] && (
+          <p className="text-xs text-destructive">{errors["config.mode"]}</p>
+        )}
+      </div>
+
+      {/* AUTO Mode Configuration */}
+      {mode === "auto" && (
+        <>
+          <div className="space-y-3 rounded-lg border border-border p-3">
+            <Label className="text-sm font-semibold">Temperature Triggers</Label>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="tempHighEnabled"
+                checked={getField<boolean>("config.autoConfig.tempHighEnabled", false)}
+                onCheckedChange={(checked) => updateField("config.autoConfig.tempHighEnabled", checked)}
+              />
+              <Label htmlFor="tempHighEnabled" className="text-sm font-normal">
+                High Temp
+              </Label>
+              <Input
+                type="number"
+                className="ml-auto w-20"
+                value={getField<number | "">("config.autoConfig.tempHighTrigger", "")}
+                onChange={(e) => updateField("config.autoConfig.tempHighTrigger", e.target.value ? Number(e.target.value) : undefined)}
+                disabled={!getField<boolean>("config.autoConfig.tempHighEnabled")}
+              />
+              <span className="text-sm text-muted-foreground">°F</span>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="tempLowEnabled"
+                checked={getField<boolean>("config.autoConfig.tempLowEnabled", false)}
+                onCheckedChange={(checked) => updateField("config.autoConfig.tempLowEnabled", checked)}
+              />
+              <Label htmlFor="tempLowEnabled" className="text-sm font-normal">
+                Low Temp
+              </Label>
+              <Input
+                type="number"
+                className="ml-auto w-20"
+                value={getField<number | "">("config.autoConfig.tempLowTrigger", "")}
+                onChange={(e) => updateField("config.autoConfig.tempLowTrigger", e.target.value ? Number(e.target.value) : undefined)}
+                disabled={!getField<boolean>("config.autoConfig.tempLowEnabled")}
+              />
+              <span className="text-sm text-muted-foreground">°F</span>
+            </div>
+            {errors["config.autoConfig.tempTriggers"] && (
+              <p className="text-xs text-destructive">{errors["config.autoConfig.tempTriggers"]}</p>
+            )}
+          </div>
+
+          <div className="space-y-3 rounded-lg border border-border p-3">
+            <Label className="text-sm font-semibold">Humidity Triggers</Label>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="humidityHighEnabled"
+                checked={getField<boolean>("config.autoConfig.humidityHighEnabled", false)}
+                onCheckedChange={(checked) => updateField("config.autoConfig.humidityHighEnabled", checked)}
+              />
+              <Label htmlFor="humidityHighEnabled" className="text-sm font-normal">
+                High Humidity
+              </Label>
+              <Input
+                type="number"
+                className="ml-auto w-20"
+                value={getField<number | "">("config.autoConfig.humidityHighTrigger", "")}
+                onChange={(e) => updateField("config.autoConfig.humidityHighTrigger", e.target.value ? Number(e.target.value) : undefined)}
+                disabled={!getField<boolean>("config.autoConfig.humidityHighEnabled")}
+              />
+              <span className="text-sm text-muted-foreground">%</span>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="humidityLowEnabled"
+                checked={getField<boolean>("config.autoConfig.humidityLowEnabled", false)}
+                onCheckedChange={(checked) => updateField("config.autoConfig.humidityLowEnabled", checked)}
+              />
+              <Label htmlFor="humidityLowEnabled" className="text-sm font-normal">
+                Low Humidity
+              </Label>
+              <Input
+                type="number"
+                className="ml-auto w-20"
+                value={getField<number | "">("config.autoConfig.humidityLowTrigger", "")}
+                onChange={(e) => updateField("config.autoConfig.humidityLowTrigger", e.target.value ? Number(e.target.value) : undefined)}
+                disabled={!getField<boolean>("config.autoConfig.humidityLowEnabled")}
+              />
+              <span className="text-sm text-muted-foreground">%</span>
+            </div>
+            {errors["config.autoConfig.humidityTriggers"] && (
+              <p className="text-xs text-destructive">{errors["config.autoConfig.humidityTriggers"]}</p>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <Label>Level Range (0-10)</Label>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Min Level</Label>
+                <Slider
+                  value={[getField<number>("config.autoConfig.levelLow", 0)]}
+                  onValueChange={([value]) => updateField("config.autoConfig.levelLow", value)}
+                  min={0}
+                  max={10}
+                  step={1}
+                />
+                <span className="text-xs">{getField<number>("config.autoConfig.levelLow", 0)}</span>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Max Level</Label>
+                <Slider
+                  value={[getField<number>("config.autoConfig.levelHigh", 10)]}
+                  onValueChange={([value]) => updateField("config.autoConfig.levelHigh", value)}
+                  min={0}
+                  max={10}
+                  step={1}
+                />
+                <span className="text-xs">{getField<number>("config.autoConfig.levelHigh", 10)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-border p-3">
+            <Label htmlFor="autoTransition">Smooth Transition</Label>
+            <Switch
+              id="autoTransition"
+              checked={getField<boolean>("config.autoConfig.transition", false)}
+              onCheckedChange={(checked) => updateField("config.autoConfig.transition", checked)}
+            />
+          </div>
+        </>
+      )}
+
+      {/* VPD Mode Configuration */}
+      {mode === "vpd" && (
+        <>
+          <div className="space-y-3 rounded-lg border border-border p-3">
+            <Label className="text-sm font-semibold">VPD Triggers</Label>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="vpdHighEnabled"
+                checked={getField<boolean>("config.vpdConfig.vpdHighEnabled", false)}
+                onCheckedChange={(checked) => updateField("config.vpdConfig.vpdHighEnabled", checked)}
+              />
+              <Label htmlFor="vpdHighEnabled" className="text-sm font-normal">
+                High VPD
+              </Label>
+              <Input
+                type="number"
+                step="0.01"
+                className="ml-auto w-20"
+                value={getField<number | "">("config.vpdConfig.vpdHighTrigger", "")}
+                onChange={(e) => updateField("config.vpdConfig.vpdHighTrigger", e.target.value ? Number(e.target.value) : undefined)}
+                disabled={!getField<boolean>("config.vpdConfig.vpdHighEnabled")}
+              />
+              <span className="text-sm text-muted-foreground">kPa</span>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="vpdLowEnabled"
+                checked={getField<boolean>("config.vpdConfig.vpdLowEnabled", false)}
+                onCheckedChange={(checked) => updateField("config.vpdConfig.vpdLowEnabled", checked)}
+              />
+              <Label htmlFor="vpdLowEnabled" className="text-sm font-normal">
+                Low VPD
+              </Label>
+              <Input
+                type="number"
+                step="0.01"
+                className="ml-auto w-20"
+                value={getField<number | "">("config.vpdConfig.vpdLowTrigger", "")}
+                onChange={(e) => updateField("config.vpdConfig.vpdLowTrigger", e.target.value ? Number(e.target.value) : undefined)}
+                disabled={!getField<boolean>("config.vpdConfig.vpdLowEnabled")}
+              />
+              <span className="text-sm text-muted-foreground">kPa</span>
+            </div>
+            {errors["config.vpdConfig.vpdTriggers"] && (
+              <p className="text-xs text-destructive">{errors["config.vpdConfig.vpdTriggers"]}</p>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <Label>Level Range (0-10)</Label>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Min Level</Label>
+                <Slider
+                  value={[getField<number>("config.vpdConfig.levelLow", 0)]}
+                  onValueChange={([value]) => updateField("config.vpdConfig.levelLow", value)}
+                  min={0}
+                  max={10}
+                  step={1}
+                />
+                <span className="text-xs">{getField<number>("config.vpdConfig.levelLow", 0)}</span>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Max Level</Label>
+                <Slider
+                  value={[getField<number>("config.vpdConfig.levelHigh", 10)]}
+                  onValueChange={([value]) => updateField("config.vpdConfig.levelHigh", value)}
+                  min={0}
+                  max={10}
+                  step={1}
+                />
+                <span className="text-xs">{getField<number>("config.vpdConfig.levelHigh", 10)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-border p-3">
+            <Label htmlFor="vpdTransition">Smooth Transition</Label>
+            <Switch
+              id="vpdTransition"
+              checked={getField<boolean>("config.vpdConfig.transition", false)}
+              onCheckedChange={(checked) => updateField("config.vpdConfig.transition", checked)}
+            />
+          </div>
+        </>
+      )}
+
+      {/* TIMER Mode Configuration */}
+      {mode === "timer" && (
+        <>
+          <div className="space-y-2">
+            <Label htmlFor="timerDurationOn">Duration On (seconds)</Label>
+            <Input
+              id="timerDurationOn"
+              type="number"
+              value={getField<number | "">("config.timerConfig.durationOn", "")}
+              onChange={(e) => updateField("config.timerConfig.durationOn", e.target.value ? Number(e.target.value) : undefined)}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="timerDurationOff">Duration Off (seconds)</Label>
+            <Input
+              id="timerDurationOff"
+              type="number"
+              value={getField<number | "">("config.timerConfig.durationOff", "")}
+              onChange={(e) => updateField("config.timerConfig.durationOff", e.target.value ? Number(e.target.value) : undefined)}
+            />
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label>Level (0-10)</Label>
+              <span className="text-sm font-medium">
+                {getField<number>("config.timerConfig.level", 5)}
+              </span>
+            </div>
+            <Slider
+              value={[getField<number>("config.timerConfig.level", 5)]}
+              onValueChange={([value]) => updateField("config.timerConfig.level", value)}
+              min={0}
+              max={10}
+              step={1}
+            />
+          </div>
+        </>
+      )}
+
+      {/* CYCLE Mode Configuration */}
+      {mode === "cycle" && (
+        <>
+          <div className="space-y-2">
+            <Label htmlFor="cycleDurationOn">Duration On (seconds)</Label>
+            <Input
+              id="cycleDurationOn"
+              type="number"
+              value={getField<number | "">("config.cycleConfig.durationOn", "")}
+              onChange={(e) => updateField("config.cycleConfig.durationOn", e.target.value ? Number(e.target.value) : undefined)}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="cycleDurationOff">Duration Off (seconds)</Label>
+            <Input
+              id="cycleDurationOff"
+              type="number"
+              value={getField<number | "">("config.cycleConfig.durationOff", "")}
+              onChange={(e) => updateField("config.cycleConfig.durationOff", e.target.value ? Number(e.target.value) : undefined)}
+            />
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label>Level (0-10)</Label>
+              <span className="text-sm font-medium">
+                {getField<number>("config.cycleConfig.level", 5)}
+              </span>
+            </div>
+            <Slider
+              value={[getField<number>("config.cycleConfig.level", 5)]}
+              onValueChange={([value]) => updateField("config.cycleConfig.level", value)}
+              min={0}
+              max={10}
+              step={1}
+            />
+          </div>
+        </>
+      )}
+
+      {/* SCHEDULE Mode Configuration */}
+      {mode === "schedule" && (
+        <div className="space-y-2">
+          <Label>Schedule Entries</Label>
+          <p className="text-xs text-muted-foreground">
+            Schedule configuration is complex. Use the advanced mode programming interface for full schedule setup.
+          </p>
+        </div>
+      )}
+
+      {/* Priority Field */}
+      <div className="space-y-2">
+        <Label htmlFor="priority">Execution Priority</Label>
+        <Input
+          id="priority"
+          type="number"
+          min={0}
+          value={getField<number | "">("config.priority", 0)}
+          onChange={(e) => updateField("config.priority", e.target.value ? Number(e.target.value) : 0)}
+        />
+        <p className="text-xs text-muted-foreground">
+          Lower numbers execute first
+        </p>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Fields for Verified Action node configuration.
+ */
+function VerifiedActionFields({ getField, updateField, errors }: FieldsProps) {
+  const { controllers } = useControllers();
+  const controllerId = getField<string>("config.controllerId", "");
+  const { ports } = useControllerPorts({ controllerId, enabled: !!controllerId });
+  const action = getField<string>("config.action");
+
+  return (
+    <>
+      {/* Controller Selection */}
+      <div className="space-y-2">
+        <Label>Controller</Label>
+        <Select
+          value={controllerId}
+          onValueChange={(value) => {
+            const ctrl = controllers.find((c) => c.id === value);
+            updateField("config.controllerId", value);
+            updateField("config.controllerName", ctrl?.name);
+            updateField("config.port", undefined);
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select controller" />
+          </SelectTrigger>
+          <SelectContent>
+            {controllers.filter(c => c.brand === 'ac_infinity').map((ctrl) => (
+              <SelectItem key={ctrl.id} value={ctrl.id}>
+                {ctrl.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {errors["config.controllerId"] && (
+          <p className="text-xs text-destructive">{errors["config.controllerId"]}</p>
+        )}
+      </div>
+
+      {/* Port Selection */}
+      {controllerId && (
+        <div className="space-y-2">
+          <Label>Port</Label>
+          <Select
+            value={getField<number | undefined>("config.port")?.toString() || ""}
+            onValueChange={(value) => {
+              const portNum = parseInt(value);
+              const port = ports.find(p => p.port_number === portNum);
+              updateField("config.port", portNum);
+              updateField("config.portName", port?.port_name);
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select port" />
+            </SelectTrigger>
+            <SelectContent>
+              {ports.map((port) => (
+                <SelectItem key={port.port_number} value={port.port_number.toString()}>
+                  Port {port.port_number}{port.port_name ? ` - ${port.port_name}` : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {errors["config.port"] && (
+            <p className="text-xs text-destructive">{errors["config.port"]}</p>
+          )}
+        </div>
+      )}
+
+      {/* Action Type */}
+      <div className="space-y-2">
+        <Label>Action</Label>
+        <Select
+          value={action}
+          onValueChange={(value) => updateField("config.action", value)}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select action" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="on">Turn On</SelectItem>
+            <SelectItem value="off">Turn Off</SelectItem>
+            <SelectItem value="set_level">Set Level</SelectItem>
+          </SelectContent>
+        </Select>
+        {errors["config.action"] && (
+          <p className="text-xs text-destructive">{errors["config.action"]}</p>
+        )}
+      </div>
+
+      {/* Level slider (only for set_level) */}
+      {action === "set_level" && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <Label>Level (0-10)</Label>
+            <span className="text-sm font-medium">
+              {getField<number>("config.level", 5)}
+            </span>
+          </div>
+          <Slider
+            value={[getField<number>("config.level", 5)]}
+            onValueChange={([value]) => updateField("config.level", value)}
+            min={0}
+            max={10}
+            step={1}
+          />
+        </div>
+      )}
+
+      {/* Verify Timeout */}
+      <div className="space-y-2">
+        <Label htmlFor="verifyTimeout">Verify Timeout (seconds)</Label>
+        <Input
+          id="verifyTimeout"
+          type="number"
+          min={1}
+          value={getField<number>("config.verifyTimeout", 5)}
+          onChange={(e) => updateField("config.verifyTimeout", e.target.value ? Number(e.target.value) : 5)}
+        />
+        {errors["config.verifyTimeout"] && (
+          <p className="text-xs text-destructive">{errors["config.verifyTimeout"]}</p>
+        )}
+      </div>
+
+      {/* Retry Count */}
+      <div className="space-y-2">
+        <Label htmlFor="retryCount">Retry Count</Label>
+        <Input
+          id="retryCount"
+          type="number"
+          min={0}
+          max={5}
+          value={getField<number>("config.retryCount", 3)}
+          onChange={(e) => updateField("config.retryCount", e.target.value ? Number(e.target.value) : 3)}
+        />
+      </div>
+
+      {/* Rollback on Failure */}
+      <div className="flex items-center justify-between rounded-lg border border-border p-3">
+        <Label htmlFor="rollbackOnFailure">Rollback on Failure</Label>
+        <Switch
+          id="rollbackOnFailure"
+          checked={getField<boolean>("config.rollbackOnFailure", true)}
+          onCheckedChange={(checked) => updateField("config.rollbackOnFailure", checked)}
+        />
+      </div>
+    </>
+  );
+}
+
+/**
+ * Fields for Port Condition node configuration.
+ */
+function PortConditionFields({ getField, updateField, errors }: FieldsProps) {
+  const { controllers } = useControllers();
+  const controllerId = getField<string>("config.controllerId", "");
+  const { ports } = useControllerPorts({ controllerId, enabled: !!controllerId });
+  const condition = getField<string>("config.condition");
+
+  return (
+    <>
+      {/* Controller Selection */}
+      <div className="space-y-2">
+        <Label>Controller</Label>
+        <Select
+          value={controllerId}
+          onValueChange={(value) => {
+            const ctrl = controllers.find((c) => c.id === value);
+            updateField("config.controllerId", value);
+            updateField("config.controllerName", ctrl?.name);
+            updateField("config.port", undefined);
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select controller" />
+          </SelectTrigger>
+          <SelectContent>
+            {controllers.filter(c => c.brand === 'ac_infinity').map((ctrl) => (
+              <SelectItem key={ctrl.id} value={ctrl.id}>
+                {ctrl.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {errors["config.controllerId"] && (
+          <p className="text-xs text-destructive">{errors["config.controllerId"]}</p>
+        )}
+      </div>
+
+      {/* Port Selection */}
+      {controllerId && (
+        <div className="space-y-2">
+          <Label>Port</Label>
+          <Select
+            value={getField<number | undefined>("config.port")?.toString() || ""}
+            onValueChange={(value) => {
+              const portNum = parseInt(value);
+              const port = ports.find(p => p.port_number === portNum);
+              updateField("config.port", portNum);
+              updateField("config.portName", port?.port_name);
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select port" />
+            </SelectTrigger>
+            <SelectContent>
+              {ports.map((port) => (
+                <SelectItem key={port.port_number} value={port.port_number.toString()}>
+                  Port {port.port_number}{port.port_name ? ` - ${port.port_name}` : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {errors["config.port"] && (
+            <p className="text-xs text-destructive">{errors["config.port"]}</p>
+          )}
+        </div>
+      )}
+
+      {/* Condition Type */}
+      <div className="space-y-2">
+        <Label>Condition</Label>
+        <Select
+          value={condition}
+          onValueChange={(value) => updateField("config.condition", value)}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select condition" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="is_on">Is On</SelectItem>
+            <SelectItem value="is_off">Is Off</SelectItem>
+            <SelectItem value="level_equals">Level Equals</SelectItem>
+            <SelectItem value="level_above">Level Above</SelectItem>
+            <SelectItem value="level_below">Level Below</SelectItem>
+            <SelectItem value="mode_equals">Mode Equals</SelectItem>
+          </SelectContent>
+        </Select>
+        {errors["config.condition"] && (
+          <p className="text-xs text-destructive">{errors["config.condition"]}</p>
+        )}
+      </div>
+
+      {/* Target Level (for level conditions) */}
+      {(condition === "level_equals" || condition === "level_above" || condition === "level_below") && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <Label>Target Level (0-10)</Label>
+            <span className="text-sm font-medium">
+              {getField<number>("config.targetLevel", 5)}
+            </span>
+          </div>
+          <Slider
+            value={[getField<number>("config.targetLevel", 5)]}
+            onValueChange={([value]) => updateField("config.targetLevel", value)}
+            min={0}
+            max={10}
+            step={1}
+          />
+        </div>
+      )}
+
+      {/* Target Mode (for mode_equals) */}
+      {condition === "mode_equals" && (
+        <div className="space-y-2">
+          <Label>Target Mode</Label>
+          <Select
+            value={getField<string>("config.targetMode", "")}
+            onValueChange={(value) => updateField("config.targetMode", value)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select mode" />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.entries(MODE_LABELS) as [DeviceModeType, string][]).map(
+                ([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                )
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
     </>
   );
 }

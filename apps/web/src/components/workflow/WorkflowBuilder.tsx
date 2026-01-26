@@ -42,6 +42,7 @@ import { ConditionNode } from "./nodes/ConditionNode";
 import { ActionNode } from "./nodes/ActionNode";
 import { DimmerNode } from "./nodes/DimmerNode";
 import { NotificationNode } from "./nodes/NotificationNode";
+import { ModeNode } from "./nodes/ModeNode";
 import type {
   WorkflowNode,
   WorkflowEdge,
@@ -53,6 +54,7 @@ import type {
   ActionNodeData,
   DimmerNodeData,
   NotificationNodeData,
+  ModeNodeData,
 } from "./types";
 
 /**
@@ -79,6 +81,7 @@ const nodeTypes: NodeTypes = {
   action: ActionNode,
   dimmer: DimmerNode,
   notification: NotificationNode,
+  mode: ModeNode,
 };
 
 /** Node palette items for drag and drop */
@@ -154,7 +157,7 @@ interface WorkflowBuilderProps {
 }
 
 /** Union type for all node data types */
-type AllNodeData = TriggerNodeData | SensorNodeData | ConditionNodeData | ActionNodeData | DimmerNodeData | NotificationNodeData;
+type AllNodeData = TriggerNodeData | SensorNodeData | ConditionNodeData | ActionNodeData | DimmerNodeData | NotificationNodeData | ModeNodeData;
 
 /**
  * Creates default node data based on node type
@@ -198,6 +201,44 @@ function createDefaultNodeData(type: string, label: string): AllNodeData {
           channels: ["push"],
         },
       } as NotificationNodeData;
+    case "mode":
+      return {
+        label,
+        config: {
+          controllerId: "",
+          controllerName: "",
+          port: 1,
+          portName: "",
+          mode: "auto",
+          priority: 1,
+        },
+      } as ModeNodeData;
+    case "verified_action":
+      return {
+        label,
+        config: {
+          controllerId: "",
+          controllerName: "",
+          port: 1,
+          portName: "",
+          action: "set_level",
+          level: 5,
+          verifyTimeout: 30,
+          retryCount: 3,
+          rollbackOnFailure: true,
+        },
+      } as any; // Will be properly typed when VerifiedActionNodeData is defined
+    case "port_condition":
+      return {
+        label,
+        config: {
+          controllerId: "",
+          controllerName: "",
+          port: 1,
+          portName: "",
+          condition: "is_on",
+        },
+      } as any; // Will be properly typed when PortConditionNodeData is defined
     default:
       return {
         label,

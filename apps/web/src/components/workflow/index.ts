@@ -18,6 +18,7 @@ export { ConditionNode } from "./nodes/ConditionNode";
 export { ActionNode } from "./nodes/ActionNode";
 export { DimmerNode } from "./nodes/DimmerNode";
 export { NotificationNode } from "./nodes/NotificationNode";
+export { ModeNode } from "./nodes/ModeNode";
 
 // Palette component
 export { NodePalette } from "./NodePalette";
@@ -58,6 +59,15 @@ export type {
   NotificationChannel,
   NotificationNodeConfig,
   NotificationNodeData,
+  // Mode programming types
+  ModeNodeData,
+  ModeNodeConfig,
+  DeviceModeType,
+  AutoModeConfig,
+  VpdModeConfig,
+  TimerModeConfig,
+  CycleModeConfig,
+  ScheduleModeConfig,
   // Workflow types
   WorkflowNodeType,
   WorkflowNodeData,
@@ -80,4 +90,5 @@ export {
   NOTIFICATION_PRIORITY_LABELS,
   NOTIFICATION_CHANNEL_LABELS,
   MESSAGE_VARIABLES,
+  MODE_LABELS,
 } from "./types";

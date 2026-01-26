@@ -68,8 +68,66 @@ function getSupabase(): SupabaseClient {
 // Workflow node types
 interface WorkflowNode {
   id: string
-  type: 'trigger' | 'sensor' | 'condition' | 'action' | 'delay' | 'dimmer' | 'notification'
+  type: 'trigger' | 'sensor' | 'condition' | 'action' | 'delay' | 'dimmer' | 'notification' | 'mode' | 'verified_action' | 'port_condition'
   data: Record<string, unknown>
+}
+
+// Device Programming Node Configurations
+interface ModeNodeConfig {
+  controllerId: string
+  port: number
+  mode: 'off' | 'on' | 'auto' | 'vpd' | 'timer' | 'cycle' | 'schedule'
+  level?: number
+  tempTriggerHigh?: number
+  tempTriggerLow?: number
+  humidityTriggerHigh?: number
+  humidityTriggerLow?: number
+  vpdTriggerHigh?: number
+  vpdTriggerLow?: number
+  deviceBehavior?: 'cooling' | 'heating' | 'humidify' | 'dehumidify'
+  maxLevel?: number
+  minLevel?: number
+  transitionEnabled?: boolean
+  transitionSpeed?: number
+  bufferEnabled?: boolean
+  bufferValue?: number
+  timerType?: 'on' | 'off'
+  timerDuration?: number
+  cycleOnDuration?: number
+  cycleOffDuration?: number
+  scheduleStartTime?: string
+  scheduleEndTime?: string
+  scheduleDays?: number[]
+  leafTempOffset?: number
+}
+
+interface VerifiedActionNodeConfig {
+  controllerId: string
+  port: number
+  action: 'on' | 'off' | 'set_level'
+  level?: number
+  verifyTimeout?: number
+  retryCount?: number
+  rollbackOnFailure?: boolean
+}
+
+interface PortConditionNodeConfig {
+  controllerId: string
+  port: number
+  condition: 'is_on' | 'is_off' | 'level_equals' | 'level_above' | 'level_below' | 'mode_equals'
+  targetLevel?: number
+  targetMode?: string
+}
+
+// Port state snapshot structure
+interface PortStateSnapshot {
+  port: number
+  level: number
+  isOn: boolean
+  mode: string
+  modeId: number
+  capturedAt: Date
+  rawData?: Record<string, unknown>
 }
 
 interface WorkflowEdge {
@@ -292,9 +350,10 @@ async function executeWorkflow(
     }
   }
   
-  // Find action nodes
-  const actionNodes = parsedNodes.filter(n => 
-    n.type === 'action' || n.type === 'dimmer' || n.type === 'notification'
+  // Find action nodes (including new device programming nodes)
+  const actionNodes = parsedNodes.filter(n =>
+    n.type === 'action' || n.type === 'dimmer' || n.type === 'notification' ||
+    n.type === 'mode' || n.type === 'verified_action' || n.type === 'port_condition'
   )
   
   if (actionNodes.length === 0) {
@@ -637,6 +696,30 @@ async function executeAction(
       break
     }
 
+    case 'mode': {
+      const modeData = data.config as ModeNodeConfig
+      if (modeData) {
+        await executeModeNode(supabase, userId, modeData, context)
+      }
+      break
+    }
+
+    case 'verified_action': {
+      const verifiedActionData = data.config as VerifiedActionNodeConfig
+      if (verifiedActionData) {
+        await executeVerifiedActionNode(supabase, userId, verifiedActionData, context)
+      }
+      break
+    }
+
+    case 'port_condition': {
+      const conditionData = data.config as PortConditionNodeConfig
+      // Port conditions are evaluated during workflow execution, not executed as actions
+      // They determine the next branch to follow based on port state
+      console.log(`Port condition node should be evaluated during workflow graph traversal, not executed as action`)
+      break
+    }
+
     default:
       console.log(`Unknown action type: ${type}`)
   }
@@ -953,5 +1036,589 @@ async function logActivity(
       })
   } catch (err) {
     console.error('Failed to log activity:', err)
+  }
+}
+
+// ============================================
+// Device Programming Node Execution Handlers
+// ============================================
+
+/**
+ * Helper: Sleep for specified milliseconds
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/**
+ * Helper: Capture current port state
+ * Uses the adapter's getPortState method to get complete state snapshot
+ */
+async function capturePortState(
+  supabase: SupabaseClient,
+  controllerId: string,
+  port: number
+): Promise<PortStateSnapshot | null> {
+  try {
+    // Get controller with decrypted credentials
+    const { data: controller, error: controllerError } = await supabase
+      .from('controllers')
+      .select('*')
+      .eq('id', controllerId)
+      .single()
+
+    if (controllerError || !controller) {
+      console.error('[capturePortState] Controller not found:', controllerError)
+      return null
+    }
+
+    // Decrypt credentials
+    let decryptedCredentials: Record<string, unknown>
+    try {
+      decryptedCredentials = decryptCredentials(controller.credentials)
+    } catch (error) {
+      console.error('[capturePortState] Failed to decrypt credentials:', error)
+      return null
+    }
+
+    // Get adapter and connect
+    const brand = controller.brand as ControllerBrand
+    if (!isBrandSupported(brand)) {
+      console.error('[capturePortState] Unsupported brand:', brand)
+      return null
+    }
+
+    const adapter = getAdapter(brand)
+    const adapterCredentials = buildAdapterCredentials(brand, decryptedCredentials)
+
+    const connectionResult = await adapter.connect(adapterCredentials)
+    if (!connectionResult.success) {
+      console.error('[capturePortState] Connection failed:', connectionResult.error)
+      return null
+    }
+
+    try {
+      // Use precision control adapter if available
+      if ('getPortState' in adapter && typeof adapter.getPortState === 'function') {
+        const state = await (adapter as any).getPortState(controller.controller_id, port)
+        return state
+      }
+
+      // Fallback: query from database
+      const { data: portData } = await supabase
+        .from('controller_ports')
+        .select('*')
+        .eq('controller_id', controllerId)
+        .eq('port_number', port)
+        .single()
+
+      if (portData) {
+        return {
+          port: portData.port_number,
+          level: portData.power_level || 0,
+          isOn: portData.is_on || false,
+          mode: mapModeIdToName(portData.current_mode || 0),
+          modeId: portData.current_mode || 0,
+          capturedAt: new Date(),
+          rawData: portData
+        }
+      }
+
+      return null
+    } finally {
+      await adapter.disconnect(controller.controller_id)
+    }
+  } catch (error) {
+    console.error('[capturePortState] Error:', error)
+    return null
+  }
+}
+
+/**
+ * Helper: Map mode ID to mode name
+ */
+function mapModeIdToName(modeId: number): string {
+  const map: Record<number, string> = {
+    0: 'off',
+    1: 'on',
+    2: 'auto',
+    3: 'timer',
+    4: 'cycle',
+    5: 'schedule',
+    6: 'vpd',
+  }
+  return map[modeId] || 'off'
+}
+
+/**
+ * Helper: Log to command_history table
+ */
+async function logCommandHistory(
+  supabase: SupabaseClient,
+  entry: {
+    controller_id: string
+    user_id?: string
+    port: number
+    command_type: string
+    target_value?: number
+    state_before: PortStateSnapshot | null
+    state_after?: PortStateSnapshot | null
+    success: boolean
+    error_message?: string
+    verification_passed?: boolean
+    verification_attempts?: number
+    rollback_attempted?: boolean
+    rollback_success?: boolean
+    execution_duration_ms?: number
+    verification_duration_ms?: number
+    total_duration_ms?: number
+    api_call_count?: number
+    source?: 'user' | 'workflow' | 'schedule' | 'api'
+    workflow_id?: string
+  }
+): Promise<void> {
+  try {
+    const commandId = `cmd_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+
+    await supabase
+      .from('command_history')
+      .insert({
+        command_id: commandId,
+        controller_id: entry.controller_id,
+        user_id: entry.user_id,
+        port: entry.port,
+        command_type: entry.command_type,
+        target_value: entry.target_value,
+        state_before: entry.state_before,
+        state_after: entry.state_after || null,
+        success: entry.success,
+        error_message: entry.error_message,
+        verification_passed: entry.verification_passed,
+        verification_attempts: entry.verification_attempts || 0,
+        rollback_attempted: entry.rollback_attempted || false,
+        rollback_success: entry.rollback_success,
+        execution_duration_ms: entry.execution_duration_ms,
+        verification_duration_ms: entry.verification_duration_ms,
+        total_duration_ms: entry.total_duration_ms,
+        api_call_count: entry.api_call_count || 1,
+        source: entry.source || 'workflow',
+        workflow_id: entry.workflow_id,
+        executed_at: new Date().toISOString()
+      })
+  } catch (error) {
+    console.error('[logCommandHistory] Failed to log command:', error)
+  }
+}
+
+/**
+ * Helper: Verify that mode was applied correctly
+ */
+function verifyModeApplied(
+  config: ModeNodeConfig,
+  state: PortStateSnapshot | null
+): boolean {
+  if (!state) return false
+
+  // Check if mode matches
+  if (state.mode !== config.mode) {
+    return false
+  }
+
+  // For 'on' mode, verify level
+  if (config.mode === 'on' && config.level !== undefined) {
+    // Allow ±1 tolerance
+    if (Math.abs(state.level - config.level) > 1) {
+      return false
+    }
+  }
+
+  // For 'off' mode, verify device is off
+  if (config.mode === 'off' && state.isOn) {
+    return false
+  }
+
+  return true
+}
+
+/**
+ * Helper: Verify that action was executed correctly
+ */
+function verifyAction(
+  config: VerifiedActionNodeConfig,
+  state: PortStateSnapshot | null
+): boolean {
+  if (!state) return false
+
+  switch (config.action) {
+    case 'on':
+      return state.isOn === true
+    case 'off':
+      return state.isOn === false
+    case 'set_level':
+      if (config.level === undefined) return false
+      // Allow ±1 tolerance (0-10 scale)
+      return Math.abs(state.level - config.level) <= 1
+    default:
+      return false
+  }
+}
+
+/**
+ * Execute MODE node - Program device modes
+ */
+async function executeModeNode(
+  supabase: SupabaseClient,
+  userId: string,
+  config: ModeNodeConfig,
+  context: ActionContext
+): Promise<void> {
+  const startTime = Date.now()
+
+  console.log(`[MODE Node] Setting port ${config.port} to mode ${config.mode}`)
+
+  try {
+    // Step 1: Get controller and decrypt credentials
+    const { data: controller, error: controllerError } = await supabase
+      .from('controllers')
+      .select('*')
+      .eq('id', config.controllerId)
+      .eq('user_id', userId)
+      .single()
+
+    if (controllerError || !controller) {
+      throw new Error(`Controller not found: ${controllerError?.message || 'Unknown error'}`)
+    }
+
+    // Handle offline controllers gracefully (per PRD: skip and continue)
+    if (controller.status === 'offline') {
+      console.warn(`[MODE Node] Controller ${controller.name} is offline - skipping`)
+      await logActivity(supabase, {
+        user_id: userId,
+        workflow_id: context.workflowId,
+        controller_id: config.controllerId,
+        action_type: 'mode_node_skipped',
+        action_data: { port: config.port, mode: config.mode, reason: 'controller_offline' },
+        result: 'skipped'
+      })
+      return
+    }
+
+    // Step 2: Capture state before
+    const stateBefore = await capturePortState(supabase, config.controllerId, config.port)
+
+    // Step 3: Get adapter and connect
+    let decryptedCredentials: Record<string, unknown>
+    try {
+      decryptedCredentials = decryptCredentials(controller.credentials)
+    } catch (error) {
+      throw new Error('Failed to decrypt credentials')
+    }
+
+    const brand = controller.brand as ControllerBrand
+    if (!isBrandSupported(brand)) {
+      throw new Error(`Unsupported controller brand: ${brand}`)
+    }
+
+    const adapter = getAdapter(brand)
+    const adapterCredentials = buildAdapterCredentials(brand, decryptedCredentials)
+
+    const connectionResult = await adapter.connect(adapterCredentials)
+    if (!connectionResult.success) {
+      throw new Error(`Failed to connect: ${connectionResult.error}`)
+    }
+
+    let verified = false
+    let attempts = 0
+    const maxAttempts = 3
+    let stateAfter: PortStateSnapshot | null = null
+
+    try {
+      // Step 4: Build mode configuration payload
+      const modePayload = {
+        mode: config.mode,
+        level: config.level,
+        tempTriggerHigh: config.tempTriggerHigh,
+        tempTriggerLow: config.tempTriggerLow,
+        humidityTriggerHigh: config.humidityTriggerHigh,
+        humidityTriggerLow: config.humidityTriggerLow,
+        vpdTriggerHigh: config.vpdTriggerHigh,
+        vpdTriggerLow: config.vpdTriggerLow,
+        deviceBehavior: config.deviceBehavior,
+        maxLevel: config.maxLevel,
+        minLevel: config.minLevel,
+        transitionEnabled: config.transitionEnabled,
+        transitionSpeed: config.transitionSpeed,
+        bufferEnabled: config.bufferEnabled,
+        bufferValue: config.bufferValue,
+        timerType: config.timerType,
+        timerDuration: config.timerDuration,
+        cycleOnDuration: config.cycleOnDuration,
+        cycleOffDuration: config.cycleOffDuration,
+        scheduleStartTime: config.scheduleStartTime,
+        scheduleEndTime: config.scheduleEndTime,
+        scheduleDays: config.scheduleDays,
+        leafTempOffset: config.leafTempOffset,
+      }
+
+      // Retry loop with exponential backoff
+      while (attempts < maxAttempts && !verified) {
+        attempts++
+
+        // Step 5: Set port mode via adapter
+        if ('setPortMode' in adapter && typeof adapter.setPortMode === 'function') {
+          const result = await (adapter as any).setPortMode(
+            controller.controller_id,
+            config.port,
+            modePayload
+          )
+
+          if (!result.success) {
+            console.warn(`[MODE Node] Attempt ${attempts} failed:`, result.error)
+            if (attempts < maxAttempts) {
+              // Exponential backoff: 1s, 2s, 4s
+              await sleep(1000 * Math.pow(2, attempts - 1))
+              continue
+            }
+            throw new Error(result.error || 'Failed to set mode')
+          }
+        } else {
+          throw new Error('Adapter does not support setPortMode')
+        }
+
+        // Step 6: Wait and verify
+        await sleep(2000)
+        stateAfter = await capturePortState(supabase, config.controllerId, config.port)
+        verified = verifyModeApplied(config, stateAfter)
+
+        if (!verified && attempts < maxAttempts) {
+          console.warn(`[MODE Node] Verification failed on attempt ${attempts}, retrying...`)
+          await sleep(1000)
+        }
+      }
+
+      // Step 7: Handle verification failure with rollback
+      if (!verified && stateBefore && stateBefore.mode !== config.mode) {
+        console.warn(`[MODE Node] Verification failed after ${maxAttempts} attempts, attempting rollback`)
+
+        // Rollback to previous mode
+        const rollbackPayload = { mode: stateBefore.mode }
+        if ('setPortMode' in adapter && typeof adapter.setPortMode === 'function') {
+          await (adapter as any).setPortMode(
+            controller.controller_id,
+            config.port,
+            rollbackPayload
+          )
+        }
+
+        await sleep(2000)
+
+        // Retry original command once after rollback
+        if ('setPortMode' in adapter && typeof adapter.setPortMode === 'function') {
+          const retryResult = await (adapter as any).setPortMode(
+            controller.controller_id,
+            config.port,
+            modePayload
+          )
+
+          if (retryResult.success) {
+            await sleep(2000)
+            stateAfter = await capturePortState(supabase, config.controllerId, config.port)
+            verified = verifyModeApplied(config, stateAfter)
+          }
+        }
+      }
+
+      const executionDuration = Date.now() - startTime
+
+      // Step 8: Log to command_history
+      await logCommandHistory(supabase, {
+        controller_id: config.controllerId,
+        user_id: userId,
+        port: config.port,
+        command_type: 'set_mode',
+        state_before: stateBefore,
+        state_after: stateAfter,
+        success: verified,
+        verification_passed: verified,
+        verification_attempts: attempts,
+        rollback_attempted: !verified && stateBefore !== null,
+        execution_duration_ms: executionDuration,
+        total_duration_ms: executionDuration,
+        source: 'workflow',
+        workflow_id: context.workflowId
+      })
+
+      if (!verified) {
+        throw new Error('Mode verification failed after retries and rollback')
+      }
+
+      console.log(`[MODE Node] Successfully set port ${config.port} to mode ${config.mode}`)
+
+    } finally {
+      await adapter.disconnect(controller.controller_id)
+    }
+
+  } catch (error) {
+    console.error('[MODE Node] Error:', error)
+    throw error
+  }
+}
+
+/**
+ * Execute VERIFIED_ACTION node - Execute actions with verification
+ */
+async function executeVerifiedActionNode(
+  supabase: SupabaseClient,
+  userId: string,
+  config: VerifiedActionNodeConfig,
+  context: ActionContext
+): Promise<void> {
+  const startTime = Date.now()
+  const verifyTimeout = config.verifyTimeout || 2
+  const retryCount = config.retryCount || 3
+  const rollbackOnFailure = config.rollbackOnFailure !== false
+
+  console.log(`[VERIFIED_ACTION Node] Executing ${config.action} on port ${config.port}`)
+
+  try {
+    // Step 1: Get controller
+    const { data: controller, error: controllerError } = await supabase
+      .from('controllers')
+      .select('*')
+      .eq('id', config.controllerId)
+      .eq('user_id', userId)
+      .single()
+
+    if (controllerError || !controller) {
+      throw new Error(`Controller not found: ${controllerError?.message || 'Unknown error'}`)
+    }
+
+    // Handle offline controllers gracefully
+    if (controller.status === 'offline') {
+      console.warn(`[VERIFIED_ACTION Node] Controller ${controller.name} is offline - skipping`)
+      await logActivity(supabase, {
+        user_id: userId,
+        workflow_id: context.workflowId,
+        controller_id: config.controllerId,
+        action_type: 'verified_action_skipped',
+        action_data: { port: config.port, action: config.action, reason: 'controller_offline' },
+        result: 'skipped'
+      })
+      return
+    }
+
+    // Step 2: Capture state before
+    const stateBefore = await capturePortState(supabase, config.controllerId, config.port)
+
+    // Step 3: Get adapter
+    let decryptedCredentials: Record<string, unknown>
+    try {
+      decryptedCredentials = decryptCredentials(controller.credentials)
+    } catch (error) {
+      throw new Error('Failed to decrypt credentials')
+    }
+
+    const brand = controller.brand as ControllerBrand
+    const adapter = getAdapter(brand)
+    const adapterCredentials = buildAdapterCredentials(brand, decryptedCredentials)
+
+    const connectionResult = await adapter.connect(adapterCredentials)
+    if (!connectionResult.success) {
+      throw new Error(`Failed to connect: ${connectionResult.error}`)
+    }
+
+    let verified = false
+    let attempts = 0
+    let stateAfter: PortStateSnapshot | null = null
+
+    try {
+      // Step 4: Execute action with retries
+      while (attempts < retryCount && !verified) {
+        attempts++
+
+        // Build device command
+        let command: DeviceCommand
+        if (config.action === 'on') {
+          command = { type: 'turn_on' }
+        } else if (config.action === 'off') {
+          command = { type: 'turn_off' }
+        } else if (config.action === 'set_level' && config.level !== undefined) {
+          command = { type: 'set_level', value: config.level * 10 } // Convert 0-10 to 0-100
+        } else {
+          throw new Error('Invalid action configuration')
+        }
+
+        // Execute command
+        const commandResult = await adapter.controlDevice(
+          controller.controller_id,
+          config.port,
+          command
+        )
+
+        if (!commandResult.success) {
+          console.warn(`[VERIFIED_ACTION Node] Attempt ${attempts} failed:`, commandResult.error)
+          if (attempts < retryCount) {
+            await sleep(1000 * attempts) // Linear backoff
+            continue
+          }
+          throw new Error(commandResult.error || 'Command failed')
+        }
+
+        // Wait and verify
+        await sleep(verifyTimeout * 1000)
+        stateAfter = await capturePortState(supabase, config.controllerId, config.port)
+        verified = verifyAction(config, stateAfter)
+
+        if (!verified && attempts < retryCount) {
+          console.warn(`[VERIFIED_ACTION Node] Verification failed on attempt ${attempts}, retrying...`)
+        }
+      }
+
+      // Step 5: Rollback on failure if requested
+      if (!verified && rollbackOnFailure && stateBefore) {
+        console.warn(`[VERIFIED_ACTION Node] Verification failed, attempting rollback`)
+
+        const rollbackCommand: DeviceCommand = {
+          type: 'set_level',
+          value: stateBefore.level * 10
+        }
+
+        await adapter.controlDevice(controller.controller_id, config.port, rollbackCommand)
+      }
+
+      const executionDuration = Date.now() - startTime
+
+      // Step 6: Log to command_history
+      await logCommandHistory(supabase, {
+        controller_id: config.controllerId,
+        user_id: userId,
+        port: config.port,
+        command_type: config.action,
+        target_value: config.level,
+        state_before: stateBefore,
+        state_after: stateAfter,
+        success: verified,
+        verification_passed: verified,
+        verification_attempts: attempts,
+        rollback_attempted: !verified && rollbackOnFailure,
+        execution_duration_ms: executionDuration,
+        total_duration_ms: executionDuration,
+        source: 'workflow',
+        workflow_id: context.workflowId
+      })
+
+      if (!verified) {
+        throw new Error('Action verification failed after retries')
+      }
+
+      console.log(`[VERIFIED_ACTION Node] Successfully executed ${config.action} on port ${config.port}`)
+
+    } finally {
+      await adapter.disconnect(controller.controller_id)
+    }
+
+  } catch (error) {
+    console.error('[VERIFIED_ACTION Node] Error:', error)
+    throw error
   }
 }

@@ -238,6 +238,34 @@ export interface BrandsListResponse {
   comingSoonCount: number;
 }
 
+/**
+ * Controller port entity from controller_ports table
+ * Represents a single physical port on a controller device
+ */
+export interface ControllerPort {
+  id: string;
+  controller_id: string;
+  port_number: number;
+  port_name: string | null;
+  device_type: DeviceType | null;
+  load_type: number | null;
+  is_connected: boolean;
+  is_on: boolean;
+  power_level: number;
+  current_mode: number;
+  supports_dimming: boolean;
+  is_online: boolean;
+  port_type: number | null;
+  dev_type: number | null;
+  external_port: number | null;
+  is_supported: boolean;
+  surplus: number | null;
+  speak: number | null;
+  last_state_change: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // =============================================================================
 // Room Types
 // =============================================================================

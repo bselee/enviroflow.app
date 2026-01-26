@@ -12,6 +12,8 @@ import {
   Search,
   ChevronDown,
   GripVertical,
+  Cog,
+  CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -238,6 +240,71 @@ const PALETTE_CATEGORIES: PaletteCategoryConfig[] = [
             message: "Alert: {{sensor.temperature}} in {{room.name}}",
             priority: "normal",
             channels: ["push"],
+          },
+        },
+      },
+    ],
+  },
+  {
+    id: "device-programming",
+    label: "Device Programming",
+    nodes: [
+      {
+        type: "mode",
+        label: "Program Mode",
+        description: "Program AC Infinity device modes (AUTO, VPD, Timer, etc.)",
+        icon: Cog,
+        iconBgClass: "bg-cyan-500",
+        iconClass: "text-white",
+        defaultData: {
+          label: "Program Mode",
+          config: {
+            controllerId: "",
+            controllerName: "",
+            port: 1,
+            portName: "",
+            mode: "auto",
+            priority: 1,
+          },
+        },
+      },
+      {
+        type: "verified_action",
+        label: "Verified Action",
+        description: "Execute device action with verification and rollback",
+        icon: CheckCircle2,
+        iconBgClass: "bg-teal-500",
+        iconClass: "text-white",
+        defaultData: {
+          label: "Verified Action",
+          config: {
+            controllerId: "",
+            controllerName: "",
+            port: 1,
+            portName: "",
+            action: "set_level",
+            level: 5,
+            verifyTimeout: 30,
+            retryCount: 3,
+            rollbackOnFailure: true,
+          },
+        },
+      },
+      {
+        type: "port_condition",
+        label: "Port Condition",
+        description: "Branch workflow based on port state or level",
+        icon: GitBranch,
+        iconBgClass: "bg-amber-500",
+        iconClass: "text-white",
+        defaultData: {
+          label: "Port Condition",
+          config: {
+            controllerId: "",
+            controllerName: "",
+            port: 1,
+            portName: "",
+            condition: "is_on",
           },
         },
       },

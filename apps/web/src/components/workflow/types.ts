@@ -280,6 +280,158 @@ export const NOTIFICATION_CHANNEL_LABELS: Record<NotificationChannel, string> = 
 };
 
 // ============================================================================
+// Verified Action Node Types
+// ============================================================================
+
+/** Configuration for verified action nodes */
+export interface VerifiedActionNodeConfig {
+  /** ID of the controller to send commands to */
+  controllerId: string;
+  /** Controller name for display */
+  controllerName: string;
+  /** Port number on the controller */
+  port: number;
+  /** Port name for display */
+  portName: string;
+  /** Action to perform */
+  action: 'on' | 'off' | 'set_level';
+  /** Level for set_level action (0-10) */
+  level?: number;
+  /** Timeout in seconds to wait for verification */
+  verifyTimeout: number;
+  /** Maximum retry attempts on failure */
+  retryCount: number;
+  /** Whether to rollback on verification failure */
+  rollbackOnFailure: boolean;
+}
+
+/** Data payload for VerifiedActionNode */
+export interface VerifiedActionNodeData {
+  label: string;
+  config: VerifiedActionNodeConfig;
+}
+
+// ============================================================================
+// Port Condition Node Types
+// ============================================================================
+
+/** Port condition operators */
+export type PortConditionOperator = 'equals' | 'not_equals' | 'greater_than' | 'less_than';
+
+/** Configuration for port condition nodes */
+export interface PortConditionNodeConfig {
+  /** ID of the controller to monitor */
+  controllerId: string;
+  /** Controller name for display */
+  controllerName: string;
+  /** Port number on the controller */
+  port: number;
+  /** Port name for display */
+  portName: string;
+  /** Condition to evaluate */
+  condition: 'is_on' | 'is_off' | 'level_equals' | 'level_above' | 'level_below' | 'mode_equals';
+  /** Target level for level comparisons (0-10) */
+  targetLevel?: number;
+  /** Target mode for mode comparison */
+  targetMode?: string;
+}
+
+/** Data payload for PortConditionNode */
+export interface PortConditionNodeData {
+  label: string;
+  config: PortConditionNodeConfig;
+}
+
+// ============================================================================
+// Mode Programming Node Types
+// ============================================================================
+
+/** Device mode types for AC Infinity controllers */
+export type DeviceModeType = "off" | "on" | "auto" | "vpd" | "timer" | "cycle" | "schedule";
+
+/** Configuration for Auto mode */
+export interface AutoModeConfig {
+  tempHighTrigger: number;
+  tempHighEnabled: boolean;
+  tempLowTrigger: number;
+  tempLowEnabled: boolean;
+  humidityHighTrigger: number;
+  humidityHighEnabled: boolean;
+  humidityLowTrigger: number;
+  humidityLowEnabled: boolean;
+  levelLow: number;
+  levelHigh: number;
+  transition: boolean;
+}
+
+/** Configuration for VPD mode */
+export interface VpdModeConfig {
+  vpdHighTrigger: number;
+  vpdHighEnabled: boolean;
+  vpdLowTrigger: number;
+  vpdLowEnabled: boolean;
+  levelLow: number;
+  levelHigh: number;
+  transition: boolean;
+}
+
+/** Configuration for Timer mode */
+export interface TimerModeConfig {
+  durationOn: number; // seconds
+  durationOff: number; // seconds
+  level: number;
+}
+
+/** Configuration for Cycle mode */
+export interface CycleModeConfig {
+  durationOn: number; // seconds
+  durationOff: number; // seconds
+  level: number;
+}
+
+/** Configuration for Schedule mode */
+export interface ScheduleModeConfig {
+  schedules: Array<{
+    startTime: string; // HH:mm
+    endTime: string; // HH:mm
+    level: number;
+    days: number[]; // 0-6 (Sun-Sat)
+  }>;
+}
+
+/** Configuration for Mode Programming node */
+export interface ModeNodeConfig {
+  controllerId: string;
+  controllerName: string;
+  port: number;
+  portName: string;
+  mode: DeviceModeType;
+  autoConfig?: AutoModeConfig;
+  vpdConfig?: VpdModeConfig;
+  timerConfig?: TimerModeConfig;
+  cycleConfig?: CycleModeConfig;
+  scheduleConfig?: ScheduleModeConfig;
+  priority: number; // execution order for multi-port workflows
+}
+
+/** Data payload for ModeNode */
+export interface ModeNodeData {
+  label: string;
+  config: ModeNodeConfig;
+}
+
+/** Labels for device modes */
+export const MODE_LABELS: Record<DeviceModeType, string> = {
+  off: "Off",
+  on: "On",
+  auto: "Auto",
+  vpd: "VPD",
+  timer: "Timer",
+  cycle: "Cycle",
+  schedule: "Schedule",
+};
+
+// ============================================================================
 // Workflow Node Types
 // ============================================================================
 
@@ -290,7 +442,10 @@ export type WorkflowNodeType =
   | "condition"
   | "action"
   | "dimmer"
-  | "notification";
+  | "notification"
+  | "mode"
+  | "verified_action"
+  | "port_condition";
 
 /** Union of all node data types */
 export type WorkflowNodeData =
@@ -299,7 +454,10 @@ export type WorkflowNodeData =
   | ConditionNodeData
   | ActionNodeData
   | DimmerNodeData
-  | NotificationNodeData;
+  | NotificationNodeData
+  | ModeNodeData
+  | VerifiedActionNodeData
+  | PortConditionNodeData;
 
 /** Extended Node type with workflow-specific data */
 export interface WorkflowNode {
