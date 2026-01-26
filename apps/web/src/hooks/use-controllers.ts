@@ -95,16 +95,30 @@ export function useControllers(): UseControllersState {
       // Get current user session
       const {
         data: { session },
+        error: authError,
       } = await supabase.auth.getSession();
 
+      if (authError) {
+        console.error("[Controllers] Auth error:", authError.message);
+        if (isMounted.current) {
+          setError(`Authentication error: ${authError.message}`);
+          setControllers([]);
+          setLoading(false);
+        }
+        return;
+      }
+
       if (!session?.user) {
-        // For development, return empty array instead of error
+        console.log("[Controllers] No authenticated session - returning empty controllers list");
+        // Return empty array for unauthenticated users - dashboard will show demo mode
         if (isMounted.current) {
           setControllers([]);
           setLoading(false);
         }
         return;
       }
+
+      console.log("[Controllers] Fetching controllers for user:", session.user.email);
 
       // Fetch controllers with room join
       const { data, error: fetchError } = await supabase
@@ -164,6 +178,17 @@ export function useControllers(): UseControllersState {
             } as ControllerWithRoom;
           }
         );
+
+        console.log("[Controllers] Fetched controllers:", {
+          count: controllersWithRooms.length,
+          controllers: controllersWithRooms.map(c => ({
+            id: c.id,
+            name: c.name,
+            status: c.status,
+            room: c.room?.name || "(unassigned)"
+          }))
+        });
+
         setControllers(controllersWithRooms);
       }
     } catch (err) {
@@ -182,12 +207,21 @@ export function useControllers(): UseControllersState {
    * Fetch available brands from API
    */
   const fetchBrands = useCallback(async () => {
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), 30000); // 30 second timeout
+
     try {
       if (isMounted.current) {
         setBrandsLoading(true);
       }
 
-      const response = await fetch("/api/controllers/brands");
+      const response = await fetch("/api/controllers/brands", {
+        signal: abortController.signal,
+        cache: 'no-store',
+      });
+
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
         throw new Error("Failed to fetch brands");
       }
@@ -197,7 +231,13 @@ export function useControllers(): UseControllersState {
         setBrands(data.brands || []);
       }
     } catch (err) {
-      console.error("Error fetching brands:", err);
+      clearTimeout(timeoutId);
+
+      if (err instanceof Error && err.name === 'AbortError') {
+        console.warn("Brands fetch timed out");
+      } else {
+        console.error("Error fetching brands:", err);
+      }
       // Don't set error state for brands fetch failure
     } finally {
       if (isMounted.current) {
@@ -253,12 +293,16 @@ export function useControllers(): UseControllersState {
    */
   const addController = useCallback(
     async (input: AddControllerInput): Promise<OperationResult<Controller>> => {
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => abortController.abort(), 30000); // 30 second timeout
+
       try {
         const {
           data: { session },
         } = await supabase.auth.getSession();
 
         if (!session?.user) {
+          clearTimeout(timeoutId);
           return { success: false, error: "You must be logged in to add a controller" };
         }
 
@@ -270,7 +314,10 @@ export function useControllers(): UseControllersState {
             Authorization: `Bearer ${session.access_token}`,
           },
           body: JSON.stringify(input),
+          signal: abortController.signal,
         });
+
+        clearTimeout(timeoutId);
 
         const data = await response.json();
 
@@ -283,6 +330,12 @@ export function useControllers(): UseControllersState {
 
         return { success: true, data: data.controller };
       } catch (err) {
+        clearTimeout(timeoutId);
+
+        if (err instanceof Error && err.name === 'AbortError') {
+          return { success: false, error: 'Request timed out. Please try again.' };
+        }
+
         // Log error without potentially sensitive input data
         console.error("Error adding controller:", err instanceof Error ? err.message : "Unknown error");
         return {
@@ -529,24 +582,45 @@ export function useControllers(): UseControllersState {
 
   // Set up real-time subscription for controllers
   useEffect(() => {
-    const channel = supabase
-      .channel("controllers-changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "controllers",
-        },
-        () => {
-          // Refresh on any change
-          fetchControllers();
-        }
-      )
-      .subscribe();
+    const setupRealtimeSubscription = async () => {
+      // Get the current user's ID first
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) {
+        console.log("[Controllers] No session - skipping realtime subscription");
+        return null;
+      }
+
+      const channel = supabase
+        .channel("controllers-changes")
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "controllers",
+            filter: `user_id=eq.${session.user.id}`,
+          },
+          () => {
+            // Refresh on any change
+            console.log("[Controllers] Realtime update received");
+            fetchControllers();
+          }
+        )
+        .subscribe();
+
+      return channel;
+    };
+
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    setupRealtimeSubscription().then((ch) => {
+      channel = ch;
+    });
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
     };
   }, [fetchControllers]);
 
