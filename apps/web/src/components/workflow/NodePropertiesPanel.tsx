@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { X, Play, Thermometer, GitBranch, Clock, MousePointer } from "lucide-react";
+import { X, Play, Thermometer, GitBranch, Clock, MousePointer, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import type {
   WorkflowNode,
   TriggerNodeData,
@@ -24,6 +25,7 @@ import type {
   ComparisonOperator,
   LogicType,
 } from "./types";
+import { useControllerCapabilities } from "@/hooks/use-controller-capabilities";
 
 /**
  * NodePropertiesPanel - Side panel for configuring selected workflow nodes
@@ -44,18 +46,6 @@ interface NodePropertiesPanelProps {
   /** List of available controllers for sensor nodes */
   controllers?: Array<{ id: string; name: string }>;
 }
-
-/** Sensor types available for selection */
-const SENSOR_TYPES: Array<{ value: SensorType; label: string }> = [
-  { value: "temperature", label: "Temperature" },
-  { value: "humidity", label: "Humidity" },
-  { value: "vpd", label: "VPD" },
-  { value: "co2", label: "CO2" },
-  { value: "light", label: "Light Intensity" },
-  { value: "soil_moisture", label: "Soil Moisture" },
-  { value: "ph", label: "pH" },
-  { value: "ec", label: "EC" },
-];
 
 /** Comparison operators for thresholds */
 const OPERATORS: Array<{ value: ComparisonOperator; label: string }> = [
@@ -227,14 +217,40 @@ function SensorProperties({
 }) {
   const data = node.data as SensorNodeData;
 
+  // Fetch capabilities for all controllers
+  const { capabilities, loading: capsLoading } = useControllerCapabilities();
+
   const updateConfig = (field: string, value: string | number | undefined) => {
     onUpdate(node.id, {
       config: { ...data.config, [field]: value },
     } as Partial<SensorNodeData>);
   };
 
+  // Get available sensors for selected controller
+  const selectedControllerCapabilities = React.useMemo(() => {
+    if (!data.config.controllerId || !capabilities) return null;
+
+    if (capabilities instanceof Map) {
+      return capabilities.get(data.config.controllerId);
+    }
+
+    return capabilities.controller_id === data.config.controllerId ? capabilities : null;
+  }, [capabilities, data.config.controllerId]);
+
+  const availableSensors = selectedControllerCapabilities?.sensors || [];
+
   return (
     <div className="space-y-4">
+      {/* No Controllers Warning */}
+      {!capsLoading && controllers.length === 0 && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Connect a controller first to use sensor nodes. Go to Controllers page to add one.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Controller Selection */}
       <div className="space-y-2">
         <Label className="text-sm font-medium">Controller</Label>
@@ -246,6 +262,10 @@ function SensorProperties({
             if (controller) {
               updateConfig("controllerName", controller.name);
             }
+            // Reset sensor selection when controller changes
+            updateConfig("sensorType", undefined);
+            updateConfig("port", undefined);
+            updateConfig("unit", undefined);
           }}
         >
           <SelectTrigger>
@@ -267,25 +287,69 @@ function SensorProperties({
         </Select>
       </div>
 
-      {/* Sensor Type Selection */}
-      <div className="space-y-2">
-        <Label className="text-sm font-medium">Sensor Type</Label>
-        <Select
-          value={data.config.sensorType ?? ""}
-          onValueChange={(v) => updateConfig("sensorType", v as SensorType)}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select sensor type" />
-          </SelectTrigger>
-          <SelectContent>
-            {SENSOR_TYPES.map(({ value, label }) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {/* Sensor Selection - Dynamic based on controller capabilities */}
+      {data.config.controllerId && (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Sensor</Label>
+          {capsLoading ? (
+            <div className="text-xs text-muted-foreground">Loading sensors...</div>
+          ) : availableSensors.length === 0 ? (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                No sensors available for this controller. Make sure the controller is online and has reported sensor data.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <>
+              <Select
+                value={
+                  data.config.sensorType && data.config.port !== undefined
+                    ? `${data.config.sensorType}-${data.config.port}`
+                    : data.config.sensorType || ""
+                }
+                onValueChange={(v) => {
+                  const sensor = availableSensors.find(
+                    (s) => `${s.type}-${s.port || 0}` === v || s.type === v
+                  );
+                  if (sensor) {
+                    updateConfig("sensorType", sensor.type as SensorType);
+                    updateConfig("port", sensor.port);
+                    updateConfig("unit", sensor.unit);
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a sensor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableSensors.map((sensor) => {
+                    const key = `${sensor.type}-${sensor.port || 0}`;
+                    return (
+                      <SelectItem key={key} value={key}>
+                        <div className="flex items-center justify-between w-full">
+                          <span>{sensor.name}</span>
+                          {sensor.currentValue !== undefined && (
+                            <span className="text-xs text-muted-foreground ml-2">
+                              {sensor.currentValue.toFixed(1)} {sensor.unit}
+                              {sensor.isStale && " (stale)"}
+                            </span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              {selectedControllerCapabilities?.status === 'offline' && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Controller is offline. Sensor values may be stale.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* Threshold Configuration */}
       <div className="space-y-2">
@@ -336,6 +400,235 @@ function SensorProperties({
           Prevents rapid on/off cycling by requiring value to cross reset point before re-triggering
         </p>
       </div>
+    </div>
+  );
+}
+
+/**
+ * ActionProperties - Configuration panel for action nodes
+ */
+function ActionProperties({
+  node,
+  onUpdate,
+  controllers = [],
+}: {
+  node: WorkflowNode;
+  onUpdate: NodePropertiesPanelProps["onUpdate"];
+  controllers?: Array<{ id: string; name: string }>;
+}) {
+  const data = node.data as import("./types").ActionNodeData;
+
+  // Fetch capabilities for all controllers
+  const { capabilities, loading: capsLoading } = useControllerCapabilities();
+
+  const updateConfig = (field: string, value: string | number | boolean | undefined) => {
+    onUpdate(node.id, {
+      config: { ...data.config, [field]: value },
+    } as Partial<import("./types").ActionNodeData>);
+  };
+
+  // Get available devices for selected controller
+  const selectedControllerCapabilities = React.useMemo(() => {
+    if (!data.config.controllerId || !capabilities) return null;
+
+    if (capabilities instanceof Map) {
+      return capabilities.get(data.config.controllerId);
+    }
+
+    return capabilities.controller_id === data.config.controllerId ? capabilities : null;
+  }, [capabilities, data.config.controllerId]);
+
+  const availableDevices = selectedControllerCapabilities?.devices || [];
+
+  // Get selected device details
+  const selectedDevice = React.useMemo(() => {
+    if (data.config.port === undefined) return null;
+    return availableDevices.find((d) => d.port === data.config.port);
+  }, [availableDevices, data.config.port]);
+
+  return (
+    <div className="space-y-4">
+      {/* No Controllers Warning */}
+      {!capsLoading && controllers.length === 0 && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Connect a controller first to use action nodes. Go to Controllers page to add one.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Controller Selection */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Controller</Label>
+        <Select
+          value={data.config.controllerId ?? ""}
+          onValueChange={(v) => {
+            const controller = controllers.find((c) => c.id === v);
+            updateConfig("controllerId", v);
+            if (controller) {
+              updateConfig("controllerName", controller.name);
+            }
+            // Reset device selection when controller changes
+            updateConfig("port", undefined);
+            updateConfig("deviceType", undefined);
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select a controller" />
+          </SelectTrigger>
+          <SelectContent>
+            {controllers.length === 0 ? (
+              <SelectItem value="" disabled>
+                No controllers available
+              </SelectItem>
+            ) : (
+              controllers.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))
+            )}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Device/Port Selection - Dynamic based on controller capabilities */}
+      {data.config.controllerId && (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Device / Port</Label>
+          {capsLoading ? (
+            <div className="text-xs text-muted-foreground">Loading devices...</div>
+          ) : availableDevices.length === 0 ? (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                No devices available for this controller. Make sure the controller is online and supports device control.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <>
+              <Select
+                value={data.config.port !== undefined ? String(data.config.port) : ""}
+                onValueChange={(v) => {
+                  const port = parseInt(v, 10);
+                  const device = availableDevices.find((d) => d.port === port);
+                  if (device) {
+                    updateConfig("port", port);
+                    updateConfig("deviceType", device.type as import("./types").DeviceType);
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a device" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableDevices.map((device) => (
+                    <SelectItem key={device.port} value={String(device.port)}>
+                      <div className="flex items-center justify-between w-full">
+                        <span>
+                          {device.name}
+                          {device.supportsDimming && (
+                            <span className="text-xs text-muted-foreground ml-1">(Dimming)</span>
+                          )}
+                        </span>
+                        <span className="text-xs text-muted-foreground ml-2">
+                          {device.isOn ? `ON ${device.level}%` : "OFF"}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedControllerCapabilities?.status === 'offline' && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Controller is offline. Device states may be stale.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Action Type Selection */}
+      {selectedDevice && (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Action</Label>
+          <Select
+            value={data.config.action ?? ""}
+            onValueChange={(v) => updateConfig("action", v as import("./types").ActionVariant)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select action" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="on_off">Turn On/Off</SelectItem>
+              {selectedDevice.supportsDimming && (
+                <>
+                  <SelectItem value="set_speed">Set Speed/Level</SelectItem>
+                  <SelectItem value="set_level">Set Level</SelectItem>
+                </>
+              )}
+              {selectedDevice.type === 'heater' && (
+                <SelectItem value="set_temperature">Set Temperature</SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {/* Action-specific configuration */}
+      {data.config.action === "on_off" && (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Command</Label>
+          <RadioGroup
+            value={data.config.turnOn ? "on" : "off"}
+            onValueChange={(v) => updateConfig("turnOn", v === "on")}
+            className="flex gap-4"
+          >
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="on" id="on" />
+              <Label htmlFor="on" className="cursor-pointer">Turn ON</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="off" id="off" />
+              <Label htmlFor="off" className="cursor-pointer">Turn OFF</Label>
+            </div>
+          </RadioGroup>
+        </div>
+      )}
+
+      {(data.config.action === "set_speed" || data.config.action === "set_level") && (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Level (0-100%)</Label>
+          <Input
+            type="number"
+            min="0"
+            max="100"
+            value={data.config.value ?? ""}
+            onChange={(e) => {
+              const val = e.target.value ? parseInt(e.target.value, 10) : undefined;
+              updateConfig("value", val);
+            }}
+            placeholder="0-100"
+          />
+        </div>
+      )}
+
+      {data.config.action === "set_temperature" && (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Temperature (°F)</Label>
+          <Input
+            type="number"
+            value={data.config.temperature ?? ""}
+            onChange={(e) => {
+              const val = e.target.value ? parseFloat(e.target.value) : undefined;
+              updateConfig("temperature", val);
+            }}
+            placeholder="Temperature"
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -465,6 +758,9 @@ export function NodePropertiesPanel({
         )}
         {nodeType === "sensor" && (
           <SensorProperties node={node} onUpdate={onUpdate} controllers={controllers} />
+        )}
+        {nodeType === "action" && (
+          <ActionProperties node={node} onUpdate={onUpdate} controllers={controllers} />
         )}
         {nodeType === "condition" && (
           <ConditionProperties node={node} onUpdate={onUpdate} />

@@ -14,9 +14,12 @@ import {
   X,
   Gauge,
   CloudRain,
+  AlertTriangle,
+  HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SensorNodeData, SensorType } from "../types";
+import { useControllerCapabilities } from "@/hooks/use-controller-capabilities";
 
 /**
  * SensorNode - Reads sensor data from a controller
@@ -36,8 +39,8 @@ import type { SensorNodeData, SensorType } from "../types";
  * - Real-time value display with conditional coloring
  */
 
-/** Icons for different sensor types */
-const SENSOR_ICONS: Record<SensorType, React.ComponentType<{ className?: string }>> = {
+/** Base sensor icon mapping - includes fallback for unknowns */
+const SENSOR_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   temperature: Thermometer,
   humidity: Droplets,
   vpd: Wind,
@@ -55,43 +58,77 @@ const SENSOR_ICONS: Record<SensorType, React.ComponentType<{ className?: string 
   rain: CloudRain,
 };
 
-/** Human-readable labels for sensor types */
-const TYPE_LABELS: Record<SensorType, string> = {
-  temperature: "Temperature",
-  humidity: "Humidity",
-  vpd: "VPD",
-  co2: "CO2",
-  light: "Light Intensity",
-  soil_moisture: "Soil Moisture",
-  ph: "pH",
-  ec: "EC",
-  pressure: "Pressure",
-  water_level: "Water Level",
-  wind_speed: "Wind Speed",
-  pm25: "PM2.5",
-  uv: "UV Index",
-  solar_radiation: "Solar Radiation",
-  rain: "Rainfall",
-};
+/**
+ * Get icon for any sensor type, with fallback for unknowns
+ */
+function getSensorIcon(sensorType?: string): React.ComponentType<{ className?: string }> {
+  if (!sensorType) return HelpCircle;
+  return SENSOR_ICON_MAP[sensorType] || Gauge; // Default to Gauge for unknown types
+}
 
-/** Default units for sensor types */
-const TYPE_UNITS: Record<SensorType, string> = {
-  temperature: "°F",
-  humidity: "%",
-  vpd: "kPa",
-  co2: "ppm",
-  light: "PPFD",
-  soil_moisture: "%",
-  ph: "",
-  ec: "mS/cm",
-  pressure: "hPa",
-  water_level: "%",
-  wind_speed: "mph",
-  pm25: "µg/m³",
-  uv: "",
-  solar_radiation: "W/m²",
-  rain: "mm",
-};
+/**
+ * Get human-readable label for any sensor type
+ */
+function getSensorLabel(sensorType?: string): string {
+  if (!sensorType) return "Unknown Sensor";
+
+  // Check if we have a predefined label
+  const knownLabels: Record<string, string> = {
+    temperature: "Temperature",
+    humidity: "Humidity",
+    vpd: "VPD",
+    co2: "CO2",
+    light: "Light Intensity",
+    soil_moisture: "Soil Moisture",
+    ph: "pH",
+    ec: "EC",
+    pressure: "Pressure",
+    water_level: "Water Level",
+    wind_speed: "Wind Speed",
+    pm25: "PM2.5",
+    uv: "UV Index",
+    solar_radiation: "Solar Radiation",
+    rain: "Rainfall",
+  };
+
+  if (knownLabels[sensorType]) {
+    return knownLabels[sensorType];
+  }
+
+  // Generate label from sensor type string (e.g., "co2_level" -> "Co2 Level")
+  return sensorType
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+/**
+ * Get unit for sensor type, use stored unit if available
+ */
+function getSensorUnit(sensorType?: string, storedUnit?: string): string {
+  if (storedUnit) return storedUnit;
+  if (!sensorType) return "";
+
+  const knownUnits: Record<string, string> = {
+    temperature: "°F",
+    humidity: "%",
+    vpd: "kPa",
+    co2: "ppm",
+    light: "PPFD",
+    soil_moisture: "%",
+    ph: "",
+    ec: "mS/cm",
+    pressure: "hPa",
+    water_level: "%",
+    wind_speed: "mph",
+    pm25: "µg/m³",
+    uv: "",
+    solar_radiation: "W/m²",
+    rain: "mm",
+  };
+
+  return knownUnits[sensorType] || "";
+}
 
 /** Operator display symbols */
 const OPERATOR_DISPLAY: Record<string, string> = {
@@ -111,7 +148,34 @@ interface SensorNodeProps {
 export function SensorNode({ data, selected, id }: SensorNodeProps) {
   const { config, currentValue } = data;
   const sensorType = config.sensorType;
-  const SensorIcon = sensorType ? SENSOR_ICONS[sensorType] : Thermometer;
+
+  // Fetch capabilities to validate sensor availability
+  const { capabilities } = useControllerCapabilities({
+    controllerId: config.controllerId,
+  });
+
+  // Check if sensor is still available
+  const sensorAvailable = React.useMemo(() => {
+    if (!config.controllerId || !capabilities) return { available: true, reason: "" };
+
+    const caps = capabilities instanceof Map
+      ? capabilities.get(config.controllerId)
+      : (capabilities.controller_id === config.controllerId ? capabilities : null);
+
+    if (!caps) return { available: false, reason: "Controller not found" };
+    if (caps.status === 'offline') return { available: false, reason: "Controller offline" };
+
+    // Check if this specific sensor exists
+    const sensorExists = caps.sensors.some(
+      (s) => s.type === sensorType && (config.port === undefined || s.port === config.port)
+    );
+
+    if (!sensorExists) return { available: false, reason: "Sensor not available" };
+
+    return { available: true, reason: "" };
+  }, [capabilities, config.controllerId, config.port, sensorType]);
+
+  const SensorIcon = getSensorIcon(sensorType);
 
   /**
    * Evaluates whether the current sensor value meets the threshold condition.
@@ -156,8 +220,8 @@ export function SensorNode({ data, selected, id }: SensorNodeProps) {
       return "Select sensor type";
     }
 
-    const label = TYPE_LABELS[sensorType];
-    const unit = config.unit || TYPE_UNITS[sensorType];
+    const label = getSensorLabel(sensorType);
+    const unit = getSensorUnit(sensorType, config.unit);
 
     if (!config.operator || config.threshold === undefined) {
       return `${label} - configure threshold`;
@@ -171,7 +235,7 @@ export function SensorNode({ data, selected, id }: SensorNodeProps) {
    */
   const formatCurrentValue = (): string => {
     if (currentValue === undefined) return "--";
-    const unit = config.unit || (sensorType ? TYPE_UNITS[sensorType] : "");
+    const unit = getSensorUnit(sensorType, config.unit);
     return `${currentValue.toFixed(1)}${unit}`;
   };
 
@@ -214,10 +278,21 @@ export function SensorNode({ data, selected, id }: SensorNodeProps) {
 
       {/* Node Body */}
       <div className="px-3 py-2">
+        {/* Sensor Unavailable Warning */}
+        {!sensorAvailable.available && (
+          <div className="mb-2 flex items-center gap-1 rounded bg-amber-500/10 px-2 py-1">
+            <AlertTriangle className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+            <span className="text-[10px] text-amber-600 dark:text-amber-400">
+              {sensorAvailable.reason}
+            </span>
+          </div>
+        )}
+
         {/* Controller Info */}
         {config.controllerName && (
           <p className="mb-1 text-xs text-muted-foreground">
             {config.controllerName}
+            {config.port !== undefined && ` - Port ${config.port}`}
           </p>
         )}
 
@@ -238,7 +313,7 @@ export function SensorNode({ data, selected, id }: SensorNodeProps) {
         {config.resetThreshold !== undefined && (
           <p className="mt-1 text-[10px] text-muted-foreground">
             Reset at: {config.resetThreshold}
-            {config.unit || (sensorType ? TYPE_UNITS[sensorType] : "")}
+            {getSensorUnit(sensorType, config.unit)}
           </p>
         )}
 

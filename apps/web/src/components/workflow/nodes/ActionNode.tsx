@@ -16,6 +16,8 @@ import {
   Power,
   Gauge,
   Thermometer,
+  AlertTriangle,
+  HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
@@ -27,6 +29,7 @@ import {
   DEVICE_TYPE_LABELS,
   ACTION_VARIANT_LABELS,
 } from "../types";
+import { useControllerCapabilities } from "@/hooks/use-controller-capabilities";
 
 /**
  * ActionNode - Device control node for workflows
@@ -43,8 +46,8 @@ import {
  * - Has both input and output handles for chaining
  */
 
-/** Icons for different device types */
-const DEVICE_ICONS: Record<DeviceType, React.ComponentType<{ className?: string }>> = {
+/** Base device icon mapping - includes fallback for unknowns */
+const DEVICE_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   fan: Fan,
   light: Lightbulb,
   heater: Flame,
@@ -55,6 +58,32 @@ const DEVICE_ICONS: Record<DeviceType, React.ComponentType<{ className?: string 
   pump: Pipette,
   valve: Pipette,
 };
+
+/**
+ * Get icon for any device type, with fallback for unknowns
+ */
+function getDeviceIcon(deviceType?: string): React.ComponentType<{ className?: string }> {
+  if (!deviceType) return HelpCircle;
+  return DEVICE_ICON_MAP[deviceType] || PlugZap; // Default to PlugZap for unknown types
+}
+
+/**
+ * Get human-readable label for any device type
+ */
+function getDeviceLabel(deviceType?: string): string {
+  if (!deviceType) return "Unknown Device";
+
+  // Check if we have a predefined label
+  if (deviceType in DEVICE_TYPE_LABELS) {
+    return DEVICE_TYPE_LABELS[deviceType as DeviceType];
+  }
+
+  // Generate label from device type string (e.g., "water_pump" -> "Water Pump")
+  return deviceType
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
 
 /** Icons for different action variants */
 const ACTION_ICONS: Record<ActionVariant, React.ComponentType<{ className?: string }>> = {
@@ -72,7 +101,33 @@ interface ActionNodeProps {
 
 export function ActionNode({ data, selected, id }: ActionNodeProps) {
   const config = data.config;
-  const DeviceIcon = config.deviceType ? DEVICE_ICONS[config.deviceType] : Zap;
+
+  // Fetch capabilities to validate device availability
+  const { capabilities } = useControllerCapabilities({
+    controllerId: config.controllerId,
+  });
+
+  // Check if device is still available
+  const deviceAvailable = React.useMemo(() => {
+    if (!config.controllerId || !capabilities) return { available: true, reason: "", supportsDimming: false };
+
+    const caps = capabilities instanceof Map
+      ? capabilities.get(config.controllerId)
+      : (capabilities.controller_id === config.controllerId ? capabilities : null);
+
+    if (!caps) return { available: false, reason: "Controller not found", supportsDimming: false };
+    if (caps.status === 'offline') return { available: false, reason: "Controller offline", supportsDimming: false };
+
+    // Check if this specific device/port exists
+    const device = caps.devices.find((d) => d.port === config.port);
+
+    if (!device) return { available: false, reason: "Device not available", supportsDimming: false };
+    if (!device.isOnline) return { available: false, reason: "Device offline", supportsDimming: false };
+
+    return { available: true, reason: "", supportsDimming: device.supportsDimming };
+  }, [capabilities, config.controllerId, config.port]);
+
+  const DeviceIcon = getDeviceIcon(config.deviceType);
   const ActionIcon = config.action ? ACTION_ICONS[config.action] : Power;
 
   /**
@@ -180,6 +235,16 @@ export function ActionNode({ data, selected, id }: ActionNodeProps) {
 
       {/* Node Body */}
       <div className="px-3 py-2">
+        {/* Device Unavailable Warning */}
+        {!deviceAvailable.available && (
+          <div className="mb-2 flex items-center gap-1 rounded bg-amber-500/10 px-2 py-1">
+            <AlertTriangle className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+            <span className="text-[10px] text-amber-600 dark:text-amber-400">
+              {deviceAvailable.reason}
+            </span>
+          </div>
+        )}
+
         {/* Controller & Device Info */}
         {config.controllerName && (
           <div className="mb-2 text-xs text-muted-foreground">
@@ -192,7 +257,10 @@ export function ActionNode({ data, selected, id }: ActionNodeProps) {
         <div className="mb-2 flex items-center gap-2">
           <DeviceIcon className="h-4 w-4 text-muted-foreground" />
           <span className="text-xs font-medium text-muted-foreground">
-            {config.deviceType ? DEVICE_TYPE_LABELS[config.deviceType] : "Select Device"}
+            {getDeviceLabel(config.deviceType)}
+            {deviceAvailable.supportsDimming && (
+              <span className="ml-1 text-[10px] text-blue-600 dark:text-blue-400">(Dimming)</span>
+            )}
           </span>
           {config.action && (
             <>

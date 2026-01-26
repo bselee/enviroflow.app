@@ -67,6 +67,8 @@ export interface SensorNodeConfig {
   controllerName?: string;
   /** Type of sensor reading to monitor */
   sensorType?: SensorType;
+  /** Port number for multi-port sensors (e.g., Ecowitt CH1, CH2) */
+  port?: number;
   /** Comparison operator for threshold */
   operator?: ComparisonOperator;
   /** Threshold value that triggers the condition */
