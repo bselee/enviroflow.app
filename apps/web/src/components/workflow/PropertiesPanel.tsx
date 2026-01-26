@@ -12,6 +12,8 @@ import {
   Settings,
   CheckCircle,
   Filter,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -41,6 +43,7 @@ import type {
   NotificationChannel,
   DimmerCurve,
   DeviceModeType,
+  ScheduleModeConfig,
 } from "./types";
 import {
   SENSOR_TYPE_LABELS,
@@ -335,6 +338,24 @@ export function PropertiesPanel({
             if (vpdLow !== undefined && vpdHigh !== undefined && vpdLow >= vpdHigh) {
               newErrors["config.vpdConfig.vpdTriggers"] = "Low VPD must be less than high VPD";
             }
+          }
+        } else if (mode === "schedule") {
+          const schedules = getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', []);
+          if (schedules.length === 0) {
+            newErrors["config.scheduleConfig.schedules"] = "At least one schedule entry is required";
+          } else {
+            // Validate each schedule entry
+            schedules.forEach((schedule, index) => {
+              // Check for at least one day selected
+              if (schedule.days.length === 0) {
+                newErrors[`config.scheduleConfig.schedules.${index}.days`] = `Schedule ${index + 1}: At least one day must be selected`;
+              }
+
+              // Validate time format and order (allow overnight schedules)
+              if (!schedule.startTime || !schedule.endTime) {
+                newErrors[`config.scheduleConfig.schedules.${index}.time`] = `Schedule ${index + 1}: Start and end times are required`;
+              }
+            });
           }
         }
         break;
@@ -1625,11 +1646,127 @@ function ModeFields({ getField, updateField, errors }: FieldsProps) {
 
       {/* SCHEDULE Mode Configuration */}
       {mode === "schedule" && (
-        <div className="space-y-2">
-          <Label>Schedule Entries</Label>
-          <p className="text-xs text-muted-foreground">
-            Schedule configuration is complex. Use the advanced mode programming interface for full schedule setup.
-          </p>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <Label>Schedule Entries</Label>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const currentSchedules = getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', []);
+                if (currentSchedules.length < 4) {
+                  updateField('config.scheduleConfig.schedules', [
+                    ...currentSchedules,
+                    { startTime: '06:00', endTime: '18:00', level: 5, days: [1,2,3,4,5] }
+                  ]);
+                }
+              }}
+              disabled={(getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', [])?.length ?? 0) >= 4}
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Add Schedule
+            </Button>
+          </div>
+
+          {(getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', []) || []).map((schedule, index) => (
+            <div key={index} className="border rounded-lg p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Schedule {index + 1}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    const schedules = [...getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', [])];
+                    schedules.splice(index, 1);
+                    updateField('config.scheduleConfig.schedules', schedules);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {/* Time inputs */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">Start Time</Label>
+                  <Input
+                    type="time"
+                    value={schedule.startTime}
+                    onChange={(e) => {
+                      const schedules = [...getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', [])];
+                      schedules[index] = { ...schedules[index], startTime: e.target.value };
+                      updateField('config.scheduleConfig.schedules', schedules);
+                    }}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">End Time</Label>
+                  <Input
+                    type="time"
+                    value={schedule.endTime}
+                    onChange={(e) => {
+                      const schedules = [...getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', [])];
+                      schedules[index] = { ...schedules[index], endTime: e.target.value };
+                      updateField('config.scheduleConfig.schedules', schedules);
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Level slider */}
+              <div>
+                <Label className="text-xs">Level: {schedule.level}</Label>
+                <Slider
+                  value={[schedule.level]}
+                  min={0}
+                  max={10}
+                  step={1}
+                  onValueChange={([value]) => {
+                    const schedules = [...getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', [])];
+                    schedules[index] = { ...schedules[index], level: value };
+                    updateField('config.scheduleConfig.schedules', schedules);
+                  }}
+                />
+              </div>
+
+              {/* Days of week */}
+              <div>
+                <Label className="text-xs">Days</Label>
+                <div className="flex gap-1 mt-1">
+                  {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, dayIndex) => (
+                    <button
+                      key={dayIndex}
+                      type="button"
+                      className={`w-8 h-8 rounded text-xs font-medium ${
+                        schedule.days.includes(dayIndex)
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted text-muted-foreground'
+                      }`}
+                      onClick={() => {
+                        const schedules = [...getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', [])];
+                        const currentDays = schedules[index].days;
+                        const newDays = currentDays.includes(dayIndex)
+                          ? currentDays.filter(d => d !== dayIndex)
+                          : [...currentDays, dayIndex].sort();
+                        schedules[index] = { ...schedules[index], days: newDays };
+                        updateField('config.scheduleConfig.schedules', schedules);
+                      }}
+                    >
+                      {day}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {(getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', [])?.length ?? 0) === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-4">
+              No schedules configured. Click &quot;Add Schedule&quot; to create one.
+            </p>
+          )}
         </div>
       )}
 

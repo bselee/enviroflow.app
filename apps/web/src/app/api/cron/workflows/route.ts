@@ -134,6 +134,8 @@ interface WorkflowEdge {
   id: string
   source: string
   target: string
+  sourceHandle?: string
+  targetHandle?: string
 }
 
 interface Workflow {
@@ -350,65 +352,152 @@ async function executeWorkflow(
     }
   }
   
-  // Find action nodes (including new device programming nodes)
-  const actionNodes = parsedNodes.filter(n =>
-    n.type === 'action' || n.type === 'dimmer' || n.type === 'notification' ||
-    n.type === 'mode' || n.type === 'verified_action' || n.type === 'port_condition'
-  )
-  
-  if (actionNodes.length === 0) {
-    return {
-      workflowId: id,
-      workflowName: name,
-      status: 'skipped',
-      actionsExecuted: 0,
-      error: 'No action nodes found'
-    }
-  }
-  
-  // Execute actions (or simulate in dry-run mode)
-  let actionsExecuted = 0
-  
-  for (const actionNode of actionNodes) {
-    try {
-      if (dry_run_enabled) {
-        // Log dry-run
-        await logActivity(supabase, {
-          user_id,
-          workflow_id: id,
-          action_type: `dry_run_${actionNode.type}`,
-          action_data: actionNode.data,
-          result: 'dry_run'
-        })
-      } else {
-        // Execute real action with workflow context for notifications
-        await executeAction(supabase, user_id, actionNode, {
-          workflowId: id,
-          workflowName: name,
-          roomName,
-        })
+  // Parse edges for graph traversal
+  const parsedEdges: WorkflowEdge[] = typeof workflow.edges === 'string'
+    ? JSON.parse(workflow.edges)
+    : workflow.edges || []
 
-        // Log success
+  // Execute workflow by traversing the graph starting from trigger
+  let actionsExecuted = 0
+  const visited = new Set<string>()
+  const nodesToExecute: string[] = [triggerNode.id]
+
+  while (nodesToExecute.length > 0) {
+    const currentNodeId = nodesToExecute.shift()!
+
+    // Skip if already visited (prevent cycles)
+    if (visited.has(currentNodeId)) continue
+    visited.add(currentNodeId)
+
+    const currentNode = parsedNodes.find(n => n.id === currentNodeId)
+    if (!currentNode) continue
+
+    // Skip trigger node (already evaluated)
+    if (currentNode.type === 'trigger') {
+      // Find all edges from trigger and add their targets to execution queue
+      const nextEdges = parsedEdges.filter(e => e.source === currentNodeId)
+      nodesToExecute.push(...nextEdges.map(e => e.target))
+      continue
+    }
+
+    // Handle port_condition nodes specially (branching logic)
+    if (currentNode.type === 'port_condition') {
+      const conditionConfig = currentNode.data.config as PortConditionNodeConfig
+
+      try {
+        // Evaluate the condition
+        const conditionResult = await evaluatePortCondition(supabase, conditionConfig)
+
+        console.log(
+          `[Workflow ${name}] Port condition on controller ${conditionConfig.controllerId} port ${conditionConfig.port}:`,
+          `${conditionConfig.condition} = ${conditionResult}`
+        )
+
+        // Find the edge with matching sourceHandle ('true' or 'false')
+        const branchToFollow = conditionResult ? 'true' : 'false'
+        const branchEdge = parsedEdges.find(
+          e => e.source === currentNodeId && e.sourceHandle === branchToFollow
+        )
+
+        if (branchEdge) {
+          // Follow the matching branch
+          nodesToExecute.push(branchEdge.target)
+        } else {
+          console.warn(
+            `[Workflow ${name}] No edge found for port_condition branch: ${branchToFollow}`
+          )
+        }
+
+        // Log the condition evaluation
         await logActivity(supabase, {
           user_id,
           workflow_id: id,
-          action_type: actionNode.type,
-          action_data: actionNode.data,
+          action_type: 'port_condition_evaluated',
+          action_data: {
+            ...conditionConfig,
+            result: conditionResult,
+            branch: branchToFollow
+          },
           result: 'success'
         })
+
+      } catch (err) {
+        console.error(`[Workflow ${name}] Port condition evaluation error:`, err)
+
+        // Log failure and default to false branch
+        await logActivity(supabase, {
+          user_id,
+          workflow_id: id,
+          action_type: 'port_condition_evaluated',
+          action_data: {
+            controllerId: conditionConfig.controllerId,
+            port: conditionConfig.port,
+            condition: conditionConfig.condition,
+            targetLevel: conditionConfig.targetLevel,
+            targetMode: conditionConfig.targetMode
+          },
+          result: 'failed',
+          error_message: err instanceof Error ? err.message : 'Unknown error'
+        })
+
+        // Default to false branch on error
+        const falseBranchEdge = parsedEdges.find(
+          e => e.source === currentNodeId && e.sourceHandle === 'false'
+        )
+        if (falseBranchEdge) {
+          nodesToExecute.push(falseBranchEdge.target)
+        }
       }
-      actionsExecuted++
-    } catch (err) {
-      // Log failure
-      await logActivity(supabase, {
-        user_id,
-        workflow_id: id,
-        action_type: actionNode.type,
-        action_data: actionNode.data,
-        result: 'failed',
-        error_message: err instanceof Error ? err.message : 'Unknown error'
-      })
+
+      continue
     }
+
+    // Execute action nodes
+    if (['action', 'dimmer', 'notification', 'mode', 'verified_action'].includes(currentNode.type)) {
+      try {
+        if (dry_run_enabled) {
+          // Log dry-run
+          await logActivity(supabase, {
+            user_id,
+            workflow_id: id,
+            action_type: `dry_run_${currentNode.type}`,
+            action_data: currentNode.data,
+            result: 'dry_run'
+          })
+        } else {
+          // Execute real action with workflow context
+          await executeAction(supabase, user_id, currentNode, {
+            workflowId: id,
+            workflowName: name,
+            roomName,
+          })
+
+          // Log success
+          await logActivity(supabase, {
+            user_id,
+            workflow_id: id,
+            action_type: currentNode.type,
+            action_data: currentNode.data,
+            result: 'success'
+          })
+        }
+        actionsExecuted++
+      } catch (err) {
+        // Log failure
+        await logActivity(supabase, {
+          user_id,
+          workflow_id: id,
+          action_type: currentNode.type,
+          action_data: currentNode.data,
+          result: 'failed',
+          error_message: err instanceof Error ? err.message : 'Unknown error'
+        })
+      }
+    }
+
+    // Add next nodes to execution queue
+    const nextEdges = parsedEdges.filter(e => e.source === currentNodeId && !e.sourceHandle)
+    nodesToExecute.push(...nextEdges.map(e => e.target))
   }
   
   // Atomically update last_run and increment run_count via RPC function.
@@ -547,6 +636,78 @@ async function evaluateTrigger(
 
     default:
       return true
+  }
+}
+
+/**
+ * Evaluate port condition node.
+ * Checks the current state of a port against a specified condition.
+ *
+ * @param supabase - Supabase client instance
+ * @param config - Port condition node configuration
+ * @returns Promise<boolean> indicating whether the condition is met (true) or not (false)
+ */
+async function evaluatePortCondition(
+  supabase: SupabaseClient,
+  config: PortConditionNodeConfig
+): Promise<boolean> {
+  try {
+    // Get current port state from controller_ports table (cached data from polling)
+    const { data: portState, error } = await supabase
+      .from('controller_ports')
+      .select('*')
+      .eq('controller_id', config.controllerId)
+      .eq('port_number', config.port)
+      .single()
+
+    if (error || !portState) {
+      console.warn(
+        `[Port Condition] Port state not found for controller ${config.controllerId} port ${config.port}:`,
+        error?.message || 'No data'
+      )
+      // Default to false branch when port state is not found
+      return false
+    }
+
+    // Evaluate the condition based on current port state
+    switch (config.condition) {
+      case 'is_on':
+        // Port is considered "on" if is_on flag is true OR power_level > 0
+        return portState.is_on === true || (portState.power_level ?? 0) > 0
+
+      case 'is_off':
+        // Port is considered "off" if is_on flag is false AND power_level is 0
+        return portState.is_on === false || (portState.power_level ?? 0) === 0
+
+      case 'level_equals':
+        // Compare power level to target (with tolerance of ±1 for precision)
+        if (config.targetLevel === undefined) return false
+        const levelDiff = Math.abs((portState.power_level ?? 0) - config.targetLevel)
+        return levelDiff <= 1
+
+      case 'level_above':
+        // Check if power level is above target
+        return (portState.power_level ?? 0) > (config.targetLevel ?? 0)
+
+      case 'level_below':
+        // Check if power level is below target
+        return (portState.power_level ?? 0) < (config.targetLevel ?? 10)
+
+      case 'mode_equals':
+        // Compare current mode to target mode
+        if (!config.targetMode) return false
+        // Get mode name from mode_id using the helper function
+        const currentMode = mapModeIdToName(portState.current_mode ?? 0)
+        return currentMode === config.targetMode
+
+      default:
+        console.warn(`[Port Condition] Unknown condition type: ${config.condition}`)
+        return false
+    }
+  } catch (error) {
+    console.error('[Port Condition] Error evaluating condition:', error)
+    // Default to false branch on error
+    return false
   }
 }
 
@@ -712,16 +873,11 @@ async function executeAction(
       break
     }
 
-    case 'port_condition': {
-      const conditionData = data.config as PortConditionNodeConfig
-      // Port conditions are evaluated during workflow execution, not executed as actions
-      // They determine the next branch to follow based on port state
-      console.log(`Port condition node should be evaluated during workflow graph traversal, not executed as action`)
-      break
-    }
-
     default:
-      console.log(`Unknown action type: ${type}`)
+      // port_condition nodes are handled during graph traversal, not as actions
+      if (type !== 'port_condition') {
+        console.log(`Unknown action type: ${type}`)
+      }
   }
 }
 
