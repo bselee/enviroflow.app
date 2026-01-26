@@ -14,7 +14,8 @@
  */
 
 // Service Worker Version - update when making changes
-const SW_VERSION = "1.0.0";
+// BUMP THIS VERSION TO FORCE CACHE CLEAR
+const SW_VERSION = "2.1.0";
 
 // Default notification options
 const DEFAULT_NOTIFICATION_OPTIONS = {
@@ -45,8 +46,23 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   console.log(`[SW ${SW_VERSION}] Service worker activated`);
 
-  // Claim all clients immediately
-  event.waitUntil(clients.claim());
+  // Clear ALL caches and claim clients
+  event.waitUntil(
+    Promise.all([
+      // Clear all caches to force fresh fetch
+      caches.keys().then((cacheNames) => {
+        console.log(`[SW ${SW_VERSION}] Clearing ${cacheNames.length} caches`);
+        return Promise.all(
+          cacheNames.map((cacheName) => {
+            console.log(`[SW ${SW_VERSION}] Deleting cache: ${cacheName}`);
+            return caches.delete(cacheName);
+          })
+        );
+      }),
+      // Claim all clients immediately
+      clients.claim(),
+    ])
+  );
 });
 
 /**
@@ -270,11 +286,29 @@ self.addEventListener("message", (event) => {
 
 /**
  * Fetch Handler (for future offline support)
- * Currently just passes through all requests
+ * Currently just passes through all requests with cache bypass
  */
 self.addEventListener("fetch", (event) => {
-  // For now, just fetch from network
-  // Future: Add caching strategy for offline support
+  const url = new URL(event.request.url);
+
+  // For Next.js static assets, always fetch fresh from network
+  if (url.pathname.startsWith('/_next/')) {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-store' })
+    );
+    return;
+  }
+
+  // For HTML pages, fetch fresh with revalidation
+  if (event.request.mode === 'navigate' ||
+      event.request.headers.get('accept')?.includes('text/html')) {
+    event.respondWith(
+      fetch(event.request, { cache: 'no-cache' })
+    );
+    return;
+  }
+
+  // For other requests, just pass through
   event.respondWith(fetch(event.request));
 });
 
