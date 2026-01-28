@@ -83,6 +83,31 @@ export interface RoomSummary {
 }
 
 /**
+ * Summary data for a single unassigned controller with sensor data.
+ * Similar to RoomSummary but for individual controllers not in a room.
+ */
+export interface UnassignedControllerSummary {
+  /** The controller entity */
+  controller: Controller;
+  /** Whether the controller is online */
+  isOnline: boolean;
+  /** Latest sensor readings from this controller */
+  latestSensorData: LatestSensorData;
+  /** Trend data comparing current values to ~1 hour ago */
+  trends: {
+    temperature?: TrendData;
+    humidity?: TrendData;
+    vpd?: TrendData;
+  };
+  /** True if the most recent sensor data is older than 5 minutes */
+  hasStaleData: boolean;
+  /** ISO timestamp of the most recent sensor reading, or null if none */
+  lastUpdateTimestamp: string | null;
+  /** Temperature time series for charting (sorted ascending by timestamp) */
+  temperatureTimeSeries: TimeSeriesPoint[];
+}
+
+/**
  * Aggregate metrics across all rooms and controllers.
  * Displayed in the dashboard header section.
  */
@@ -143,6 +168,8 @@ export interface UseDashboardDataReturn {
   offlineControllers: Controller[];
   /** Controllers that are not assigned to any room */
   unassignedControllers: Controller[];
+  /** Summaries for unassigned controllers with sensor data */
+  unassignedControllerSummaries: UnassignedControllerSummary[];
   /** True during initial data fetch */
   isLoading: boolean;
   /** True during background refresh */
@@ -560,13 +587,40 @@ export function useDashboardData(
       }
       setError(null);
 
+      // Check auth session before fetching
+      const { data: { session }, error: authError } = await supabase.auth.getSession();
+
+      if (authError) {
+        console.error("[Dashboard] Auth error:", authError.message);
+        setError(`Authentication error: ${authError.message}`);
+        return;
+      }
+
+      if (!session?.user) {
+        console.log("[Dashboard] No authenticated session - will show demo mode");
+        // Don't set error - demo mode will handle this gracefully
+        // Clear any existing data so demo mode activates
+        if (isMounted.current) {
+          setRoomsWithControllers([]);
+          setUnassignedControllersData([]);
+          setSensorReadings([]);
+          setWorkflows([]);
+        }
+        return;
+      }
+
+      console.log("[Dashboard] Fetching data for user:", session.user.email);
+
       // Calculate time range for sensor readings query
+      // Use a generous time range (7 days) to ensure we get data even if polling has stopped
       const startTime = new Date();
-      startTime.setHours(startTime.getHours() - sensorTimeRangeHours);
+      startTime.setDate(startTime.getDate() - 7); // 7 days instead of just sensorTimeRangeHours
 
       // Use a fixed reasonable limit for sensor readings to avoid sequential query
       // 2000 readings is enough for ~10 controllers with 24h of data at 3-min intervals
       const sensorReadingLimit = 2000;
+
+      console.log("[Dashboard] Fetching sensor readings from:", startTime.toISOString());
 
       // Fetch all data in parallel for faster initial load
       const [roomsResult, unassignedResult, sensorsResult, workflowsResult] = await Promise.all([
@@ -658,9 +712,65 @@ export function useDashboardData(
       }
 
       if (isMounted.current) {
-        setRoomsWithControllers(roomsResult.data || []);
-        setUnassignedControllersData(unassignedResult.data || []);
-        setSensorReadings(finalSensorReadings);
+        const rooms = roomsResult.data || [];
+        const unassigned = unassignedResult.data || [];
+        const totalControllers = rooms.reduce((sum, r: RoomWithControllers) => sum + (r.controllers?.length || 0), 0) + unassigned.length;
+
+        console.log("[Dashboard] Data fetched:", {
+          rooms: rooms.length,
+          roomNames: rooms.map((r: RoomWithControllers) => r.name),
+          controllersInRooms: rooms.reduce((sum, r: RoomWithControllers) => sum + (r.controllers?.length || 0), 0),
+          unassignedControllers: unassigned.length,
+          totalControllers,
+          sensorReadings: finalSensorReadings.length,
+          workflows: (workflowsResult.data || []).length,
+        });
+
+        setRoomsWithControllers(rooms);
+        setUnassignedControllersData(unassigned);
+
+        // Timestamp-based merge: preserve realtime readings that are newer than fetched data
+        // This fixes the race condition where initial fetch could overwrite realtime data
+        setSensorReadings((prevReadings) => {
+          if (prevReadings.length === 0) {
+            // No existing readings - just use fetched data
+            return finalSensorReadings;
+          }
+
+          // Find the oldest timestamp in the fetched data
+          const oldestFetchedTimestamp = finalSensorReadings.length > 0
+            ? Math.min(...finalSensorReadings.map(r => new Date(r.recorded_at).getTime()))
+            : Date.now();
+
+          // Preserve existing readings that are newer than the oldest fetched reading
+          // These came from realtime subscriptions and shouldn't be overwritten
+          const preservedRealtimeReadings = prevReadings.filter(r =>
+            new Date(r.recorded_at).getTime() > oldestFetchedTimestamp
+          );
+
+          // Merge: realtime readings first (newer), then fetched readings
+          const merged = new Map<string, SensorReading>();
+
+          // Add preserved realtime readings first (they take priority)
+          for (const reading of preservedRealtimeReadings) {
+            const key = `${reading.controller_id}_${reading.sensor_type}_${reading.recorded_at}`;
+            merged.set(key, reading);
+          }
+
+          // Add fetched readings (skip duplicates)
+          for (const reading of finalSensorReadings) {
+            const key = `${reading.controller_id}_${reading.sensor_type}_${reading.recorded_at}`;
+            if (!merged.has(key)) {
+              merged.set(key, reading);
+            }
+          }
+
+          // Sort by recorded_at descending and limit
+          return Array.from(merged.values())
+            .sort((a, b) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime())
+            .slice(0, 2000); // Match realtime limit
+        });
+
         setWorkflows(workflowsResult.data || []);
       }
     } catch (err) {
@@ -854,8 +964,68 @@ export function useDashboardData(
   }, [roomsWithControllers, sensorReadings]);
 
   /**
+   * Compute summaries for unassigned controllers with sensor data.
+   * This allows displaying sensor data for controllers not yet assigned to rooms.
+   */
+  const unassignedControllerSummaries = useMemo((): UnassignedControllerSummary[] => {
+    return unassignedControllersData.map((controller) => {
+      // Filter sensor readings for this specific controller
+      const controllerReadings = sensorReadings.filter(
+        (r) => r.controller_id === controller.id
+      );
+
+      // Get latest sensor values
+      const latestTemp = getLatestReading(controllerReadings, "temperature");
+      const latestHumidity = getLatestReading(controllerReadings, "humidity");
+
+      // Calculate VPD from temperature and humidity if both available
+      let latestVPD: number | null = null;
+      if (latestTemp !== null && latestHumidity !== null) {
+        latestVPD = calculateVPD(latestTemp, latestHumidity);
+      }
+
+      // Calculate trends by comparing to values from ~1 hour ago
+      const pastTemp = getReadingFromOneHourAgo(controllerReadings, "temperature");
+      const pastHumidity = getReadingFromOneHourAgo(controllerReadings, "humidity");
+      const pastVPD = getReadingFromOneHourAgo(controllerReadings, "vpd");
+
+      // Determine last update timestamp and staleness
+      const latestReadingTimestamp = controllerReadings.length > 0
+        ? controllerReadings[0].recorded_at
+        : null;
+
+      // Build temperature time series for charting
+      const temperatureTimeSeries: TimeSeriesPoint[] = controllerReadings
+        .filter((r) => r.sensor_type === "temperature")
+        .map((r) => ({
+          timestamp: r.recorded_at,
+          value: r.value,
+        }))
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+      return {
+        controller,
+        isOnline: controller.status === 'online',
+        latestSensorData: {
+          temperature: latestTemp,
+          humidity: latestHumidity,
+          vpd: latestVPD,
+        },
+        trends: {
+          temperature: calculateTrend(latestTemp, pastTemp),
+          humidity: calculateTrend(latestHumidity, pastHumidity),
+          vpd: calculateTrend(latestVPD, pastVPD),
+        },
+        hasStaleData: isDataStale(latestReadingTimestamp),
+        lastUpdateTimestamp: latestReadingTimestamp,
+        temperatureTimeSeries,
+      };
+    });
+  }, [unassignedControllersData, sensorReadings]);
+
+  /**
    * Compute aggregate dashboard metrics across all rooms and controllers.
-   * IMPORTANT: Include both assigned AND unassigned controllers in the count.
+   * IMPORTANT: Include both assigned AND unassigned controllers in the count AND averages.
    */
   const metrics = useMemo((): DashboardMetrics => {
     // Combine controllers from rooms AND unassigned controllers
@@ -869,10 +1039,21 @@ export function useDashboardData(
       ? Math.round((onlineControllers / totalControllers) * 100)
       : 0;
 
-    // Calculate average sensor values across all room summaries
-    const temperatures = roomSummaries.map((s) => s.latestSensorData.temperature);
-    const humidities = roomSummaries.map((s) => s.latestSensorData.humidity);
-    const vpds = roomSummaries.map((s) => s.latestSensorData.vpd);
+    // Calculate average sensor values across ALL controllers (rooms + unassigned)
+    // Include data from room summaries
+    const roomTemperatures = roomSummaries.map((s) => s.latestSensorData.temperature);
+    const roomHumidities = roomSummaries.map((s) => s.latestSensorData.humidity);
+    const roomVpds = roomSummaries.map((s) => s.latestSensorData.vpd);
+
+    // Include data from unassigned controllers
+    const unassignedTemperatures = unassignedControllerSummaries.map((s) => s.latestSensorData.temperature);
+    const unassignedHumidities = unassignedControllerSummaries.map((s) => s.latestSensorData.humidity);
+    const unassignedVpds = unassignedControllerSummaries.map((s) => s.latestSensorData.vpd);
+
+    // Combine all sensor data for averaging
+    const temperatures = [...roomTemperatures, ...unassignedTemperatures];
+    const humidities = [...roomHumidities, ...unassignedHumidities];
+    const vpds = [...roomVpds, ...unassignedVpds];
 
     return {
       totalControllers,
@@ -884,7 +1065,7 @@ export function useDashboardData(
       averageHumidity: calculateAverage(humidities),
       averageVPD: calculateAverage(vpds),
     };
-  }, [controllers, unassignedControllers, rooms.length, roomSummaries]);
+  }, [controllers, unassignedControllers, rooms.length, roomSummaries, unassignedControllerSummaries]);
 
   /**
    * Utility function to get a specific room's summary by ID.
@@ -939,10 +1120,21 @@ export function useDashboardData(
   /**
    * Set up real-time subscriptions for rooms, controllers, and sensor_readings.
    * Uses a single channel with multiple table subscriptions for efficiency.
+   * Only subscribes if there's an authenticated session to prevent unauthorized access.
    */
   useEffect(() => {
-    const channel = supabase
-      .channel("dashboard_changes")
+    // Track if we've successfully set up subscriptions
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    // Validate session before setting up realtime subscriptions
+    const setupSubscriptions = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) {
+        console.log("[Dashboard] Skipping realtime subscriptions - no authenticated session");
+        return;
+      }
+
+      channel = supabase.channel("dashboard_changes")
       // Subscribe to room changes (INSERT, UPDATE, DELETE)
       .on(
         "postgres_changes",
@@ -996,17 +1188,24 @@ export function useDashboardData(
               }
 
               // Sort by recorded_at descending and limit
+              // Match the initial fetch limit of 2000 for consistency
               return Array.from(deduplicated.values())
                 .sort((a, b) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime())
-                .slice(0, 1000);
+                .slice(0, 2000);
             });
           }
         }
       )
       .subscribe();
+    };
+
+    // Start async subscription setup
+    setupSubscriptions();
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
       if (realtimeDebounceRef.current) {
         clearTimeout(realtimeDebounceRef.current);
         realtimeDebounceRef.current = null;
@@ -1298,6 +1497,7 @@ export function useDashboardData(
     metrics: finalMetrics,
     offlineControllers: shouldShowDemoMode ? [] : offlineControllers,
     unassignedControllers: shouldShowDemoMode ? [] : unassignedControllers,
+    unassignedControllerSummaries: shouldShowDemoMode ? [] : unassignedControllerSummaries,
     isLoading,
     isRefreshing,
     error,

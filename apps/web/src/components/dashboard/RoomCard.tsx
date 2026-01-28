@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Thermometer,
@@ -12,6 +12,8 @@ import {
   Cpu,
   Clock,
   AlertTriangle,
+  RefreshCw,
+  Loader2,
 } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
@@ -242,11 +244,47 @@ export function RoomCard({ room, index = 0, isLoading }: RoomCardProps) {
     getTimeSeries,
     isStale,
     isLoading: sensorsLoading,
+    refetch: refetchSensors,
   } = useSensorReadings({
     controllerIds,
     timeRangeHours: 6,
     limit: 50,
   });
+
+  // Manual polling state
+  const [isPolling, setIsPolling] = useState(false);
+  const [pollError, setPollError] = useState<string | null>(null);
+
+  // Poll all controllers in this room
+  const handleRefreshAll = async () => {
+    if (isPolling || controllers.length === 0) return;
+
+    setIsPolling(true);
+    setPollError(null);
+
+    try {
+      // Poll each controller in parallel
+      const results = await Promise.all(
+        controllers.map(async (controller) => {
+          const response = await fetch(`/api/controllers/${controller.id}/sensors`);
+          const data = await response.json();
+          return { controllerId: controller.id, success: response.ok, data };
+        })
+      );
+
+      const failed = results.filter((r) => !r.success);
+      if (failed.length > 0) {
+        setPollError(`${failed.length} controller(s) failed to poll`);
+      }
+
+      // Refetch sensor readings to get the new data
+      await refetchSensors();
+    } catch (err) {
+      setPollError("Network error");
+    } finally {
+      setIsPolling(false);
+    }
+  };
 
   // Aggregate sensor data across all controllers
   const aggregatedData = useMemo(() => {
@@ -277,21 +315,23 @@ export function RoomCard({ room, index = 0, isLoading }: RoomCardProps) {
 
       if (latest.temperature?.value != null) {
         latestTemp = latest.temperature.value;
-        if (
-          !latestTimestamp ||
-          new Date(latest.temperature.timestamp) > new Date(latestTimestamp)
+        // Guard against null/undefined timestamps before comparison
+        const tempTimestamp = latest.temperature.timestamp;
+        if (tempTimestamp && (!latestTimestamp ||
+          new Date(tempTimestamp).getTime() > new Date(latestTimestamp).getTime())
         ) {
-          latestTimestamp = latest.temperature.timestamp;
+          latestTimestamp = tempTimestamp;
         }
       }
 
       if (latest.humidity?.value != null) {
         latestHumidity = latest.humidity.value;
-        if (
-          !latestTimestamp ||
-          new Date(latest.humidity.timestamp) > new Date(latestTimestamp)
+        // Guard against null/undefined timestamps before comparison
+        const humTimestamp = latest.humidity.timestamp;
+        if (humTimestamp && (!latestTimestamp ||
+          new Date(humTimestamp).getTime() > new Date(latestTimestamp).getTime())
         ) {
-          latestTimestamp = latest.humidity.timestamp;
+          latestTimestamp = humTimestamp;
         }
       }
     }
@@ -316,15 +356,36 @@ export function RoomCard({ room, index = 0, isLoading }: RoomCardProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [controllers, readings, getLatestForController]);
 
-  // Get temperature chart data from first controller with readings
+  // Get temperature chart data aggregated from ALL controllers in the room
+  // For multi-controller rooms, we average readings at each timestamp
   const chartData = useMemo(() => {
+    // Collect all temperature data from all controllers
+    const allTempData: TimeSeriesPoint[] = [];
     for (const controller of controllers) {
       const tempData = getTimeSeries(controller.id, "temperature");
-      if (tempData.length > 0) {
-        return tempData;
-      }
+      allTempData.push(...tempData);
     }
-    return [];
+
+    if (allTempData.length === 0) {
+      return [];
+    }
+
+    // Group by timestamp (rounded to nearest minute for alignment)
+    const byTimestamp = new Map<number, number[]>();
+    for (const point of allTempData) {
+      const time = Math.floor(new Date(point.timestamp).getTime() / 60000) * 60000;
+      const existing = byTimestamp.get(time) || [];
+      existing.push(point.value);
+      byTimestamp.set(time, existing);
+    }
+
+    // Average values at each timestamp and return sorted
+    return Array.from(byTimestamp.entries())
+      .map(([time, values]) => ({
+        timestamp: new Date(time).toISOString(),
+        value: Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10,
+      }))
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     // getTimeSeries is memoized in useSensorReadings with readings dependency,
     // so we need readings here to trigger recomputation when data changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -607,8 +668,32 @@ export function RoomCard({ room, index = 0, isLoading }: RoomCardProps) {
         )}
 
         {/* Footer */}
-        <div className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground">
-          Last update: {formatRelativeTime(aggregatedData.lastUpdate)}
+        <div className="mt-4 pt-4 border-t border-border flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">
+            Last update: {formatRelativeTime(aggregatedData.lastUpdate)}
+          </span>
+          <div className="flex items-center gap-2">
+            {pollError && (
+              <span className="text-xs text-red-500">{pollError}</span>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleRefreshAll();
+              }}
+              disabled={isPolling}
+            >
+              {isPolling ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+            </Button>
+          </div>
         </div>
     </div>
   );

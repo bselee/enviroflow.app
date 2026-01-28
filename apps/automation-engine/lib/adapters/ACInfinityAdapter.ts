@@ -177,7 +177,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
   async discoverDevices(credentials: DiscoveryCredentials): Promise<DiscoveryResult> {
     const { email, password } = credentials
 
-    log('info', 'Starting device discovery', { email: '[REDACTED]' })
+    log('info', 'Starting device discovery', { email: email.replace(/(.{2}).*(@.*)/, '$1***$2') })
 
     try {
       // Step 1: Login to get token
@@ -344,7 +344,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
     userId?: string
     error?: string
   }> {
-    log('info', 'Attempting login', { email: '[REDACTED]' })
+    log('info', 'Attempting login', { email: email.replace(/(.{2}).*(@.*)/, '$1***$2') })
 
     // Build form-urlencoded body with correct field names
     // Note: AppPasswordL has an 'L' suffix (not a typo!)
@@ -427,7 +427,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       }
     }
 
-    const { email, password } = credentials
+    const { email, password, deviceId: requestedDeviceId } = credentials
 
     try {
       // Step 1: Login to get token
@@ -478,8 +478,30 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
         }
       }
 
-      // Use the first device (future: support device selection)
-      const device = devicesData.data[0]
+      // Select device: use requested deviceId if provided, otherwise use first device
+      let device: ACDevice
+      if (requestedDeviceId) {
+        const matchingDevice = devicesData.data.find(d => d.devId === requestedDeviceId)
+        if (!matchingDevice) {
+          log('error', `Requested device ${requestedDeviceId} not found in account`, {
+            availableDevices: devicesData.data.map(d => ({ id: d.devId, name: d.devName }))
+          })
+          return {
+            success: false,
+            controllerId: '',
+            metadata: this.emptyMetadata(),
+            error: `Device ${requestedDeviceId} not found in your AC Infinity account. Use discovery to see available devices.`
+          }
+        }
+        device = matchingDevice
+        log('info', `Using requested device: ${device.devName} (${device.devId})`)
+      } else {
+        // Default to first device
+        device = devicesData.data[0]
+        if (devicesData.data.length > 1) {
+          log('info', `Multiple devices found, using first device. Available: ${devicesData.data.map(d => d.devName).join(', ')}`)
+        }
+      }
       const controllerId = device.devId
 
       // Store token with 24-hour expiry
@@ -520,21 +542,17 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
    * Read all sensor values from controller
    */
   async readSensors(controllerId: string): Promise<SensorReading[]> {
-    log('info', `========== readSensors START for ${controllerId} ==========`)
     const stored = tokenStore.get(controllerId)
     if (!stored) {
-      log('error', 'Controller not connected - no token in store')
       throw new Error('Controller not connected. Call connect() first.')
     }
 
     // Check if token is expired
     if (stored.expiresAt < new Date()) {
       tokenStore.delete(controllerId)
-      log('error', 'Authentication token expired')
       throw new Error('Authentication token expired. Please reconnect.')
     }
 
-    log('info', 'Token valid, fetching device settings...')
     // Use getdevModeSettingList endpoint for sensor and device data
     const result = await adapterFetch<ACDeviceSettingResponse>(
       ADAPTER_NAME,
@@ -551,19 +569,21 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       }
     )
 
-    log('info', 'API fetch result:', { success: result.success, hasData: !!result.data, error: result.error })
-
     if (!result.success || !result.data) {
-      log('error', 'Failed to read sensor data', { error: result.error })
       throw new Error(result.error || 'Failed to read sensor data')
     }
 
     const data = result.data
 
-    log('info', 'API response code:', { code: data.code, msg: data.msg, hasData: !!data.data })
+    // Check for server-side token expiry (code 1001)
+    // This happens when the token is invalidated server-side before our local expiry
+    if (data.code === 1001) {
+      log('warn', `Token expired server-side for ${controllerId}`, { code: data.code, msg: data.msg })
+      tokenStore.delete(controllerId)
+      throw new Error('Authentication token expired (server). Please reconnect.')
+    }
 
     if (data.code !== 200 || !data.data) {
-      log('error', 'Failed to get device settings', { code: data.code, msg: data.msg })
       throw new Error(data.msg || 'Failed to get device settings')
     }
 
@@ -588,8 +608,9 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
         // Handle both "sensorValue" and "value" field names
         const rawValue = sensor.sensorValue ?? sensor.value ?? 0
 
-        // Only add non-zero readings
-        if (rawValue !== 0) {
+        // Only add readings with valid values (null/undefined check, NOT zero check)
+        // Zero is a valid sensor reading (0°F, 0% humidity)
+        if (rawValue != null) {
           readings.push({
             port: 0,
             type: this.mapSensorType(sensor.sensorType),
@@ -609,7 +630,8 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
 
     if (typeof deviceData.temperature === 'number' || typeof deviceData.temp === 'number') {
       const rawTempValue = (deviceData.temperature as number) ?? (deviceData.temp as number)
-      if (rawTempValue !== 0) {
+      // Zero is a valid temperature reading - only filter null/undefined
+      if (rawTempValue != null) {
         // AC Infinity returns temperature as Celsius × 100 (e.g., 2350 = 23.5°C)
         // Convert to Fahrenheit: (C × 9/5) + 32
         const celsiusValue = rawTempValue / 100
@@ -632,7 +654,8 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
 
     if (typeof deviceData.humidity === 'number') {
       const rawHumidityValue = deviceData.humidity as number
-      if (rawHumidityValue !== 0) {
+      // Zero is a valid humidity reading - only filter null/undefined
+      if (rawHumidityValue != null) {
         // AC Infinity returns humidity as percentage × 100 (e.g., 6500 = 65%)
         const humidityValue = rawHumidityValue / 100
         readings.push({
@@ -652,7 +675,8 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
 
     if (typeof deviceData.vpd === 'number') {
       const rawVpdValue = deviceData.vpd as number
-      if (rawVpdValue !== 0) {
+      // Zero is a valid VPD reading - only filter null/undefined
+      if (rawVpdValue != null) {
         // VPD is reported as kPa × 100 (e.g., 120 = 1.2 kPa)
         const vpdValue = rawVpdValue / 100
         readings.push({
@@ -687,31 +711,46 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       // portType 10 = sensor port
       // portType 7/8 = often temperature sensors
       // Check surplus field which often contains current sensor value
-      if (port.surplus !== undefined && port.surplus !== 0) {
+      // Note: Zero is a valid reading, only filter null/undefined
+      if (port.surplus != null) {
         // Determine if this is a sensor port based on type indicators
         if (port.devType === 10 || port.portType === 10 || port.portType === 7 || port.portType === 8) {
           // This is a sensor port - extract the reading
+          // AC Infinity port sensors use same scaling as device sensors:
+          // - Temperature: Celsius × 100 (e.g., 2350 = 23.5°C)
+          // - Humidity: Percentage × 100 (e.g., 6500 = 65%)
           const sensorType = port.portType === 8 ? 'humidity' : 'temperature'
+
+          let transformedValue: number
+          if (sensorType === 'temperature') {
+            // Convert: raw / 100 → Celsius, then Celsius → Fahrenheit
+            const celsiusValue = port.surplus / 100
+            transformedValue = Math.round(((celsiusValue * 9/5) + 32) * 10) / 10
+          } else {
+            // Humidity: raw / 100 → percentage
+            transformedValue = Math.round((port.surplus / 100) * 10) / 10
+          }
+
           readings.push({
             port: port.portId,
             type: sensorType,
-            value: port.surplus,
+            value: transformedValue,
             unit: sensorType === 'humidity' ? '%' : 'F',
             timestamp: now,
             isStale: false
           })
           log('info', `Found port-based sensor on port ${port.portId}`, {
             type: sensorType,
-            value: port.surplus
+            rawValue: port.surplus,
+            transformedValue
           })
         }
       }
     }
 
-    log('info', `========== readSensors COMPLETE: ${readings.length} readings ==========`, {
+    log('info', `Read ${readings.length} sensor values from ${controllerId}`, {
       sensorCount: readings.length,
-      types: readings.map(r => r.type),
-      values: readings.map(r => `${r.type}=${r.value}${r.unit}`)
+      types: readings.map(r => r.type)
     })
     return readings
   }
@@ -880,6 +919,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
   }
 
   private async getDeviceCapabilities(controllerId: string, token: string) {
+    log('info', `Fetching capabilities for device ${controllerId}`)
     try {
       const result = await adapterFetch<ACDeviceSettingResponse>(
         ADAPTER_NAME,
@@ -896,7 +936,23 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
         }
       )
 
-      if (!result.success || !result.data || result.data.code !== 200) {
+      if (!result.success) {
+        log('error', `Capabilities fetch failed for ${controllerId}`, {
+          error: result.error
+        })
+        return this.emptyCapabilities()
+      }
+
+      if (!result.data) {
+        log('error', `Capabilities response empty for ${controllerId}`)
+        return this.emptyCapabilities()
+      }
+
+      if (result.data.code !== 200) {
+        log('error', `Capabilities API error for ${controllerId}`, {
+          code: result.data.code,
+          msg: result.data.msg
+        })
         return this.emptyCapabilities()
       }
 
@@ -936,6 +992,13 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
         }
       }
 
+      log('info', `Capabilities loaded for ${controllerId}`, {
+        sensorCount: sensors.length,
+        deviceCount: devices.length,
+        supportsDimming,
+        maxPorts: data.portData?.length || 4
+      })
+
       return {
         sensors,
         devices,
@@ -945,7 +1008,10 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       }
 
     } catch (err) {
-      log('warn', 'Failed to get device capabilities', { error: err })
+      log('error', `Exception getting device capabilities for ${controllerId}`, {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined
+      })
       return this.emptyCapabilities()
     }
   }
@@ -973,12 +1039,17 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
   }
 
   private mapDeviceType(acType: number): DeviceType {
+    // AC Infinity device type mappings based on docs/spec/Controllers/ACInfinity.md
+    // and observed API responses
     const map: Record<number, DeviceType> = {
       1: 'fan',
       2: 'light',
       3: 'outlet',
       4: 'heater',
-      5: 'humidifier'
+      5: 'humidifier',
+      6: 'dehumidifier',
+      7: 'outlet',       // CO2 controller (treated as outlet for control purposes)
+      8: 'pump'          // Water pump
     }
     return map[acType] || 'outlet'
   }

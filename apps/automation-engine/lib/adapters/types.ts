@@ -48,6 +48,8 @@ export interface ACInfinityCredentials {
   type: 'ac_infinity'
   email: string
   password: string
+  /** Optional: specific device ID to connect to (for multi-device accounts) */
+  deviceId?: string
 }
 
 export interface InkbirdCredentials {
@@ -58,9 +60,9 @@ export interface InkbirdCredentials {
 
 export interface GoveeCredentials {
   type: 'govee'
-  apiKey: string
-  // Optional: specific device ID if user has multiple devices
-  deviceId?: string
+  apiKey?: string
+  // BLE devices discovered via mobile app
+  bleDeviceId?: string
 }
 
 export interface CSVUploadCredentials {
@@ -70,22 +72,23 @@ export interface CSVUploadCredentials {
 
 export interface MQTTCredentials {
   type: 'mqtt'
-  brokerUrl: string      // mqtt://broker.example.com or ws://broker.example.com:8083
-  port: number           // 1883 for MQTT, 8883 for MQTTS, 8083/9001 for WebSocket
+  brokerUrl: string
+  port?: number
   username?: string
   password?: string
-  topicPrefix: string    // Base topic prefix (e.g., enviroflow/{userId})
-  useTls: boolean        // Use TLS/SSL encryption
-  clientId?: string      // Optional MQTT client ID
+  topic: string
+  topicPrefix?: string
+  useTls?: boolean
+  clientId?: string
 }
 
 export interface EcowittCredentials {
   type: 'ecowitt'
   connectionMethod: 'push' | 'tcp' | 'http' | 'cloud'
-  gatewayIP?: string           // Required for tcp/http methods
-  apiKey?: string              // Required for cloud method
-  applicationKey?: string      // Required for cloud method
-  macAddress?: string          // MAC address of gateway
+  gatewayIP?: string
+  apiKey?: string
+  applicationKey?: string
+  macAddress?: string
 }
 
 export interface GenericCredentials {
@@ -109,6 +112,11 @@ export interface ControllerMetadata {
   model?: string
   firmwareVersion?: string
   capabilities: ControllerCapabilities
+  // AC Infinity specific fields
+  macAddress?: string
+  lastOnlineTime?: Date
+  deviceType?: number
+  modes?: unknown[]
 }
 
 export type ControllerBrand =
@@ -151,9 +159,9 @@ export type SensorType =
   | 'ec'
   | 'soil_moisture'
   | 'pressure'
-  | 'water_level'
   | 'wind_speed'
   | 'pm25'
+  | 'water_level'
   | 'uv'
   | 'solar_radiation'
   | 'rain'
@@ -165,6 +173,130 @@ export interface SensorReading {
   unit: string
   timestamp: Date
   isStale?: boolean
+}
+
+// ============================================
+// Data Precision Types
+// ============================================
+
+/**
+ * Transformation applied during sensor value processing
+ */
+export interface DataTransformation {
+  type: 'scale_division' | 'unit_conversion' | 'rounding' | 'vpd_calculation'
+  input: number
+  output: number
+  formula: string
+  precision?: number
+}
+
+/**
+ * Raw sensor capture from API before transformation
+ */
+export interface RawSensorCapture {
+  field: string
+  rawValue: number
+  sensorType: number
+  apiTimestamp: Date
+  source: 'deviceLevel' | 'sensorData' | 'portData'
+}
+
+/**
+ * Sensor reading with full audit trail
+ */
+export interface ValidatedSensorReading extends SensorReading {
+  rawCapture: RawSensorCapture
+  transformations: DataTransformation[]
+  validationResult: {
+    passed: boolean
+    failedChecks: string[]
+  }
+}
+
+/**
+ * Raw API capture for audit logging
+ */
+export interface RawApiCapture {
+  endpoint: string
+  responseHash: string
+  rawSensorData: unknown
+  rawPortData: unknown
+  rawModeData: unknown
+  latencyMs: number
+  capturedAt: Date
+}
+
+/**
+ * State of a controller port/device
+ */
+export interface PortState {
+  port: number
+  portName?: string
+  deviceType?: string
+  loadType?: number
+  isConnected: boolean
+  isOn: boolean
+  powerLevel: number
+  currentMode?: number
+  supportsDimming: boolean
+  isOnline?: boolean
+  portType?: number
+  devType?: number
+  externalPort?: number
+  surplus?: number
+  speak?: number
+  isSupported?: boolean
+}
+
+/**
+ * Parsed mode configuration from AC Infinity API
+ */
+export interface ParsedModeConfiguration {
+  portNumber?: number
+  modeId: number
+  modeName: string
+  isActive: boolean
+  tempTriggerHigh?: number
+  tempTriggerLow?: number
+  humidityTriggerHigh?: number
+  humidityTriggerLow?: number
+  vpdTriggerHigh?: number
+  vpdTriggerLow?: number
+  deviceBehavior?: string
+  maxLevel?: number
+  minLevel?: number
+  transitionEnabled?: boolean
+  transitionSpeed?: number
+  bufferEnabled?: boolean
+  bufferValue?: number
+  timerType?: string
+  timerDuration?: number
+  cycleOnDuration?: number
+  cycleOffDuration?: number
+  scheduleStartTime?: string
+  scheduleEndTime?: string
+  rawSettings?: Record<string, unknown>
+}
+
+/**
+ * Full controller data returned by precision polling
+ */
+export interface FullControllerData {
+  sensors: SensorReading[]
+  ports: PortState[]
+  modes: ParsedModeConfiguration[]
+  rawCapture?: RawApiCapture
+}
+
+/**
+ * Polling result with graceful degradation info
+ */
+export interface PollResultWithDegradation {
+  success: boolean
+  readings: SensorReading[]
+  degradationLevel: 'fresh' | 'recent_cache' | 'interpolated' | 'last_known'
+  dataAge?: number
+  error?: string
 }
 
 // ============================================
@@ -180,6 +312,12 @@ export interface DeviceCapability {
   maxLevel?: number
   currentLevel?: number
   isOn?: boolean
+  // AC Infinity specific fields
+  loadType?: number
+  externalPort?: number
+  portType?: number
+  devType?: number
+  isSupported?: boolean
 }
 
 export type DeviceType = 
