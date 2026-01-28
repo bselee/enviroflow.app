@@ -22,6 +22,7 @@ import {
   encryptCredentials,
   EncryptionError,
 } from '@/lib/server-encryption'
+import { pollController } from '@/lib/poll-sensors'
 
 // Import adapter factory and types from automation-engine workspace package
 import {
@@ -793,6 +794,34 @@ export async function POST(request: NextRequest) {
     // Remove credentials from response - never expose encrypted data to client
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { credentials: _, ...safeController } = data
+
+    // Immediately poll the controller for sensor data so users see data right away
+    // This is done asynchronously - we don't wait for it to complete
+    if (brand !== 'csv_upload') {
+      console.log('[Controllers POST] Triggering immediate sensor poll for new controller')
+      // Poll in background - don't await to avoid blocking the response
+      pollController(supabase, {
+        id: data.id,
+        user_id: userId,
+        brand: data.brand,
+        controller_id: data.controller_id,
+        name: data.name,
+        credentials: data.credentials,
+        status: data.status,
+        last_seen: data.last_seen,
+        last_error: data.last_error,
+        room_id: data.room_id,
+      }).then(result => {
+        console.log('[Controllers POST] Immediate poll completed:', {
+          controllerId: result.controllerId,
+          status: result.status,
+          readingsCount: result.readingsCount,
+          error: result.error,
+        })
+      }).catch(err => {
+        console.error('[Controllers POST] Immediate poll failed:', err)
+      })
+    }
 
     return NextResponse.json({
       controller: safeController,
