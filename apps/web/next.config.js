@@ -1,3 +1,5 @@
+const { withSentryConfig } = require('@sentry/nextjs');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -89,6 +91,49 @@ const nextConfig = {
       },
     ]
   },
+
+  // Proxy Supabase requests through Next.js server to avoid browser QUIC protocol issues
+  // This routes browser requests through Vercel's server-side, avoiding direct browser-to-Supabase connections
+  async rewrites() {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://vhlnnfmuhttjpwyobklu.supabase.co';
+    return [
+      // Proxy Supabase REST API requests
+      {
+        source: '/supabase-proxy/rest/:path*',
+        destination: `${supabaseUrl}/rest/:path*`,
+      },
+      // Proxy Supabase Auth API requests
+      {
+        source: '/supabase-proxy/auth/:path*',
+        destination: `${supabaseUrl}/auth/:path*`,
+      },
+      // Proxy Supabase Storage API requests
+      {
+        source: '/supabase-proxy/storage/:path*',
+        destination: `${supabaseUrl}/storage/:path*`,
+      },
+    ]
+  },
 }
 
-module.exports = nextConfig
+// Sentry configuration options
+const sentryWebpackPluginOptions = {
+  // Additional config options for the Sentry webpack plugin
+  // Suppresses source map uploading logs during build
+  silent: true,
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+
+  // Upload source maps only in production and if auth token is available
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+
+  // For all available options, see:
+  // https://github.com/getsentry/sentry-webpack-plugin#options
+}
+
+// Only wrap with Sentry if DSN is configured (gracefully handle missing config)
+const moduleExports = process.env.SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN
+  ? withSentryConfig(nextConfig, sentryWebpackPluginOptions)
+  : nextConfig
+
+module.exports = moduleExports

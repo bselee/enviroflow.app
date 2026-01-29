@@ -506,7 +506,7 @@ export function useDashboardData(
   options: DashboardDataOptions = {}
 ): UseDashboardDataReturn {
   const {
-    refreshInterval = 10000, // Reduced from 60s to 10s for faster real-time updates
+    refreshInterval = 60000, // ✅ FIX: Back to 60s - realtime handles live updates, no need for aggressive polling
     sensorTimeRangeHours = 24, // Changed default to 24h for timeline
   } = options;
 
@@ -768,7 +768,7 @@ export function useDashboardData(
         fetchDashboardData(true);
       }
       realtimeDebounceRef.current = null;
-    }, 500); // 500ms debounce
+    }, 2000); // ✅ FIX: Increase debounce from 500ms to 2s to reduce refetch frequency
   }, [fetchDashboardData]);
 
   // ==========================================================================

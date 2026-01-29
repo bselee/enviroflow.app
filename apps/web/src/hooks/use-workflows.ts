@@ -128,10 +128,7 @@ export function useWorkflows(): UseWorkflowsReturn {
           growth_stage,
           created_at,
           updated_at,
-          room:rooms!room_id (
-            id,
-            name
-          )
+          room:rooms(id, name)
         `)
         .eq("user_id", session.user.id)
         .order("created_at", { ascending: false });

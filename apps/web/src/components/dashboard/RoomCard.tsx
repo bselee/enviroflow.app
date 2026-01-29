@@ -38,6 +38,7 @@ import { useSensorReadings } from "@/hooks/use-sensor-readings";
 import { useWorkflows } from "@/hooks/use-workflows";
 import { useDragDrop } from "@/components/providers";
 import type { RoomWithControllers, Controller, TimeSeriesPoint, ControllerPort } from "@/types";
+import type { LatestSensorData } from "@/hooks/use-dashboard-data";
 
 /**
  * Display-friendly room data for RoomCard.
@@ -81,6 +82,14 @@ interface RoomCardProps {
   isLoading?: boolean;
   /** Optional function to get ports for a controller (avoids N+1 query problem) */
   getPortsForController?: (controllerId: string) => ControllerPort[];
+  /** Pre-fetched sensor data (avoids N+1 query problem) */
+  sensorData?: LatestSensorData;
+  /** Pre-fetched time series data for chart */
+  timeSeriesData?: TimeSeriesPoint[];
+  /** Pre-calculated online count */
+  onlineCount?: number;
+  /** Pre-calculated last update timestamp */
+  lastUpdate?: string | null;
 }
 
 /**
@@ -278,7 +287,7 @@ export function RoomCardSkeleton() {
  * );
  * ```
  */
-export function RoomCard({ room, index = 0, isLoading, getPortsForController }: RoomCardProps) {
+export function RoomCard({ room, index = 0, isLoading, getPortsForController, sensorData: propSensorData, timeSeriesData: propTimeSeriesData, onlineCount: propOnlineCount, lastUpdate: propLastUpdate }: RoomCardProps) {
   const controllers = room.controllers || [];
   const controllerIds = controllers.map((c) => c.id);
 
@@ -298,7 +307,10 @@ export function RoomCard({ room, index = 0, isLoading, getPortsForController }: 
   const isDragging = draggedCard === index;
   const isDragOver = dragOverCard === index && draggedCard !== index;
 
-  // Fetch sensor readings for all controllers in this room
+  // ✅ FIX: Only fetch sensor readings if NOT provided via props
+  // This prevents duplicate requests when parent (DashboardContent) already fetched data
+  const shouldFetchOwnData = !propSensorData;
+
   const {
     readings,
     getLatestForController,
@@ -307,9 +319,10 @@ export function RoomCard({ room, index = 0, isLoading, getPortsForController }: 
     isLoading: sensorsLoading,
     refetch: refetchSensors,
   } = useSensorReadings({
-    controllerIds,
+    controllerIds: shouldFetchOwnData ? controllerIds : [], // Empty array prevents fetch
     timeRangeHours: 6,
     limit: 50,
+    enableRealtime: false, // Disable realtime - parent hook handles this
   });
 
   // Manual polling state
@@ -349,6 +362,19 @@ export function RoomCard({ room, index = 0, isLoading, getPortsForController }: 
 
   // Aggregate sensor data across all controllers
   const aggregatedData = useMemo(() => {
+    // If pre-fetched sensor data is provided, use it directly
+    if (propSensorData) {
+      return {
+        temperature: propSensorData.temperature,
+        humidity: propSensorData.humidity,
+        vpd: propSensorData.vpd,
+        fanSpeed: null, // Would come from device control data
+        lightLevel: null, // Would come from device control data
+        lastUpdate: propLastUpdate ?? null,
+        isOnline: (propOnlineCount ?? 0) > 0,
+      };
+    }
+
     if (controllers.length === 0) {
       return {
         temperature: null,
@@ -415,11 +441,16 @@ export function RoomCard({ room, index = 0, isLoading, getPortsForController }: 
     // getLatestForController is memoized in useSensorReadings with readings dependency,
     // so we need readings here to trigger recomputation when data changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [controllers, readings, getLatestForController]);
+  }, [controllers, readings, getLatestForController, propSensorData, propLastUpdate, propOnlineCount]);
 
   // Get temperature chart data aggregated from ALL controllers in the room
   // For multi-controller rooms, we average readings at each timestamp
   const chartData = useMemo(() => {
+    // Use pre-fetched time series data if available
+    if (propTimeSeriesData) {
+      return propTimeSeriesData;
+    }
+
     // Collect all temperature data from all controllers
     const allTempData: TimeSeriesPoint[] = [];
     for (const controller of controllers) {
@@ -450,15 +481,21 @@ export function RoomCard({ room, index = 0, isLoading, getPortsForController }: 
     // getTimeSeries is memoized in useSensorReadings with readings dependency,
     // so we need readings here to trigger recomputation when data changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [controllers, readings, getTimeSeries]);
+  }, [controllers, readings, getTimeSeries, propTimeSeriesData]);
 
   // Check if any controller has stale data
   const hasStaleData = useMemo(() => {
+    // If pre-fetched, checking stale is harder without timestamps, assume false or calculate from lastUpdate
+    if (propSensorData) {
+      if (!propLastUpdate) return true;
+      const fiveMinsAgo = Date.now() - 5 * 60 * 1000;
+      return new Date(propLastUpdate).getTime() < fiveMinsAgo;
+    }
     return controllers.some((c) => isStale(c.id, 5));
     // isStale is memoized in useSensorReadings with readings dependency,
     // so we need readings here to trigger recomputation when data changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [controllers, readings, isStale]);
+  }, [controllers, readings, isStale, propSensorData, propLastUpdate]);
 
   // Check if any workflow is active for this room
   const hasActiveWorkflow = useMemo(() => {
@@ -671,12 +708,12 @@ export function RoomCard({ room, index = 0, isLoading, getPortsForController }: 
         )}
 
         {/* Sensor Readings */}
-        {controllers.length === 0 ? (
+        {(controllers.length === 0 && !propSensorData) ? (
           <div className="py-6 text-center text-sm text-muted-foreground">
             <p>No controllers assigned</p>
             <p className="text-xs mt-1">Add a controller to see sensor data</p>
           </div>
-        ) : sensorsLoading ? (
+        ) : (sensorsLoading && !propSensorData) ? (
           <div className="space-y-3">
             <Skeleton className="h-6 w-full" />
             <Skeleton className="h-6 w-full" />

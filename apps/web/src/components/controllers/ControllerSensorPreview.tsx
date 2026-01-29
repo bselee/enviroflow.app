@@ -215,15 +215,15 @@ export function ControllerSensorPreview({
   // Fetch connected devices
   const { devices, isLoading: devicesLoading } = useDeviceControl(controllerId);
 
-  // Auto-refresh sensor data every 30 seconds when realtime is disabled
-  // This ensures data stays fresh without WebSocket overhead
-  useEffect(() => {
-    const interval = setInterval(() => {
-      refetch();
-    }, 30000); // 30 seconds
-
-    return () => clearInterval(interval);
-  }, [refetch]);
+  // ✅ FIX: Removed auto-refresh - parent components handle data freshness
+  // via realtime subscriptions in use-dashboard-data and use-controllers
+  // This prevents duplicate polling that caused request spam
+  // useEffect(() => {
+  //   const interval = setInterval(() => {
+  //     refetch();
+  //   }, 30000);
+  //   return () => clearInterval(interval);
+  // }, [refetch]);
 
   // Get latest aggregated data
   const latestData = useMemo((): AggregatedSensorData => {

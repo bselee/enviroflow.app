@@ -23,6 +23,39 @@ const getSupabaseUrl = () => {
   return url;
 };
 
+/**
+ * Custom fetch that proxies Supabase requests through Next.js server.
+ * This avoids QUIC protocol errors when browser connects directly to Supabase on Vercel.
+ *
+ * Rewrites URLs like:
+ *   https://xxx.supabase.co/rest/v1/... → /supabase-proxy/rest/v1/...
+ *   https://xxx.supabase.co/auth/v1/... → /supabase-proxy/auth/v1/...
+ */
+const createProxiedFetch = () => {
+  const supabaseUrl = getSupabaseUrl();
+
+  return (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    let url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+
+    // Only proxy in browser and only for Supabase URLs
+    if (typeof window !== 'undefined' && url.startsWith(supabaseUrl)) {
+      // Rewrite to use local proxy
+      // e.g., https://xxx.supabase.co/rest/v1/table → /supabase-proxy/rest/v1/table
+      const path = url.replace(supabaseUrl, '');
+      url = `/supabase-proxy${path}`;
+
+      // If input was a Request object, create a new one with updated URL
+      if (input instanceof Request) {
+        input = new Request(url, input);
+      } else {
+        input = url;
+      }
+    }
+
+    return fetch(input, init);
+  };
+};
+
 const getSupabaseAnonKey = () => {
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!key) {
@@ -45,13 +78,42 @@ let browserClient: SupabaseClient | null = null;
 /**
  * Get the browser Supabase client (singleton)
  * Uses cookie-based session storage for SSR compatibility
+ *
+ * IMPORTANT: Configured with automatic token refresh and proper error handling
+ * IMPORTANT: Uses proxied fetch to avoid QUIC protocol errors on Vercel
  */
 export function createClient(): SupabaseClient {
   if (browserClient) {
     return browserClient;
   }
 
-  browserClient = createBrowserClient(getSupabaseUrl(), getSupabaseAnonKey());
+  // Create proxied fetch for browser to avoid QUIC issues
+  const proxiedFetch = typeof window !== 'undefined' ? createProxiedFetch() : undefined;
+
+  browserClient = createBrowserClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+    auth: {
+      // Automatically refresh tokens when they expire
+      autoRefreshToken: true,
+      // Persist session in cookies (handled by @supabase/ssr)
+      persistSession: true,
+      // Detect session from URL (for email confirmations, password resets)
+      detectSessionInUrl: true,
+      // Flow type for PKCE (more secure than implicit)
+      flowType: 'pkce',
+    },
+    // Enable realtime for subscriptions
+    realtime: {
+      params: {
+        eventsPerSecond: 10,
+      },
+    },
+    // Use proxied fetch in browser to route through Vercel server
+    // This avoids ERR_QUIC_PROTOCOL_ERROR when browser connects directly to Supabase
+    global: proxiedFetch ? {
+      fetch: proxiedFetch,
+    } : undefined,
+  });
+
   return browserClient;
 }
 

@@ -212,62 +212,68 @@ export function useSensorReadings(options: SensorReadingsOptionsExtended = {}): 
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   /**
-   * Fetches sensor readings based on the provided options.
-   * Filters by controller IDs and time range for performance.
+   * Fetches sensor readings via API endpoint.
+   * Uses server-side proxy to avoid browser QUIC protocol errors.
    */
   const fetchReadings = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      // Calculate time range - use dateRange if provided, otherwise fall back to timeRangeHours
-      let startTime: Date;
-      let endTime: Date;
+      // Skip fetch if no controller IDs
+      if (controllerIds.length === 0) {
+        setReadings([]);
+        return;
+      }
+
+      // Build API URL with query params
+      const params = new URLSearchParams();
+      params.set('controllerIds', controllerIds.join(','));
+      params.set('timeRangeHours', timeRangeHours.toString());
+      params.set('limit', limit.toString());
 
       if (dateRange) {
-        startTime = dateRange.from;
-        endTime = dateRange.to;
-      } else {
-        endTime = new Date();
-        startTime = new Date();
-        startTime.setHours(startTime.getHours() - timeRangeHours);
+        params.set('from', dateRange.from.toISOString());
+        params.set('to', dateRange.to.toISOString());
       }
 
-      let query = supabase
-        .from("sensor_readings")
-        .select("*")
-        .gte("recorded_at", startTime.toISOString())
-        .lte("recorded_at", endTime.toISOString())
-        .order("recorded_at", { ascending: false })
-        .limit(limit * Math.max(controllerIds.length, 1));
+      // Get auth token for API request
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
 
-      // Filter by controller IDs if provided
-      if (controllerIds.length > 0) {
-        query = query.in("controller_id", controllerIds);
+      if (!token) {
+        throw new Error('Not authenticated');
       }
 
-      // Filter by sensor types if provided
-      if (sensorTypes && sensorTypes.length > 0) {
-        query = query.in("sensor_type", sensorTypes);
-      }
-
-      const { data, error: fetchError } = await query;
-
-      // Debug: Log query results to diagnose "No sensor data" issue
-      console.log('[useSensorReadings] Query result:', {
-        controllerIds,
-        timeRange: `${startTime.toISOString()} to ${endTime.toISOString()}`,
-        rowCount: data?.length || 0,
-        error: fetchError?.message,
-        firstRow: data?.[0] ? { id: data[0].id, controller_id: data[0].controller_id, type: data[0].sensor_type } : null
+      // Fetch via API endpoint (avoids browser QUIC issues)
+      const response = await fetch(`/api/sensor-readings?${params.toString()}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
       });
 
-      if (fetchError) {
-        throw new Error(fetchError.message);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
       }
 
-      // The database uses `recorded_at` and the interface now matches this
-      setReadings((data || []) as SensorReading[]);
+      const result = await response.json();
+
+      // Debug: Log query results
+      console.log('[useSensorReadings] API result:', {
+        controllerIds,
+        rowCount: result.readings?.length || 0,
+        timeRange: result.timeRange,
+      });
+
+      // Filter by sensor types client-side if specified
+      let readings = result.readings || [];
+      if (sensorTypes && sensorTypes.length > 0) {
+        readings = readings.filter((r: SensorReading) => sensorTypes.includes(r.sensor_type as SensorType));
+      }
+
+      setReadings(readings as SensorReading[]);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to fetch sensor readings";
       setError(errorMessage);
