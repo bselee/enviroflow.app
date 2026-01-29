@@ -61,6 +61,112 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 const POLLING_INTERVAL_MS = 30000; // 30 seconds fallback polling
 const REALTIME_DEBOUNCE_MS = 500; // Debounce realtime updates to prevent rapid re-renders
 
+// =============================================================================
+// Global Channel Manager (prevents ChannelRateLimitReached errors)
+// =============================================================================
+
+/**
+ * Global registry to track active channels and prevent duplicates.
+ * Uses reference counting to share channels across components.
+ */
+interface ChannelEntry {
+  channel: ReturnType<typeof supabase.channel>;
+  refCount: number;
+  subscribers: Set<(reading: SensorReading) => void>;
+}
+
+const channelRegistry = new Map<string, ChannelEntry>();
+
+/**
+ * Generate a stable channel name from controller IDs.
+ * Sorting ensures same controllers always produce same name.
+ */
+function getChannelName(controllerIds: string[]): string {
+  if (controllerIds.length === 0) return 'sensor_readings_empty';
+  const sorted = [...controllerIds].sort();
+  // Use a hash-like approach: first 8 chars of each ID joined
+  const hash = sorted.map(id => id.slice(0, 8)).join('_');
+  return `sensor_readings_${hash}`;
+}
+
+/**
+ * Get or create a shared channel for the given controller IDs.
+ */
+function getOrCreateChannel(
+  controllerIds: string[],
+  onNewReading: (reading: SensorReading) => void,
+  onStatusChange: (status: ConnectionStatus) => void,
+  onError: () => void
+): { channelName: string; cleanup: () => void } {
+  const channelName = getChannelName(controllerIds);
+
+  let entry = channelRegistry.get(channelName);
+
+  if (entry) {
+    // Reuse existing channel
+    entry.refCount++;
+    entry.subscribers.add(onNewReading);
+    onStatusChange('connected'); // Already connected
+    return {
+      channelName,
+      cleanup: () => {
+        entry!.subscribers.delete(onNewReading);
+        entry!.refCount--;
+        if (entry!.refCount <= 0) {
+          supabase.removeChannel(entry!.channel);
+          channelRegistry.delete(channelName);
+        }
+      }
+    };
+  }
+
+  // Create new channel
+  const subscribers = new Set<(reading: SensorReading) => void>();
+  subscribers.add(onNewReading);
+
+  const channel = supabase
+    .channel(channelName)
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "sensor_readings",
+      },
+      (payload) => {
+        const newReading = payload.new as SensorReading;
+        // Broadcast to all subscribers
+        const currentEntry = channelRegistry.get(channelName);
+        if (currentEntry) {
+          currentEntry.subscribers.forEach(cb => cb(newReading));
+        }
+      }
+    )
+    .subscribe((status, err) => {
+      if (status === 'SUBSCRIBED') {
+        onStatusChange('connected');
+      } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+        console.warn(`[SensorReadings] Channel ${channelName} error:`, err);
+        onError();
+      }
+    });
+
+  entry = { channel, refCount: 1, subscribers };
+  channelRegistry.set(channelName, entry);
+
+  return {
+    channelName,
+    cleanup: () => {
+      entry!.subscribers.delete(onNewReading);
+      entry!.refCount--;
+      if (entry!.refCount <= 0) {
+        supabase.removeChannel(entry!.channel);
+        channelRegistry.delete(channelName);
+      }
+    }
+  };
+}
+
 /**
  * Custom hook for managing sensor readings with Supabase.
  *
@@ -97,22 +203,13 @@ export function useSensorReadings(options: SensorReadingsOptionsExtended = {}): 
 
   // Refs for managing reconnection
   const reconnectAttempts = useRef(0);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
   const mountedRef = useRef(true);
 
   // Debounce refs for batching realtime updates
   const pendingReadingsRef = useRef<SensorReading[]>([]);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  /**
-   * Calculate exponential backoff delay.
-   */
-  const getBackoffDelay = useCallback(() => {
-    // Exponential backoff: 1s, 2s, 4s, 8s, 16s (max)
-    return Math.min(1000 * Math.pow(2, reconnectAttempts.current), 16000);
-  }, []);
 
   /**
    * Fetches sensor readings based on the provided options.
@@ -258,7 +355,6 @@ export function useSensorReadings(options: SensorReadingsOptionsExtended = {}): 
     if (pollingIntervalRef.current) return; // Already polling
 
     setConnectionStatus('polling');
-    console.info('[SensorReadings] WebSocket failed, falling back to polling');
 
     pollingIntervalRef.current = setInterval(async () => {
       try {
@@ -270,89 +366,29 @@ export function useSensorReadings(options: SensorReadingsOptionsExtended = {}): 
   }, [fetchReadings]);
 
   /**
-   * Stop fallback polling.
+   * Handle incoming realtime reading with debouncing.
    */
-  const stopPollingFallback = useCallback(() => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
-  }, []);
+  const handleNewReading = useCallback((newReading: SensorReading) => {
+    // Only add if it's for one of our controllers
+    if (!controllerIds.includes(newReading.controller_id)) return;
 
-  /**
-   * Set up realtime subscription with reconnection logic.
-   */
-  const setupSubscription = useCallback(() => {
-    if (controllerIds.length === 0) return;
+    // Batch updates with debouncing to prevent rapid re-renders (shaking)
+    pendingReadingsRef.current.push(newReading);
 
-    // Clean up existing channel
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
+    // Clear existing debounce timeout
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
     }
 
-    setConnectionStatus(reconnectAttempts.current > 0 ? 'reconnecting' : 'connecting');
-
-    const channel = supabase
-      .channel(`sensor_readings_${Date.now()}_${Math.random().toString(36).slice(2)}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "sensor_readings",
-        },
-        (payload) => {
-          // Only add if it's for one of our controllers
-          const newReading = payload.new as SensorReading;
-          if (controllerIds.includes(newReading.controller_id)) {
-            // Batch updates with debouncing to prevent rapid re-renders (shaking)
-            pendingReadingsRef.current.push(newReading);
-
-            // Clear existing debounce timeout
-            if (debounceTimeoutRef.current) {
-              clearTimeout(debounceTimeoutRef.current);
-            }
-
-            // Flush pending readings after debounce period
-            debounceTimeoutRef.current = setTimeout(() => {
-              if (mountedRef.current && pendingReadingsRef.current.length > 0) {
-                const newReadings = [...pendingReadingsRef.current];
-                pendingReadingsRef.current = [];
-                setReadings(prev => [...newReadings, ...prev].slice(0, limit * controllerIds.length));
-              }
-            }, REALTIME_DEBOUNCE_MS);
-          }
-        }
-      )
-      .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          setConnectionStatus('connected');
-          reconnectAttempts.current = 0;
-          stopPollingFallback();
-          console.info('[SensorReadings] Realtime connected');
-        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
-          console.warn('[SensorReadings] Channel closed or error:', err);
-          reconnectAttempts.current++;
-
-          if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
-            setConnectionStatus('error');
-            startPollingFallback();
-          } else {
-            setConnectionStatus('reconnecting');
-            const delay = getBackoffDelay();
-            console.info(`[SensorReadings] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current})`);
-
-            reconnectTimeoutRef.current = setTimeout(() => {
-              if (mountedRef.current && controllerIds.length > 0) {
-                setupSubscription();
-              }
-            }, delay);
-          }
-        }
-      });
-
-    channelRef.current = channel;
-  }, [controllerIds, limit, getBackoffDelay, startPollingFallback, stopPollingFallback]);
+    // Flush pending readings after debounce period
+    debounceTimeoutRef.current = setTimeout(() => {
+      if (mountedRef.current && pendingReadingsRef.current.length > 0) {
+        const newReadings = [...pendingReadingsRef.current];
+        pendingReadingsRef.current = [];
+        setReadings(prev => [...newReadings, ...prev].slice(0, limit * Math.max(controllerIds.length, 1)));
+      }
+    }, REALTIME_DEBOUNCE_MS);
+  }, [controllerIds, limit]);
 
   // Set up real-time subscription for sensor readings changes
   useEffect(() => {
@@ -361,7 +397,7 @@ export function useSensorReadings(options: SensorReadingsOptionsExtended = {}): 
 
     // Skip realtime if disabled (reduces WebSocket connections)
     if (!enableRealtime) {
-      setConnectionStatus('connected'); // Mark as connected but using polling/manual refresh
+      setConnectionStatus('polling'); // Mark as polling mode (no WebSocket)
       return;
     }
 
@@ -370,29 +406,43 @@ export function useSensorReadings(options: SensorReadingsOptionsExtended = {}): 
       return;
     }
 
-    setupSubscription();
+    // Use shared channel manager to prevent ChannelRateLimitReached
+    const { cleanup } = getOrCreateChannel(
+      controllerIds,
+      handleNewReading,
+      setConnectionStatus,
+      () => {
+        // On error, fall back to polling
+        reconnectAttempts.current++;
+        if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
+          setConnectionStatus('error');
+          startPollingFallback();
+        }
+      }
+    );
+
+    cleanupRef.current = cleanup;
 
     return () => {
       // Mark as unmounted to prevent state updates after cleanup
       mountedRef.current = false;
-      // Cleanup on unmount
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
+      // Cleanup channel subscription
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = null;
       }
+      // Cleanup polling
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
       }
       if (debounceTimeoutRef.current) {
         clearTimeout(debounceTimeoutRef.current);
       }
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-      }
       // Clear pending readings
       pendingReadingsRef.current = [];
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [controllerIds, enableRealtime]); // ✅ FIX: Remove setupSubscription from deps to prevent re-subscription
+  }, [controllerIds.join(','), enableRealtime]); // Use joined string for stable dependency
 
   return {
     readings,
