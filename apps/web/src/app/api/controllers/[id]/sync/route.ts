@@ -1,4 +1,4 @@
-import { createClient } from '@/utils/supabase/server';
+import { createServerClient } from '@/lib/supabase';
 import { NextRequest, NextResponse } from 'next/server';
 import { pollController } from '@/lib/poll-sensors';
 
@@ -8,8 +8,15 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const supabase = createClient();
+  const supabase = createServerClient();
   const { id } = params;
+
+  if (!supabase) {
+    return NextResponse.json(
+      { success: false, error: 'Database connection failed' },
+      { status: 500 }
+    );
+  }
 
   try {
     // 1. Get controller details
