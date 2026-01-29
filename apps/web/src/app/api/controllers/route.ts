@@ -349,15 +349,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { brand, name, credentials, room_id, discoveredDevice } = body
 
-    console.log('[Controllers POST] Request received:', {
-      brand,
-      name,
-      hasCredentials: !!credentials,
-      room_id,
-      hasDiscoveredDevice: !!discoveredDevice,
-      discoveredDeviceId: discoveredDevice?.deviceId
-    })
-    
     // Validate brand
     const brandInfo = SUPPORTED_BRANDS.find(b => b.id === brand)
     if (!brandInfo) {
@@ -425,13 +416,6 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           )
         }
-
-        console.log(`[Controllers POST] Using pre-validated discovered device:`, {
-          name: discoveredDevice.name,
-          deviceId: discoveredDevice.deviceId,
-          brand: discoveredDevice.brand,
-          hasCapabilities: !!discoveredDevice.capabilities
-        })
 
         // Use device metadata from discovery
         controllerId = discoveredDevice.deviceId
@@ -708,6 +692,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Check if a controller with this device ID already exists for this user
+    // If so, update it instead of creating a duplicate
+    const { data: existingController, error: existingError } = await supabase
+      .from('controllers')
+      .select('id, name, status')
+      .eq('user_id', userId)
+      .eq('controller_id', controllerId)
+      .maybeSingle()
+
+    if (existingError) {
+      console.error('[Controllers POST] Error checking for existing controller:', existingError)
+    }
+
     // Encrypt credentials before storage
     // SECURITY: Never store plain-text credentials in the database
     let encryptedCredentials: string | null = null
@@ -734,36 +731,75 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Insert into database with encrypted credentials
-    console.log('[Controllers POST] Inserting controller:', {
-      user_id: userId,
-      brand,
-      controller_id: controllerId,
-      name: sanitizedName,
-      hasCredentials: !!encryptedCredentials,
-      capabilities: JSON.stringify(capabilities).slice(0, 200),
-      model,
-      firmware_version: firmwareVersion,
-      room_id: room_id || null
-    })
+    // If controller with same device ID exists for this user, update it instead of creating duplicate
+    let data, error
+    let isUpdate = false
 
-    const { data, error } = await supabase
-      .from('controllers')
-      .insert({
+    if (existingController) {
+      console.log('[Controllers POST] Found existing controller, updating instead of creating duplicate:', {
+        existing_id: existingController.id,
+        existing_name: existingController.name,
+        controller_id: controllerId,
+        new_name: sanitizedName
+      })
+
+      isUpdate = true
+      const result = await supabase
+        .from('controllers')
+        .update({
+          name: sanitizedName,
+          credentials: encryptedCredentials || JSON.stringify({ type: brand }),
+          capabilities,
+          model,
+          firmware_version: firmwareVersion,
+          status: brand === 'csv_upload' ? 'offline' : 'online',
+          last_seen: new Date().toISOString(),
+          last_error: null,
+          room_id: room_id || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingController.id)
+        .eq('user_id', userId)
+        .select()
+        .single()
+
+      data = result.data
+      error = result.error
+    } else {
+      // Insert new controller
+      console.log('[Controllers POST] Inserting new controller:', {
         user_id: userId,
         brand,
         controller_id: controllerId,
         name: sanitizedName,
-        credentials: encryptedCredentials || JSON.stringify({ type: brand }),
-        capabilities,
+        hasCredentials: !!encryptedCredentials,
+        capabilities: JSON.stringify(capabilities).slice(0, 200),
         model,
         firmware_version: firmwareVersion,
-        status: brand === 'csv_upload' ? 'offline' : 'online',
-        last_seen: new Date().toISOString(),
         room_id: room_id || null
       })
-      .select()
-      .single()
+
+      const result = await supabase
+        .from('controllers')
+        .insert({
+          user_id: userId,
+          brand,
+          controller_id: controllerId,
+          name: sanitizedName,
+          credentials: encryptedCredentials || JSON.stringify({ type: brand }),
+          capabilities,
+          model,
+          firmware_version: firmwareVersion,
+          status: brand === 'csv_upload' ? 'offline' : 'online',
+          last_seen: new Date().toISOString(),
+          room_id: room_id || null
+        })
+        .select()
+        .single()
+
+      data = result.data
+      error = result.error
+    }
     
     if (error) {
       console.error('Database insert error:', error)
@@ -796,38 +832,36 @@ export async function POST(request: NextRequest) {
     const { credentials: _, ...safeController } = data
 
     // Immediately poll the controller for sensor data so users see data right away
-    // This is done asynchronously - we don't wait for it to complete
     if (brand !== 'csv_upload') {
-      console.log('[Controllers POST] Triggering immediate sensor poll for new controller')
-      // Poll in background - don't await to avoid blocking the response
-      pollController(supabase, {
-        id: data.id,
-        user_id: userId,
-        brand: data.brand,
-        controller_id: data.controller_id,
-        name: data.name,
-        credentials: data.credentials,
-        status: data.status,
-        last_seen: data.last_seen,
-        last_error: data.last_error,
-        room_id: data.room_id,
-      }).then(result => {
-        console.log('[Controllers POST] Immediate poll completed:', {
-          controllerId: result.controllerId,
-          status: result.status,
-          readingsCount: result.readingsCount,
-          error: result.error,
+      try {
+        console.log('[Controllers POST] Starting synchronous initial poll...')
+        const pollResult = await pollController(supabase, {
+          id: data.id,
+          user_id: userId,
+          brand: data.brand,
+          controller_id: data.controller_id,
+          name: data.name,
+          credentials: data.credentials,
+          status: data.status,
+          last_seen: data.last_seen,
+          last_error: data.last_error,
+          room_id: data.room_id,
         })
-      }).catch(err => {
-        console.error('[Controllers POST] Immediate poll failed:', err)
-      })
+        console.log('[Controllers POST] Initial poll result:', pollResult.status)
+      } catch (pollError) {
+        console.error('[Controllers POST] Initial poll failed (non-fatal):', pollError)
+        // We continue even if poll fails, as the controller was created
+      }
     }
 
     return NextResponse.json({
       controller: safeController,
-      message: `${brandInfo.name} controller added successfully`,
+      message: isUpdate
+        ? `${brandInfo.name} controller "${sanitizedName}" updated successfully`
+        : `${brandInfo.name} controller added successfully`,
       connectionVerified: brand !== 'csv_upload',
-    }, { status: 201 })
+      wasUpdate: isUpdate,
+    }, { status: isUpdate ? 200 : 201 })
     
   } catch (error) {
     // Log detailed error server-side only

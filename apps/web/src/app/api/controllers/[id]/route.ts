@@ -580,6 +580,17 @@ export async function DELETE(
       // Continue with deletion
     }
 
+    // Delete dimmer schedules for this controller
+    const { error: dimmerError } = await client
+      .from('dimmer_schedules')
+      .delete()
+      .eq('controller_id', id)
+
+    if (dimmerError) {
+      console.error('[Controller DELETE] Error deleting dimmer schedules:', dimmerError)
+      // Continue with deletion
+    }
+
     // Nullify controller references in workflows (don't delete workflows)
     // Note: This depends on your schema - adjust if workflow nodes reference controllers differently
     const { error: workflowError } = await client
