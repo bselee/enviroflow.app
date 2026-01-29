@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, Cpu, Wifi, WifiOff, MoreVertical, Trash2, Loader2, AlertTriangle, Home } from "lucide-react";
+import { useState, useCallback } from "react";
+import { Plus, Cpu, Wifi, WifiOff, MoreVertical, Trash2, Loader2, AlertTriangle, Home, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +29,7 @@ import { AddControllerDialog } from "@/components/controllers/AddControllerDialo
 import { AssignRoomDialog } from "@/components/controllers/AssignRoomDialog";
 import { ControllerSensorPreview } from "@/components/controllers/ControllerSensorPreview";
 import { ErrorGuidance } from "@/components/ui/error-guidance";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { toast } from "@/hooks/use-toast";
 import type { ControllerWithRoom } from "@/types";
 
@@ -75,11 +76,52 @@ function ControllerCard({
   controller,
   onDelete,
   onAssignRoom,
+  onRefresh,
 }: {
   controller: ControllerWithRoom;
   onDelete: (id: string) => void;
   onAssignRoom: (controller: ControllerWithRoom) => void;
+  onRefresh: () => void;
 }) {
+  const [isPolling, setIsPolling] = useState(false);
+  const [pollResult, setPollResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Manual poll handler with detailed feedback
+  const handleManualPoll = async () => {
+    if (isPolling) return;
+
+    setIsPolling(true);
+    setPollResult(null);
+
+    try {
+      const response = await fetch(`/api/controllers/${controller.id}/sensors`);
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setPollResult({
+          success: true,
+          message: `Got ${data.reading_count || 0} readings`
+        });
+        // Refresh the page data to show new readings
+        onRefresh();
+      } else {
+        setPollResult({
+          success: false,
+          message: data.error || data.message || 'Poll failed'
+        });
+      }
+    } catch (err) {
+      setPollResult({
+        success: false,
+        message: err instanceof Error ? err.message : 'Network error'
+      });
+    } finally {
+      setIsPolling(false);
+      // Clear result after 5 seconds
+      setTimeout(() => setPollResult(null), 5000);
+    }
+  };
+
   // Check if controller has been offline for a while
   const lastSeenDate = controller.last_seen ? new Date(controller.last_seen) : null;
   const offlineForLong = lastSeenDate
@@ -187,10 +229,37 @@ function ControllerCard({
       )}
 
       <div className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground">
-        <div className="flex justify-between">
+        <div className="flex justify-between items-center">
           <span>ID: {controller.controller_id}</span>
-          <span>Last seen: {formatRelativeTime(controller.last_seen)}</span>
+          <div className="flex items-center gap-2">
+            <span>Last seen: {formatRelativeTime(controller.last_seen)}</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2"
+              onClick={handleManualPoll}
+              disabled={isPolling}
+              title="Poll sensors now"
+            >
+              {isPolling ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+            </Button>
+          </div>
         </div>
+        {/* Poll result feedback */}
+        {pollResult && (
+          <div className={cn(
+            "mt-2 p-2 rounded text-xs",
+            pollResult.success
+              ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300"
+              : "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300"
+          )}>
+            {pollResult.success ? "✓" : "✗"} {pollResult.message}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -271,141 +340,144 @@ export default function ControllersPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen">
-        <PageHeader
-          title="Controllers"
-          description="Manage your connected controllers"
-          actions={
-            <Button onClick={() => setIsAddDialogOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Controller
-            </Button>
-          }
-        />
-
-        <div className="p-6 lg:p-8">
-          {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : error ? (
-            <div className="max-w-md mx-auto py-16">
-              <ErrorGuidance
-                error={error}
-                context="general"
-                onRetry={refresh}
-                defaultExpanded={true}
-              />
-            </div>
-          ) : controllers.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {controllers.map((controller) => (
-                <ControllerCard
-                  key={controller.id}
-                  controller={controller}
-                  onDelete={setControllerToDelete}
-                  onAssignRoom={setControllerToAssign}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-16">
-              <Cpu className="w-16 h-16 mx-auto text-muted-foreground/50 mb-4" />
-              <h3 className="text-lg font-medium text-foreground mb-2">
-                No controllers yet
-              </h3>
-              <p className="text-sm text-muted-foreground mb-6">
-                Get started by adding your first controller
-              </p>
+      <ErrorBoundary componentName="Controllers" showRetry>
+        <div className="min-h-screen">
+          <PageHeader
+            title="Controllers"
+            description="Manage your connected controllers"
+            actions={
               <Button onClick={() => setIsAddDialogOpen(true)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Add Controller
               </Button>
-            </div>
-          )}
-        </div>
+            }
+          />
 
-        {/* Add Controller Dialog */}
-        <AddControllerDialog
-          open={isAddDialogOpen}
-          onOpenChange={setIsAddDialogOpen}
-          brands={brands}
-          rooms={rooms.map(r => ({ id: r.id, name: r.name }))}
-          onAdd={async (data) => {
-            const result = await addController({
-              brand: data.brand,
-              name: data.name,
-              credentials: data.credentials,
-              room_id: data.room_id || undefined,
-              // Forward discovered device info - allows API to skip connection test
-              discoveredDevice: data.discoveredDevice,
-            });
-            if (result.success) {
-              // Force immediate refresh to prevent flashing
-              await refresh();
+          <div className="p-6 lg:p-8">
+            {loading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : error ? (
+              <div className="max-w-md mx-auto py-16">
+                <ErrorGuidance
+                  error={error}
+                  context="general"
+                  onRetry={refresh}
+                  defaultExpanded={true}
+                />
+              </div>
+            ) : controllers.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {controllers.map((controller) => (
+                  <ControllerCard
+                    key={controller.id}
+                    controller={controller}
+                    onDelete={setControllerToDelete}
+                    onAssignRoom={setControllerToAssign}
+                    onRefresh={refresh}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-16">
+                <Cpu className="w-16 h-16 mx-auto text-muted-foreground/50 mb-4" />
+                <h3 className="text-lg font-medium text-foreground mb-2">
+                  No controllers yet
+                </h3>
+                <p className="text-sm text-muted-foreground mb-6">
+                  Get started by adding your first controller
+                </p>
+                <Button onClick={() => setIsAddDialogOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Controller
+                </Button>
+              </div>
+            )}
+          </div>
 
-              // Trigger immediate sensor poll to populate data without waiting for cron job
-              if (result.data?.id) {
-                // Fire and forget - don't block on this
-                triggerImmediateSensorPoll(result.data.id).catch(err => {
-                  console.warn('Failed to trigger immediate sensor poll:', err);
+          {/* Add Controller Dialog */}
+          <AddControllerDialog
+            open={isAddDialogOpen}
+            onOpenChange={setIsAddDialogOpen}
+            brands={brands}
+            rooms={rooms.map(r => ({ id: r.id, name: r.name }))}
+            onAdd={async (data) => {
+              const result = await addController({
+                brand: data.brand,
+                name: data.name,
+                credentials: data.credentials,
+                room_id: data.room_id || undefined,
+                // Forward discovered device info - allows API to skip connection test
+                discoveredDevice: data.discoveredDevice,
+              });
+              if (result.success) {
+                // Force immediate refresh to prevent flashing
+                await refresh();
+
+                // Trigger immediate sensor poll to populate data without waiting for cron job
+                if (result.data?.id) {
+                  // Fire and forget - don't block on this
+                  triggerImmediateSensorPoll(result.data.id).catch(err => {
+                    console.warn('Failed to trigger immediate sensor poll:', err);
+                  });
+                }
+
+                toast({
+                  title: "Controller added",
+                  description: `${data.name} has been added successfully.`,
                 });
               }
+              return result;
+            }}
+            onCreateRoom={handleCreateRoom}
+            onAssignControllerToRoom={handleAssignRoom}
+          />
 
-              toast({
-                title: "Controller added",
-                description: `${data.name} has been added successfully.`,
-              });
-            }
-            return result;
-          }}
-          onCreateRoom={handleCreateRoom}
-          onAssignControllerToRoom={handleAssignRoom}
-        />
+          {/* Delete Confirmation Dialog */}
+          <AlertDialog
+            open={!!controllerToDelete}
+            onOpenChange={(open) => !open && setControllerToDelete(null)}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Remove Controller</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to remove this controller? This action cannot be undone.
+                  Any automations using this controller will stop working.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Removing...
+                    </>
+                  ) : (
+                    "Remove"
+                  )}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
-        {/* Delete Confirmation Dialog */}
-        <AlertDialog
-          open={!!controllerToDelete}
-          onOpenChange={(open) => !open && setControllerToDelete(null)}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Remove Controller</AlertDialogTitle>
-              <AlertDialogDescription>
-                Are you sure you want to remove this controller? This action cannot be undone.
-                Any automations using this controller will stop working.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleDelete}
-                disabled={isDeleting}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                {isDeleting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Removing...
-                  </>
-                ) : (
-                  "Remove"
-                )}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        {/* Assign Room Dialog */}
-        <AssignRoomDialog
-          open={!!controllerToAssign}
-          onOpenChange={(open) => !open && setControllerToAssign(null)}
-          controller={controllerToAssign}
-          rooms={rooms}
-          onAssign={handleAssignRoom}
-          onCreateRoom={handleCreateRoom}
-        />
-      </div>
+          {/* Assign Room Dialog */}
+          <AssignRoomDialog
+            open={!!controllerToAssign}
+            onOpenChange={(open) => !open && setControllerToAssign(null)}
+            controller={controllerToAssign}
+            rooms={rooms}
+            onAssign={handleAssignRoom}
+            onCreateRoom={handleCreateRoom}
+          />
+        </div>
+      </ErrorBoundary>
     </AppLayout>
   );
 }
