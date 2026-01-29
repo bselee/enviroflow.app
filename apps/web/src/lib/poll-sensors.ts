@@ -635,6 +635,11 @@ export async function pollController(
       } else {
         console.log(`[pollController] ✅ Successfully inserted ${readingsToInsert.length} readings`)
         console.log(`[pollController] Insert result count: ${insertData?.length || 0}`)
+        // Debug: Log the inserted data IDs for verification
+        if (insertData && insertData.length > 0) {
+          console.log(`[pollController] Inserted reading IDs:`, insertData.map(r => r.id).join(', '))
+          console.log(`[pollController] Controller ID used:`, dbControllerId)
+        }
       }
     } else {
       console.log(`[pollController] ⚠️ No valid readings to insert`)

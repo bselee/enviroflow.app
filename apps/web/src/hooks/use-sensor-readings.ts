@@ -253,6 +253,15 @@ export function useSensorReadings(options: SensorReadingsOptionsExtended = {}): 
 
       const { data, error: fetchError } = await query;
 
+      // Debug: Log query results to diagnose "No sensor data" issue
+      console.log('[useSensorReadings] Query result:', {
+        controllerIds,
+        timeRange: `${startTime.toISOString()} to ${endTime.toISOString()}`,
+        rowCount: data?.length || 0,
+        error: fetchError?.message,
+        firstRow: data?.[0] ? { id: data[0].id, controller_id: data[0].controller_id, type: data[0].sensor_type } : null
+      });
+
       if (fetchError) {
         throw new Error(fetchError.message);
       }

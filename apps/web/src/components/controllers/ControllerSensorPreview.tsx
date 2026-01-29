@@ -243,6 +243,16 @@ export function ControllerSensorPreview({
   // Check if we have any data
   const hasData = latestData.temperature || latestData.humidity || latestData.vpd;
 
+  // Debug: Log to diagnose "No sensor data" issue
+  console.log('[ControllerSensorPreview] Render:', {
+    controllerId,
+    readingsCount: readings.length,
+    hasData,
+    latestTemp: latestData.temperature?.value,
+    latestHumidity: latestData.humidity?.value,
+    connectionStatus,
+  });
+
   // Check if we have any device data
   const hasDevices = devices.length > 0;
 
