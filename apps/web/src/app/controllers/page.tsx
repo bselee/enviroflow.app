@@ -97,6 +97,8 @@ function ControllerCard({
 }) {
   const [isPolling, setIsPolling] = useState(false);
   const [pollResult, setPollResult] = useState<{ success: boolean; message: string } | null>(null);
+  // Key to force ControllerSensorPreview to remount and refetch data after poll
+  const [sensorRefreshKey, setSensorRefreshKey] = useState(0);
 
   // Manual poll handler with detailed feedback
   const handleManualPoll = async () => {
@@ -124,6 +126,8 @@ function ControllerCard({
             ? `Got ${readings.length}: ${readingTypes}`
             : 'Poll OK but 0 readings returned'
         });
+        // Force ControllerSensorPreview to remount and refetch the new data
+        setSensorRefreshKey(prev => prev + 1);
         // Refresh the page data to show new readings
         onRefresh();
       } else {
@@ -221,6 +225,7 @@ function ControllerCard({
       {/* Sensor and Device Data Preview */}
       <div className="mt-4">
         <ControllerSensorPreview
+          key={sensorRefreshKey}
           controllerId={controller.id}
           compact={true}
           showDevices={true}
