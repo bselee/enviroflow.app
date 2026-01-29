@@ -242,7 +242,10 @@ export function useSensorReadings(options: SensorReadingsOptionsExtended = {}): 
       const token = session?.access_token;
 
       if (!token) {
-        throw new Error('Not authenticated');
+        // Not authenticated - return empty readings instead of crashing
+        setReadings([]);
+        setIsLoading(false);
+        return;
       }
 
       // Fetch via API endpoint (avoids browser QUIC issues)

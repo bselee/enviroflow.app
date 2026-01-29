@@ -68,7 +68,10 @@ export function useDeviceControl(controllerId: string): UseDeviceControlReturn {
       } = await supabase.auth.getSession()
 
       if (!session) {
-        throw new Error('Not authenticated')
+        // Not authenticated - exit gracefully
+        setDevices([])
+        setIsLoading(false)
+        return
       }
 
       const response = await fetch(`/api/controllers/${controllerId}/devices`, {

@@ -74,7 +74,10 @@ export function useDeviceMode(
       } = await supabase.auth.getSession()
 
       if (!session) {
-        throw new Error('Not authenticated')
+        // Not authenticated - exit gracefully
+        setModeState(null)
+        setIsLoading(false)
+        return
       }
 
       const response = await fetch(
@@ -138,7 +141,9 @@ export function useDeviceMode(
       } = await supabase.auth.getSession()
 
       if (!session) {
-        throw new Error('Not authenticated')
+        // Not authenticated - exit gracefully
+        setSensorReadings([])
+        return
       }
 
       const response = await fetch(`/api/controllers/${controllerId}/sensors`, {
