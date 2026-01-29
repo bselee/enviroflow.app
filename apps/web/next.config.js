@@ -99,28 +99,6 @@ const nextConfig = {
     ]
   },
 
-  // Proxy Supabase requests through Next.js server to avoid browser QUIC protocol issues
-  // This routes browser requests through Vercel's server-side, avoiding direct browser-to-Supabase connections
-  async rewrites() {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://vhlnnfmuhttjpwyobklu.supabase.co';
-    return [
-      // Proxy Supabase REST API requests
-      {
-        source: '/supabase-proxy/rest/:path*',
-        destination: `${supabaseUrl}/rest/:path*`,
-      },
-      // Proxy Supabase Auth API requests
-      {
-        source: '/supabase-proxy/auth/:path*',
-        destination: `${supabaseUrl}/auth/:path*`,
-      },
-      // Proxy Supabase Storage API requests
-      {
-        source: '/supabase-proxy/storage/:path*',
-        destination: `${supabaseUrl}/storage/:path*`,
-      },
-    ]
-  },
 }
 
 // Sentry configuration options
