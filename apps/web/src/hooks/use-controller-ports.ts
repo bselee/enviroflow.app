@@ -16,39 +16,11 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import type { ControllerPort } from "@/types";
 
 // =============================================================================
 // Type Definitions
 // =============================================================================
-
-/**
- * Controller port data structure.
- * Represents the current state and configuration of a physical port on a controller.
- */
-export interface ControllerPort {
-  /** Unique identifier for the port record */
-  id: string;
-  /** Port number (1-8 for AC Infinity) */
-  port_number: number;
-  /** User-assigned port name (e.g., "Exhaust Fan") */
-  port_name: string | null;
-  /** Device type connected to this port */
-  device_type: string | null;
-  /** Whether a device is connected to this port */
-  is_connected: boolean;
-  /** Whether the device is currently on */
-  is_on: boolean;
-  /** Current power level (0-10) */
-  power_level: number;
-  /** Current mode (0=OFF, 1=ON, 2=AUTO, 3=TIMER, 4=CYCLE, 5=SCHEDULE, 6=VPD) */
-  current_mode: number;
-  /** Whether this port supports dimming/variable speed */
-  supports_dimming: boolean;
-  /** Whether the port is reporting online status */
-  is_online: boolean;
-  /** Last update timestamp */
-  updated_at: string;
-}
 
 /**
  * Configuration options for the useControllerPorts hook.

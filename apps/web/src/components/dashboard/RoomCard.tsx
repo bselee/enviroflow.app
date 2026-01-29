@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { calculateVPD } from "@/lib/vpd-utils";
 import {
   Thermometer,
   Droplet,
@@ -34,6 +35,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSensorReadings } from "@/hooks/use-sensor-readings";
+import { useWorkflows } from "@/hooks/use-workflows";
+import { useControllerPorts } from "@/hooks/use-controller-ports";
 import { useDragDrop } from "@/components/providers";
 import type { RoomWithControllers, Controller, TimeSeriesPoint } from "@/types";
 
@@ -103,17 +106,7 @@ function formatRelativeTime(timestamp: string | null): string {
   }
 }
 
-/**
- * Calculates VPD from temperature (F) and humidity (%).
- * VPD = SVP * (1 - RH/100)
- * SVP = 0.6108 * exp(17.27 * T / (T + 237.3)) where T is in Celsius
- */
-function calculateVPD(tempF: number, humidity: number): number {
-  const tempC = (tempF - 32) * (5 / 9);
-  const svp = 0.6108 * Math.exp((17.27 * tempC) / (tempC + 237.3));
-  const vpd = svp * (1 - humidity / 100);
-  return Math.round(vpd * 100) / 100;
-}
+// VPD calculation is now imported from vpd-utils.ts for consistency
 
 /**
  * Mini sparkline chart component for sensor readings.
@@ -166,6 +159,79 @@ function MiniChart({
         />
       </AreaChart>
     </ResponsiveContainer>
+  );
+}
+
+/**
+ * Controller devices section component.
+ * Shows the controller name and its connected devices/ports.
+ */
+interface ControllerDevicesSectionProps {
+  controller: Controller;
+}
+
+function ControllerDevicesSection({ controller }: ControllerDevicesSectionProps) {
+  const { ports, loading } = useControllerPorts({
+    controllerId: controller.id,
+    enabled: true,
+  });
+
+  // Filter to only show connected devices
+  const connectedPorts = ports.filter((port) => port.is_connected);
+
+  if (loading) {
+    return (
+      <div className="p-2 bg-muted/30 rounded-lg">
+        <Skeleton className="h-4 w-32 mb-2" />
+        <Skeleton className="h-3 w-full" />
+      </div>
+    );
+  }
+
+  // Don't render if no connected ports
+  if (connectedPorts.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="p-2 bg-muted/30 rounded-lg">
+      <div className="text-xs font-medium text-muted-foreground mb-1.5 flex items-center gap-1.5">
+        <Cpu className="w-3 h-3" />
+        {controller.name}
+      </div>
+      <div className="space-y-1">
+        {connectedPorts.map((port) => (
+          <div
+            key={port.id}
+            className="flex items-center justify-between text-xs"
+          >
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <span className="text-muted-foreground truncate">
+                {port.port_name || `Port ${port.port_number}`}
+              </span>
+              {port.device_type && (
+                <Badge variant="outline" className="text-[10px] py-0 px-1 h-4">
+                  {port.device_type}
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {port.supports_dimming && (
+                <span className="text-muted-foreground">
+                  {port.power_level}%
+                </span>
+              )}
+              <span
+                className={cn(
+                  "w-1.5 h-1.5 rounded-full",
+                  port.is_on ? "bg-success" : "bg-muted-foreground/30"
+                )}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -233,6 +299,9 @@ export function RoomCard({ room, index = 0, isLoading }: RoomCardProps) {
     isEditing,
     reorderCards,
   } = useDragDrop();
+
+  // Workflows state
+  const { getWorkflowsByRoom } = useWorkflows();
 
   const isDragging = draggedCard === index;
   const isDragOver = dragOverCard === index && draggedCard !== index;
@@ -400,7 +469,10 @@ export function RoomCard({ room, index = 0, isLoading }: RoomCardProps) {
   }, [controllers, readings, isStale]);
 
   // Check if any workflow is active for this room
-  const hasActiveWorkflow = false; // TODO: Implement workflow status check
+  const hasActiveWorkflow = useMemo(() => {
+    const roomWorkflows = getWorkflowsByRoom(room.id);
+    return roomWorkflows.some((w) => w.is_active);
+  }, [getWorkflowsByRoom, room.id]);
 
   if (isLoading) {
     return <RoomCardSkeleton />;
@@ -577,6 +649,18 @@ export function RoomCard({ room, index = 0, isLoading }: RoomCardProps) {
             {controllers.length} controller{controllers.length !== 1 ? "s" : ""}
           </span>
         </div>
+
+        {/* Controllers and Devices Section */}
+        {controllers.length > 0 && (
+          <div className="mb-4 space-y-2">
+            {controllers.map((controller) => (
+              <ControllerDevicesSection
+                key={controller.id}
+                controller={controller}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Offline Warning with Quick Tips */}
         {!aggregatedData.isOnline && controllers.length > 0 && (

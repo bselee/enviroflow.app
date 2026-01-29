@@ -720,8 +720,6 @@ export interface AiInsight {
   query: string;
   /** The AI-generated insight text (database column: insight_text) */
   insight_text: string;
-  /** @deprecated Use insight_text instead - kept for backwards compatibility */
-  insight?: string;
   recommendations: AiRecommendation[];
   data_type: string | null;
   confidence: number | null;
