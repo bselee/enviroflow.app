@@ -24,6 +24,7 @@ import {
 import { cn } from "@/lib/utils";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useControllers } from "@/hooks/use-controllers";
+import { createClient } from "@/lib/supabase";
 import { useRooms } from "@/hooks/use-rooms";
 import { AddControllerDialog } from "@/components/controllers/AddControllerDialog";
 import { AssignRoomDialog } from "@/components/controllers/AssignRoomDialog";
@@ -50,15 +51,26 @@ function formatRelativeTime(timestamp: string | null): string {
 }
 
 /**
+ * Get auth token for API requests
+ */
+async function getAuthToken(): Promise<string | null> {
+  const supabase = createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token ?? null;
+}
+
+/**
  * Trigger immediate sensor polling for a newly added controller.
  * This ensures sensor data appears immediately without waiting for the cron job.
  */
 async function triggerImmediateSensorPoll(controllerId: string): Promise<void> {
   try {
+    const token = await getAuthToken();
     const response = await fetch(`/api/controllers/${controllerId}/sensors`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       },
     });
 
@@ -94,7 +106,12 @@ function ControllerCard({
     setPollResult(null);
 
     try {
-      const response = await fetch(`/api/controllers/${controller.id}/sensors`);
+      const token = await getAuthToken();
+      const response = await fetch(`/api/controllers/${controller.id}/sensors`, {
+        headers: {
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+      });
       const data = await response.json();
 
       if (response.ok && data.success) {
