@@ -39,12 +39,17 @@ import type {
   DiscoveryCredentials,
   DiscoveryResult,
   DiscoveredDevice,
+  FullControllerData,
+  PortState,
+  ParsedModeConfiguration,
+  RawApiCapture
 } from './types'
 import {
   adapterFetch,
   getCircuitBreaker,
   resetCircuitBreaker,
 } from './retry'
+import { createHash } from 'crypto'
 
 // AC Infinity API configuration
 // IMPORTANT: AC Infinity API uses HTTP (no SSL certificate!)
@@ -64,6 +69,111 @@ const tokenStore = new Map<string, {
   userId: string
   expiresAt: Date
 }>()
+
+// ============================================
+// Rate Limiting
+// ============================================
+
+/**
+ * Token bucket rate limiter for AC Infinity API requests.
+ *
+ * AC Infinity API rate limits (empirically determined):
+ * - ~60 requests per minute per account
+ * - Bursts allowed up to ~100 requests
+ *
+ * Configuration:
+ * - 60 requests per minute (1 per second sustained)
+ * - Burst capacity of 10 tokens
+ * - Refill rate of 1 token per second
+ */
+interface RateLimitBucket {
+  tokens: number
+  lastRefill: number
+  maxTokens: number
+  refillRate: number // tokens per second
+}
+
+const rateLimitBuckets = new Map<string, RateLimitBucket>()
+
+// Rate limit configuration
+const RATE_LIMIT_MAX_TOKENS = 10 // Burst capacity
+const RATE_LIMIT_REFILL_RATE = 1 // 1 token per second (60/min)
+
+/**
+ * Get or create a rate limit bucket for a given key (e.g., user email).
+ */
+function getRateLimitBucket(key: string): RateLimitBucket {
+  let bucket = rateLimitBuckets.get(key)
+
+  if (!bucket) {
+    bucket = {
+      tokens: RATE_LIMIT_MAX_TOKENS,
+      lastRefill: Date.now(),
+      maxTokens: RATE_LIMIT_MAX_TOKENS,
+      refillRate: RATE_LIMIT_REFILL_RATE,
+    }
+    rateLimitBuckets.set(key, bucket)
+  }
+
+  return bucket
+}
+
+/**
+ * Refill tokens based on elapsed time since last refill.
+ */
+function refillBucket(bucket: RateLimitBucket): void {
+  const now = Date.now()
+  const elapsedSeconds = (now - bucket.lastRefill) / 1000
+  const tokensToAdd = elapsedSeconds * bucket.refillRate
+
+  bucket.tokens = Math.min(bucket.maxTokens, bucket.tokens + tokensToAdd)
+  bucket.lastRefill = now
+}
+
+/**
+ * Attempt to consume a token from the bucket.
+ * Returns true if token was consumed, false if rate limit exceeded.
+ */
+function consumeToken(key: string): { allowed: boolean; retryAfterMs?: number } {
+  const bucket = getRateLimitBucket(key)
+  refillBucket(bucket)
+
+  if (bucket.tokens >= 1) {
+    bucket.tokens -= 1
+    return { allowed: true }
+  }
+
+  // Calculate how long until next token is available
+  const tokensNeeded = 1 - bucket.tokens
+  const retryAfterMs = Math.ceil((tokensNeeded / bucket.refillRate) * 1000)
+
+  return { allowed: false, retryAfterMs }
+}
+
+/**
+ * Wait for rate limit token to become available.
+ * Throws error if wait time exceeds maximum.
+ */
+async function waitForRateLimit(key: string, maxWaitMs: number = 5000): Promise<void> {
+  const result = consumeToken(key)
+
+  if (result.allowed) {
+    return
+  }
+
+  if (!result.retryAfterMs || result.retryAfterMs > maxWaitMs) {
+    throw new Error(
+      `Rate limit exceeded for AC Infinity API. ` +
+      `Please wait ${Math.ceil((result.retryAfterMs || maxWaitMs) / 1000)} seconds before retrying.`
+    )
+  }
+
+  log('info', `Rate limit: waiting ${result.retryAfterMs}ms before request`, { key })
+  await new Promise(resolve => setTimeout(resolve, result.retryAfterMs))
+
+  // Try again after waiting
+  return waitForRateLimit(key, maxWaitMs - result.retryAfterMs)
+}
 
 // ============================================
 // AC Infinity API Response Types
@@ -346,6 +456,17 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
   }> {
     log('info', 'Attempting login', { email: email.replace(/(.{2}).*(@.*)/, '$1***$2') })
 
+    // Apply rate limiting per email address
+    try {
+      await waitForRateLimit(`ac_infinity:${email}`)
+    } catch (err) {
+      log('error', 'Rate limit exceeded on login', { email: email.replace(/(.{2}).*(@.*)/, '$1***$2') })
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Rate limit exceeded'
+      }
+    }
+
     // Build form-urlencoded body with correct field names
     // Note: AppPasswordL has an 'L' suffix (not a typo!)
     const formData = new URLSearchParams()
@@ -553,6 +674,13 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       throw new Error('Authentication token expired. Please reconnect.')
     }
 
+    // Apply rate limiting per controller
+    try {
+      await waitForRateLimit(`ac_infinity:controller:${controllerId}`)
+    } catch (err) {
+      throw new Error(err instanceof Error ? err.message : 'Rate limit exceeded')
+    }
+
     // Use getdevModeSettingList endpoint for sensor and device data
     const result = await adapterFetch<ACDeviceSettingResponse>(
       ADAPTER_NAME,
@@ -756,6 +884,181 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
   }
 
   /**
+   * Precision polling: Read sensors, ports, and modes in one request.
+   * This provides a complete state of the controller including attached devices (ports),
+   * their names, current modes, and all sensor readings.
+   */
+  async readSensorsAndPorts(controllerId: string): Promise<FullControllerData> {
+    const stored = tokenStore.get(controllerId)
+    if (!stored) {
+      throw new Error('Controller not connected. Call connect() first.')
+    }
+
+    if (stored.expiresAt < new Date()) {
+      tokenStore.delete(controllerId)
+      throw new Error('Authentication token expired. Please reconnect.')
+    }
+
+    // Rate limit
+    try {
+      await waitForRateLimit(`ac_infinity:controller:${controllerId}`)
+    } catch (err) {
+      throw new Error(err instanceof Error ? err.message : 'Rate limit exceeded')
+    }
+
+    const now = new Date()
+
+    // 1. Fetch data using the rich endpoint
+    const result = await adapterFetch<ACDeviceSettingResponse>(
+      ADAPTER_NAME,
+      `${API_BASE}/api/dev/getdevModeSettingList`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json',
+          'User-Agent': USER_AGENT,
+          'token': stored.token,
+        },
+        body: new URLSearchParams({ devId: controllerId, port: '0' }).toString()
+      }
+    )
+
+    if (!result.success || !result.data) {
+      throw new Error(result.error || 'Failed to read device data')
+    }
+
+    const data = result.data
+    if (data.code !== 200 || !data.data) {
+      throw new Error(data.msg || 'Failed to get device settings')
+    }
+
+    const rawData = data.data
+    
+    // 2. Reuse readSensors logic for basic sensors (inline for safety)
+    const readings: SensorReading[] = []
+    
+    // 2a. SensorData
+    if (rawData.sensorData && rawData.sensorData.length > 0) {
+      for (const sensor of rawData.sensorData) {
+        const rawValue = sensor.sensorValue ?? sensor.value ?? 0
+        if (rawValue != null) {
+          readings.push({
+            port: 0,
+            type: this.mapSensorType(sensor.sensorType),
+            value: this.convertSensorValue(rawValue, sensor.sensorType),
+            unit: this.mapSensorUnit(sensor.sensorType),
+            timestamp: now,
+            isStale: false
+          })
+        }
+      }
+    }
+
+    // 2b. Device level sensors
+    const deviceData = rawData as any
+    if (typeof deviceData.temperature === 'number' || typeof deviceData.temp === 'number') {
+       const val = (deviceData.temperature as number) ?? (deviceData.temp as number)
+       if (val != null) {
+         readings.push({
+           port: 0,
+           type: 'temperature',
+           value: Math.round(((val/100) * 9/5 + 32) * 10) / 10,
+           unit: 'F',
+           timestamp: now,
+           isStale: false
+         })
+       }
+    }
+    if (typeof deviceData.humidity === 'number') {
+       const val = deviceData.humidity as number
+       if (val != null) {
+         readings.push({
+           port: 0,
+           type: 'humidity',
+           value: Math.round((val/100) * 10) / 10,
+           unit: '%',
+           timestamp: now,
+           isStale: false
+         })
+       }
+    }
+    if (typeof deviceData.vpd === 'number') {
+      const val = deviceData.vpd as number
+      if (val != null) {
+         readings.push({
+           port: 0,
+           type: 'vpd',
+           value: Math.round((val/100) * 100) / 100,
+           unit: 'kPa',
+           timestamp: now,
+           isStale: false
+         })
+      }
+    }
+
+    // 3. Process Ports
+    const ports: PortState[] = []
+    if (rawData.portData) {
+      for (const port of rawData.portData) {
+        ports.push({
+          port: port.portId,
+          portName: port.portName,
+          portType: port.portType,
+          deviceType: port.devType,
+          
+          isConnected: port.onOff !== undefined,
+          isOn: port.onOff === 1,
+          isOnline: true,
+          
+          powerLevel: port.speak || 0,
+          
+          loadType: 'unknown',
+          devType: port.devType ? String(port.devType) : 'unknown',
+          
+          surplus: port.surplus,
+          speak: port.speak,
+          externalPort: port.externalPort,
+          
+          updatedAt: now
+        })
+
+        // 3b. Port Sensors
+        if (port.surplus != null && (port.devType === 10 || port.portType === 10 || port.portType === 7 || port.portType === 8)) {
+           const sensorType = port.portType === 8 ? 'humidity' : 'temperature'
+           let val: number
+           if (sensorType === 'temperature') {
+             val = Math.round(((port.surplus / 100) * 9/5 + 32) * 10) / 10
+           } else {
+             val = Math.round((port.surplus / 100) * 10) / 10
+           }
+           readings.push({
+             port: port.portId,
+             type: sensorType,
+             value: val,
+             unit: sensorType === 'humidity' ? '%' : 'F',
+             timestamp: now,
+             isStale: false
+           })
+        }
+      }
+    }
+
+    // 4. Capture Raw API Data
+    const rawCapture: RawApiCapture = {
+        endpoint: 'getdevModeSettingList',
+        responseHash: createHash('md5').update(JSON.stringify(rawData)).digest('hex'),
+        rawSensorData: rawData.sensorData || {},
+        rawPortData: rawData.portData || {},
+        rawModeData: rawData.devModeSettingList || {},
+        latencyMs: 0, 
+        capturedAt: now
+    }
+
+    return { sensors: readings, ports, modes: [], rawCapture }
+  }
+
+  /**
    * Send control command to device
    */
   async controlDevice(
@@ -768,6 +1071,17 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       return {
         success: false,
         error: 'Controller not connected',
+        timestamp: new Date()
+      }
+    }
+
+    // Apply rate limiting per controller
+    try {
+      await waitForRateLimit(`ac_infinity:controller:${controllerId}`)
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Rate limit exceeded',
         timestamp: new Date()
       }
     }

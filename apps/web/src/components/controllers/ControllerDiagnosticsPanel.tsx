@@ -190,6 +190,7 @@ export function ControllerDiagnosticsPanel({
   const [history, setHistory] = useState<DiagnosticHistoryPoint[]>([]);
   const [showTrends, setShowTrends] = useState(false);
   const [showCredentialUpdate, setShowCredentialUpdate] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const health = getConnectionHealth(controller.status, controller.last_seen);
 
@@ -307,6 +308,46 @@ export function ControllerDiagnosticsPanel({
       });
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+
+  /**
+   * Handle manual data sync
+   */
+  const handleSync = async () => {
+    setIsSyncing(true);
+    try {
+      const response = await fetch(`/api/controllers/${controller.id}/sync`, {
+        method: "POST",
+      });
+      
+      const data = await response.json();
+
+      if (data.success) {
+        toast({
+          title: "Sync Complete",
+          description: "Controller data has been synchronized",
+        });
+        if (onRefresh) {
+          await onRefresh();
+        }
+      } else {
+        toast({
+          title: "Sync Failed",
+          description: data.error || "Failed to sync controller",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Sync error:", error);
+      toast({
+        title: "Sync Error",
+        description: "Network request failed",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -460,6 +501,15 @@ export function ControllerDiagnosticsPanel({
                   Run Diagnostics
                 </>
               )}
+            </Button>
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={handleSync}
+              disabled={isSyncing}
+            >
+              <RefreshCw className={cn("w-4 h-4 mr-2", isSyncing && "animate-spin")} />
+              Sync Now
             </Button>
             <Button
               variant="outline"

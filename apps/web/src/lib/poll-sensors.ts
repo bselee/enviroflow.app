@@ -12,6 +12,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { decryptCredentials, EncryptionError } from './server-encryption'
+import { calculateVPD } from './vpd-utils'
 import {
   getAdapter,
   isBrandSupported,
@@ -585,26 +586,21 @@ export async function pollController(
     const humidityReading = validReadings.find(r => r.type === 'humidity')
 
     if (!hasVPD && tempReading && humidityReading) {
-      // Calculate VPD using Magnus-Tetens formula
-      // Temperature is in Fahrenheit, convert to Celsius
+      // Calculate VPD using consolidated vpd-utils function
       const tempF = tempReading.value
       const humidity = humidityReading.value
 
-      if (tempF >= 32 && tempF <= 140 && humidity >= 0 && humidity <= 100) {
-        const tempC = (tempF - 32) * 5 / 9
-        const svp = 0.6108 * Math.exp((17.27 * tempC) / (tempC + 237.3))
-        const vpd = svp * (1 - humidity / 100)
+      const vpd = calculateVPD(tempF, humidity)
 
-        if (Number.isFinite(vpd) && vpd >= 0 && vpd <= 5) {
-          validReadings.push({
-            type: 'vpd',
-            value: Math.round(vpd * 100) / 100,
-            unit: 'kPa',
-            timestamp: new Date(),
-            port: 0,
-            isStale: false,
-          })
-        }
+      if (vpd !== null) {
+        validReadings.push({
+          type: 'vpd',
+          value: vpd,
+          unit: 'kPa',
+          timestamp: new Date(),
+          port: 0,
+          isStale: false,
+        })
       }
     }
 
