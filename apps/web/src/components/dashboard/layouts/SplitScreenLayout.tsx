@@ -38,7 +38,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { Controller, TimeSeriesPoint } from "@/types";
+import type { Controller, TimeSeriesPoint, ControllerPort } from "@/types";
 import type { RoomSummary } from "@/hooks/use-dashboard-data";
 
 // =============================================================================
@@ -65,6 +65,8 @@ interface SplitScreenLayoutProps {
   syncTimelines?: boolean;
   /** Callback when timeline sync toggle changes */
   onSyncToggle?: (synced: boolean) => void;
+  /** Optional function to get ports for a controller (not used in this layout) */
+  getPortsForController?: (controllerId: string) => ControllerPort[];
 }
 
 /**
@@ -604,6 +606,7 @@ export function SplitScreenLayout({
   isLoading,
   syncTimelines = true,
   onSyncToggle,
+  getPortsForController: _getPortsForController,
 }: SplitScreenLayoutProps): JSX.Element {
   const [selectedMetric, setSelectedMetric] = useState<TimelineMetric>("temperature");
   const [isSynced, setIsSynced] = useState(syncTimelines);

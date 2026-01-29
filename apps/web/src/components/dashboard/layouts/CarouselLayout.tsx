@@ -38,7 +38,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { Controller, TimeSeriesPoint } from "@/types";
+import type { Controller, TimeSeriesPoint, ControllerPort } from "@/types";
 import type { RoomSummary } from "@/hooks/use-dashboard-data";
 
 // =============================================================================
@@ -59,6 +59,8 @@ interface CarouselLayoutProps {
   isLoading?: boolean;
   /** Callback when a room is created */
   onRoomCreated?: () => void;
+  /** Optional function to get ports for a controller (not used in this layout) */
+  getPortsForController?: (controllerId: string) => ControllerPort[];
 }
 
 /**
@@ -461,6 +463,7 @@ export function CarouselLayout({
   onIndexChange,
   isLoading,
   onRoomCreated: _onRoomCreated,
+  getPortsForController: _getPortsForController,
 }: CarouselLayoutProps): JSX.Element {
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(currentIndex);

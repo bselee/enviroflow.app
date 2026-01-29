@@ -32,7 +32,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { Controller, TimeSeriesPoint } from "@/types";
+import type { Controller, TimeSeriesPoint, ControllerPort } from "@/types";
 import type { RoomSummary } from "@/hooks/use-dashboard-data";
 
 // =============================================================================
@@ -53,6 +53,8 @@ interface PrimaryMiniLayoutProps {
   isLoading?: boolean;
   /** Callback when a room is created */
   onRoomCreated?: () => void;
+  /** Optional function to get ports for a controller (not used in this layout) */
+  getPortsForController?: (controllerId: string) => ControllerPort[];
 }
 
 /**
@@ -537,6 +539,7 @@ export function PrimaryMiniLayout({
   onPrimaryRoomChange,
   isLoading,
   onRoomCreated: _onRoomCreated,
+  getPortsForController: _getPortsForController,
 }: PrimaryMiniLayoutProps): JSX.Element {
   /**
    * Convert room summaries to display-friendly format.

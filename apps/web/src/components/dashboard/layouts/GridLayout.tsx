@@ -5,6 +5,7 @@ import { RoomCard, RoomCardSkeleton } from "@/components/dashboard/RoomCard";
 import { AddRoomCard } from "@/components/dashboard/AddRoomCard";
 import { cn } from "@/lib/utils";
 import type { RoomSummary } from "@/hooks/use-dashboard-data";
+import type { ControllerPort } from "@/types";
 
 // =============================================================================
 // Types
@@ -26,6 +27,8 @@ interface GridLayoutProps {
   desktopColumns?: 2 | 3 | 4;
   /** Whether to show the "Add Room" card */
   showAddRoomCard?: boolean;
+  /** Optional function to get ports for a controller (avoids N+1 query problem) */
+  getPortsForController?: (controllerId: string) => ControllerPort[];
 }
 
 // =============================================================================
@@ -59,6 +62,7 @@ export function GridLayout({
   className,
   desktopColumns = 3,
   showAddRoomCard = true,
+  getPortsForController,
 }: GridLayoutProps): JSX.Element {
   /**
    * Determine grid column classes based on desktop column setting.
@@ -123,7 +127,7 @@ export function GridLayout({
       )}
     >
       {roomsForDisplay.map((room, index) => (
-        <RoomCard key={room.id} room={room} index={index} />
+        <RoomCard key={room.id} room={room} index={index} getPortsForController={getPortsForController} />
       ))}
       {showAddRoomCard && <AddRoomCard onRoomCreated={onRoomCreated} />}
     </div>

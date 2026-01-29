@@ -36,9 +36,8 @@ import {
 } from "@/components/ui/tooltip";
 import { useSensorReadings } from "@/hooks/use-sensor-readings";
 import { useWorkflows } from "@/hooks/use-workflows";
-import { useControllerPorts } from "@/hooks/use-controller-ports";
 import { useDragDrop } from "@/components/providers";
-import type { RoomWithControllers, Controller, TimeSeriesPoint } from "@/types";
+import type { RoomWithControllers, Controller, TimeSeriesPoint, ControllerPort } from "@/types";
 
 /**
  * Display-friendly room data for RoomCard.
@@ -80,6 +79,8 @@ interface RoomCardProps {
   index?: number;
   /** Whether to show loading skeleton */
   isLoading?: boolean;
+  /** Optional function to get ports for a controller (avoids N+1 query problem) */
+  getPortsForController?: (controllerId: string) => ControllerPort[];
 }
 
 /**
@@ -168,25 +169,16 @@ function MiniChart({
  */
 interface ControllerDevicesSectionProps {
   controller: Controller;
+  /** Optional pre-fetched ports data. If provided, skips individual fetch. */
+  ports?: ControllerPort[];
 }
 
-function ControllerDevicesSection({ controller }: ControllerDevicesSectionProps) {
-  const { ports, loading } = useControllerPorts({
-    controllerId: controller.id,
-    enabled: true,
-  });
+function ControllerDevicesSection({ controller, ports: propPorts }: ControllerDevicesSectionProps) {
+  // Use provided ports or empty array
+  const ports = propPorts ?? [];
 
   // Filter to only show connected devices
   const connectedPorts = ports.filter((port) => port.is_connected);
-
-  if (loading) {
-    return (
-      <div className="p-2 bg-muted/30 rounded-lg">
-        <Skeleton className="h-4 w-32 mb-2" />
-        <Skeleton className="h-3 w-full" />
-      </div>
-    );
-  }
 
   // Don't render if no connected ports
   if (connectedPorts.length === 0) {
@@ -286,7 +278,7 @@ export function RoomCardSkeleton() {
  * );
  * ```
  */
-export function RoomCard({ room, index = 0, isLoading }: RoomCardProps) {
+export function RoomCard({ room, index = 0, isLoading, getPortsForController }: RoomCardProps) {
   const controllers = room.controllers || [];
   const controllerIds = controllers.map((c) => c.id);
 
@@ -657,6 +649,7 @@ export function RoomCard({ room, index = 0, isLoading }: RoomCardProps) {
               <ControllerDevicesSection
                 key={controller.id}
                 controller={controller}
+                ports={getPortsForController?.(controller.id)}
               />
             ))}
           </div>

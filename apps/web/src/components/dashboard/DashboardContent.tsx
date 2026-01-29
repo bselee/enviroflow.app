@@ -8,6 +8,7 @@ import { GridLayout } from "./layouts/GridLayout";
 import { CarouselLayout } from "./layouts/CarouselLayout";
 import { SplitScreenLayout } from "./layouts/SplitScreenLayout";
 import type { RoomSummary } from "@/hooks/use-dashboard-data";
+import type { ControllerPort } from "@/types";
 
 // =============================================================================
 // Types
@@ -27,6 +28,8 @@ interface DashboardContentProps {
   initialViewMode?: ViewMode;
   /** Additional CSS classes */
   className?: string;
+  /** Optional function to get ports for a controller (avoids N+1 query problem) */
+  getPortsForController?: (controllerId: string) => ControllerPort[];
 }
 
 /**
@@ -137,6 +140,7 @@ export function DashboardContent({
   onRoomCreated,
   initialViewMode,
   className,
+  getPortsForController,
 }: DashboardContentProps): JSX.Element {
   // View mode state with localStorage persistence
   // Note: useViewMode handles its own localStorage sync
@@ -292,6 +296,7 @@ export function DashboardContent({
             onPrimaryRoomChange={handlePrimaryRoomChange}
             isLoading={isLoading}
             onRoomCreated={onRoomCreated}
+            getPortsForController={getPortsForController}
           />
         );
 
@@ -301,6 +306,7 @@ export function DashboardContent({
             roomSummaries={roomSummaries}
             isLoading={isLoading}
             onRoomCreated={onRoomCreated}
+            getPortsForController={getPortsForController}
           />
         );
 
@@ -312,6 +318,7 @@ export function DashboardContent({
             onIndexChange={handleCarouselIndexChange}
             isLoading={isLoading}
             onRoomCreated={onRoomCreated}
+            getPortsForController={getPortsForController}
           />
         );
 
@@ -326,6 +333,7 @@ export function DashboardContent({
             isLoading={isLoading}
             syncTimelines={layoutState.splitTimelinesSynced}
             onSyncToggle={handleSplitSyncToggle}
+            getPortsForController={getPortsForController}
           />
         );
 
@@ -336,6 +344,7 @@ export function DashboardContent({
             roomSummaries={roomSummaries}
             isLoading={isLoading}
             onRoomCreated={onRoomCreated}
+            getPortsForController={getPortsForController}
           />
         );
     }

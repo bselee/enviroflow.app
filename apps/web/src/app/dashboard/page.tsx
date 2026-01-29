@@ -118,6 +118,7 @@ export default function DashboardPage(): JSX.Element {
     nextScheduledEvent,
     unassignedControllers,
     sensorReadings,
+    getPortsForController,
     // Loading states
     isLoading,
     // Actions
@@ -371,6 +372,7 @@ export default function DashboardPage(): JSX.Element {
               roomSummaries={roomSummaries}
               isLoading={isLoading}
               onRoomCreated={handleRoomCreated}
+              getPortsForController={getPortsForController}
             />
           </section>
         </div>

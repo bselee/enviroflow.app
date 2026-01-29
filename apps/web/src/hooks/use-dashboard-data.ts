@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import { calculateVPD } from "@/lib/vpd-utils";
 import type {
   Room,
   RoomWithControllers,
   Controller,
   SensorReading,
   TimeSeriesPoint,
+  ControllerPort,
 } from "@/types";
 import type { TimeSeriesData } from "@/components/dashboard/IntelligentTimeline";
 import type {
@@ -208,56 +210,19 @@ export interface UseDashboardDataReturn {
   // Raw sensor readings for analytics
   /** All sensor readings (filtered by time range) */
   sensorReadings: SensorReading[];
+
+  // Controller ports data
+  /** All controller ports (for device display) */
+  controllerPorts: ControllerPort[];
+  /** Get ports for a specific controller by ID */
+  getPortsForController: (controllerId: string) => ControllerPort[];
 }
 
 // =============================================================================
 // Helper Functions
 // =============================================================================
 
-/**
- * Calculates Vapor Pressure Deficit (VPD) from temperature and humidity.
- * VPD is a key metric for plant health, representing the difference between
- * the amount of moisture in the air and the maximum moisture the air can hold.
- *
- * Formula: VPD = SVP * (1 - RH/100)
- * Where SVP (Saturation Vapor Pressure) = 0.6108 * exp(17.27 * T / (T + 237.3))
- *
- * @param temperatureFahrenheit - Temperature in Fahrenheit (sensor readings are stored in F)
- * @param humidityPercent - Relative humidity as percentage (0-100)
- * @returns VPD in kPa, rounded to 2 decimal places, or null if inputs are invalid
- */
-function calculateVPD(temperatureFahrenheit: number, humidityPercent: number): number | null {
-  // Validate inputs to prevent NaN/Infinity
-  if (!Number.isFinite(temperatureFahrenheit) || !Number.isFinite(humidityPercent)) {
-    return null;
-  }
-
-  // Temperature range validation: 32°F to 140°F (reasonable for environmental monitoring)
-  // This is equivalent to 0°C to 60°C
-  if (temperatureFahrenheit < 32 || temperatureFahrenheit > 140) {
-    return null;
-  }
-
-  // Humidity range validation: 0-100%
-  if (humidityPercent < 0 || humidityPercent > 100) {
-    return null;
-  }
-
-  // Convert Fahrenheit to Celsius for the VPD formula
-  const temperatureCelsius = (temperatureFahrenheit - 32) * 5 / 9;
-
-  // Magnus-Tetens approximation for saturation vapor pressure
-  const svp = 0.6108 * Math.exp((17.27 * temperatureCelsius) / (temperatureCelsius + 237.3));
-  const vpd = svp * (1 - humidityPercent / 100);
-
-  // Validate result with upper bound check
-  if (!Number.isFinite(vpd) || vpd < 0 || vpd > 5) {
-    console.warn(`VPD out of range: ${vpd} kPa (Temp: ${temperatureFahrenheit}°F, RH: ${humidityPercent}%)`);
-    return null;
-  }
-
-  return Math.round(vpd * 100) / 100;
-}
+// VPD calculation is now imported from vpd-utils.ts for consistency
 
 /**
  * Gets the latest reading for a specific sensor type from a list of readings.
@@ -550,6 +515,7 @@ export function useDashboardData(
   const [unassignedControllersData, setUnassignedControllersData] = useState<Controller[]>([]);
   const [sensorReadings, setSensorReadings] = useState<SensorReading[]>([]);
   const [workflows, setWorkflows] = useState<DashboardWorkflow[]>([]);
+  const [controllerPorts, setControllerPorts] = useState<ControllerPort[]>([]);
 
   // Loading and error state
   const [isLoading, setIsLoading] = useState(true);
@@ -597,7 +563,6 @@ export function useDashboardData(
       }
 
       if (!session?.user) {
-        console.log("[Dashboard] No authenticated session - will show demo mode");
         // Don't set error - demo mode will handle this gracefully
         // Clear any existing data so demo mode activates
         if (isMounted.current) {
@@ -605,11 +570,10 @@ export function useDashboardData(
           setUnassignedControllersData([]);
           setSensorReadings([]);
           setWorkflows([]);
+          setControllerPorts([]);
         }
         return;
       }
-
-      console.log("[Dashboard] Fetching data for user:", session.user.email);
 
       // Calculate time range for sensor readings query
       // Use a generous time range (7 days) to ensure we get data even if polling has stopped
@@ -620,10 +584,8 @@ export function useDashboardData(
       // 2000 readings is enough for ~10 controllers with 24h of data at 3-min intervals
       const sensorReadingLimit = 2000;
 
-      console.log("[Dashboard] Fetching sensor readings from:", startTime.toISOString());
-
       // Fetch all data in parallel for faster initial load
-      const [roomsResult, unassignedResult, sensorsResult, workflowsResult] = await Promise.all([
+      const [roomsResult, unassignedResult, sensorsResult, workflowsResult, portsResult] = await Promise.all([
         // Fetch rooms with controllers using Supabase relations
         supabase
           .from("rooms")
@@ -667,6 +629,12 @@ export function useDashboardData(
           .select("id, name, is_active, last_run, room_id, last_error")
           .order("updated_at", { ascending: false })
           .limit(20),
+
+        // Fetch controller ports for device display
+        supabase
+          .from("controller_ports")
+          .select("*")
+          .order("port_number", { ascending: true }),
       ]);
 
       // Handle errors from either query
@@ -681,7 +649,11 @@ export function useDashboardData(
       }
       // Workflows are non-critical, don't throw on error
       if (workflowsResult.error) {
-        console.warn("Failed to fetch workflows:", workflowsResult.error.message);
+        // Silently handle workflow errors - they're non-critical
+      }
+      // Controller ports are non-critical, don't throw on error
+      if (portsResult.error) {
+        console.warn("[Dashboard] Failed to fetch controller ports:", portsResult.error.message);
       }
 
       // If sensor readings are empty but we have controllers, try to fetch cached readings
@@ -706,7 +678,6 @@ export function useDashboardData(
 
           if (cachedReadings && cachedReadings.length > 0) {
             finalSensorReadings = cachedReadings;
-            console.log(`[Dashboard] Using ${cachedReadings.length} cached readings (data may be stale)`);
           }
         }
       }
@@ -714,17 +685,6 @@ export function useDashboardData(
       if (isMounted.current) {
         const rooms = roomsResult.data || [];
         const unassigned = unassignedResult.data || [];
-        const totalControllers = rooms.reduce((sum, r: RoomWithControllers) => sum + (r.controllers?.length || 0), 0) + unassigned.length;
-
-        console.log("[Dashboard] Data fetched:", {
-          rooms: rooms.length,
-          roomNames: rooms.map((r: RoomWithControllers) => r.name),
-          controllersInRooms: rooms.reduce((sum, r: RoomWithControllers) => sum + (r.controllers?.length || 0), 0),
-          unassignedControllers: unassigned.length,
-          totalControllers,
-          sensorReadings: finalSensorReadings.length,
-          workflows: (workflowsResult.data || []).length,
-        });
 
         setRoomsWithControllers(rooms);
         setUnassignedControllersData(unassigned);
@@ -772,6 +732,7 @@ export function useDashboardData(
         });
 
         setWorkflows(workflowsResult.data || []);
+        setControllerPorts((portsResult.data as ControllerPort[]) || []);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to fetch dashboard data";
@@ -1077,6 +1038,17 @@ export function useDashboardData(
     [roomSummaries]
   );
 
+  /**
+   * Get ports for a specific controller by ID.
+   * Memoized to avoid unnecessary recomputations.
+   */
+  const getPortsForController = useCallback(
+    (controllerId: string): ControllerPort[] => {
+      return controllerPorts.filter((p) => p.controller_id === controllerId);
+    },
+    [controllerPorts]
+  );
+
   // ==========================================================================
   // Effects
   // ==========================================================================
@@ -1130,7 +1102,6 @@ export function useDashboardData(
     const setupSubscriptions = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) {
-        console.log("[Dashboard] Skipping realtime subscriptions - no authenticated session");
         return;
       }
 
@@ -1155,6 +1126,18 @@ export function useDashboardData(
           event: "*",
           schema: "public",
           table: "controllers",
+        },
+        () => {
+          debouncedRealtimeRefetch();
+        }
+      )
+      // Subscribe to controller port changes
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "controller_ports",
         },
         () => {
           debouncedRealtimeRefetch();
@@ -1193,6 +1176,40 @@ export function useDashboardData(
                 .sort((a, b) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime())
                 .slice(0, 2000);
             });
+          }
+        }
+      )
+      // Subscribe to controller port changes (INSERT, UPDATE, DELETE)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "controller_ports",
+        },
+        (payload) => {
+          // Handle port changes optimistically
+          if (isMounted.current) {
+            if (payload.eventType === "INSERT") {
+              const newPort = payload.new as ControllerPort;
+              setControllerPorts((prev) => {
+                // Check for duplicates
+                if (prev.some((p) => p.id === newPort.id)) {
+                  return prev;
+                }
+                return [...prev, newPort].sort((a, b) => a.port_number - b.port_number);
+              });
+            } else if (payload.eventType === "UPDATE") {
+              const updatedPort = payload.new as ControllerPort;
+              setControllerPorts((prev) =>
+                prev.map((p) => (p.id === updatedPort.id ? updatedPort : p))
+              );
+            } else if (payload.eventType === "DELETE") {
+              const deletedPort = payload.old as ControllerPort;
+              setControllerPorts((prev) =>
+                prev.filter((p) => p.id !== deletedPort.id)
+              );
+            }
           }
         }
       )
@@ -1520,6 +1537,10 @@ export function useDashboardData(
 
     // Raw sensor readings
     sensorReadings: shouldShowDemoMode ? [] : sensorReadings,
+
+    // Controller ports data
+    controllerPorts: shouldShowDemoMode ? [] : controllerPorts,
+    getPortsForController,
   };
 }
 
