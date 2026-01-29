@@ -115,16 +115,21 @@ function ControllerCard({
       const data = await response.json();
 
       if (response.ok && data.success) {
+        // Show detailed info about what was received
+        const readings = data.readings || [];
+        const readingTypes = readings.map((r: { type: string }) => r.type).join(', ');
         setPollResult({
           success: true,
-          message: `Got ${data.reading_count || 0} readings`
+          message: readings.length > 0
+            ? `Got ${readings.length}: ${readingTypes}`
+            : 'Poll OK but 0 readings returned'
         });
         // Refresh the page data to show new readings
         onRefresh();
       } else {
         setPollResult({
           success: false,
-          message: data.error || data.message || 'Poll failed'
+          message: data.error || data.message || `Poll failed: ${JSON.stringify(data).slice(0, 100)}`
         });
       }
     } catch (err) {
