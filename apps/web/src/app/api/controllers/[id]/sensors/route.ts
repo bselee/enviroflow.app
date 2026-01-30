@@ -59,10 +59,15 @@ interface SensorReading {
 /**
  * Build credentials object with proper type discriminator for adapter factory.
  * The adapter factory uses a discriminated union based on the 'type' field.
+ *
+ * @param brand - The controller brand
+ * @param credentials - Email/password credentials
+ * @param deviceId - Optional AC Infinity device ID (for multi-device accounts)
  */
 function buildAdapterCredentials(
   brand: ControllerBrand,
-  credentials: { email?: string; password?: string; type?: string }
+  credentials: { email?: string; password?: string; type?: string },
+  deviceId?: string
 ): ACInfinityCredentials | InkbirdCredentials | CSVUploadCredentials {
   switch (brand) {
     case 'ac_infinity':
@@ -70,6 +75,7 @@ function buildAdapterCredentials(
         type: 'ac_infinity',
         email: credentials.email || '',
         password: credentials.password || '',
+        deviceId: deviceId, // Pass the specific device ID to connect to the right controller
       } satisfies ACInfinityCredentials
 
     case 'inkbird':
@@ -402,11 +408,18 @@ export async function GET(
 
       // Build properly typed credentials for the adapter
       // Type safety ensured by validation above
-      const adapterCredentials = buildAdapterCredentials(brand, {
-        email: storedCredentials.email as string,
-        password: storedCredentials.password as string,
-        type: brand,
-      })
+      // Pass controller_id (AC Infinity device ID) to connect to the specific device
+      const adapterCredentials = buildAdapterCredentials(
+        brand,
+        {
+          email: storedCredentials.email as string,
+          password: storedCredentials.password as string,
+          type: brand,
+        },
+        controller.controller_id // AC Infinity device ID selected during setup
+      )
+
+      console.log('[Sensors GET] Using device ID:', controller.controller_id, 'for controller:', controller.name)
 
       // Connect to get fresh data
       const connectionResult = await adapter.connect(adapterCredentials)

@@ -129,7 +129,8 @@ async function getUserId(request: NextRequest, client: SupabaseClient): Promise<
 
 function buildAdapterCredentials(
   brand: ControllerBrand,
-  credentials: { email?: string; password?: string; type?: string }
+  credentials: { email?: string; password?: string; type?: string },
+  deviceId?: string
 ): ACInfinityCredentials | InkbirdCredentials | CSVUploadCredentials {
   switch (brand) {
     case 'ac_infinity':
@@ -137,6 +138,7 @@ function buildAdapterCredentials(
         type: 'ac_infinity',
         email: credentials.email || '',
         password: credentials.password || '',
+        deviceId: deviceId, // Pass the specific device ID
       } satisfies ACInfinityCredentials
 
     case 'inkbird':
@@ -272,11 +274,18 @@ export async function GET(
       }
 
       // Build properly typed credentials for the adapter
-      const adapterCredentials = buildAdapterCredentials(brand, {
-        email: storedCredentials.email as string,
-        password: storedCredentials.password as string,
-        type: brand,
-      })
+      // Pass controller_id (AC Infinity device ID) to connect to the specific device
+      const adapterCredentials = buildAdapterCredentials(
+        brand,
+        {
+          email: storedCredentials.email as string,
+          password: storedCredentials.password as string,
+          type: brand,
+        },
+        controller.controller_id // AC Infinity device ID
+      )
+
+      console.log('[Devices GET] Using device ID:', controller.controller_id, 'for controller:', controller.name)
 
       // Connect to get device capabilities
       const connectionResult = await adapter.connect(adapterCredentials)
