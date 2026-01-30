@@ -11,7 +11,7 @@
  * - Success rate from activity logs
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { createClient, PostgrestError } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import {
   getAdapter,
@@ -179,7 +179,7 @@ export async function POST(
       .select('*')
       .eq('id', id)
       .eq('user_id', userId)
-      .single() as { data: any; error: any }
+      .single() as { data: Record<string, unknown> | null; error: PostgrestError | null }
 
     if (fetchError || !controller) {
       return NextResponse.json(
@@ -197,7 +197,7 @@ export async function POST(
       .from('activity_logs')
       .select('result')
       .eq('controller_id', id)
-      .gte('timestamp', twentyFourHoursAgo)) as { data: any[] | null }
+      .gte('timestamp', twentyFourHoursAgo)) as { data: Array<{ result: string }> | null }
 
     let successRate = 100
     if (activityLogs && activityLogs.length > 0) {
@@ -427,7 +427,7 @@ export async function GET(
       .select('id')
       .eq('id', id)
       .eq('user_id', userId)
-      .single()) as { data: any; error: any }
+      .single()) as { data: { id: string } | null; error: PostgrestError | null }
 
     if (fetchError || !controller) {
       return NextResponse.json(
@@ -444,7 +444,7 @@ export async function GET(
       .eq('controller_id', id)
       .eq('action_type', 'diagnostics_run')
       .gte('timestamp', sevenDaysAgo)
-      .order('timestamp', { ascending: true })) as { data: any[] | null; error: any }
+      .order('timestamp', { ascending: true })) as { data: Array<{ timestamp: string; action_data: unknown; result: string }> | null; error: PostgrestError | null }
 
     if (logsError) {
       console.error('[Diagnostics GET] Error fetching logs:', logsError)

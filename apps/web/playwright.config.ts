@@ -9,6 +9,9 @@ import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
   testDir: './e2e',
 
+  // Global setup to create test users
+  globalSetup: './e2e/global-setup.ts',
+
   // Maximum time one test can run (60 seconds)
   timeout: 60000,
 

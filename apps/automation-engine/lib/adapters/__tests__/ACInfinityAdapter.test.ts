@@ -704,5 +704,639 @@ describe('ACInfinityAdapter', () => {
       expect(result.devices).toHaveLength(0)
       expect(result.totalDevices).toBe(0)
     })
+
+    it('should handle discovery login failure', async () => {
+      // Mock failed login
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 1002,
+          msg: 'Invalid password',
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      const result = await adapter.discoverDevices({
+        brand: 'ac_infinity',
+        email: 'test@example.com',
+        password: 'wrongpass',
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.devices).toHaveLength(0)
+      expect(result.error).toContain('Invalid email or password')
+    })
+
+    it('should handle discovery API error', async () => {
+      // Mock successful login
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: { appId: 'token123' },
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      // Mock device list error
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: false,
+        error: 'Network error',
+        attempts: 3,
+        totalTimeMs: 5000,
+        circuitState: 'closed',
+      })
+
+      const result = await adapter.discoverDevices({
+        brand: 'ac_infinity',
+        email: 'test@example.com',
+        password: 'testpass',
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error).toBeDefined()
+    })
+  })
+
+  describe('readSensors - advanced scenarios', () => {
+    beforeEach(async () => {
+      // Setup connection for all tests
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: { code: 200, data: { appId: 'token123' } },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: [
+            {
+              devId: testDeviceId,
+              devName: 'Test Controller',
+              devType: 3,
+              online: true,
+            },
+          ],
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: {
+            devId: testDeviceId,
+            portData: [],
+            sensorData: [],
+          },
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      await adapter.connect(validCredentials)
+      vi.clearAllMocks()
+    })
+
+    it('should handle VPD sensor readings', async () => {
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: {
+            devId: testDeviceId,
+            sensorData: [
+              {
+                sensorType: 3,
+                sensorName: 'VPD',
+                sensorValue: 120, // 1.2 kPa
+                unit: 'kPa',
+              },
+            ],
+            portData: [],
+          },
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      const readings = await adapter.readSensors(testDeviceId)
+
+      const vpdReading = readings.find((r) => r.type === 'vpd')
+      expect(vpdReading).toBeDefined()
+      expect(vpdReading?.value).toBeCloseTo(1.2, 2)
+      expect(vpdReading?.unit).toBe('kPa')
+    })
+
+    it('should handle device-level temperature and humidity', async () => {
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: {
+            devId: testDeviceId,
+            temperature: 2000, // 20°C
+            humidity: 5000, // 50%
+            sensorData: [],
+            portData: [],
+          },
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      const readings = await adapter.readSensors(testDeviceId)
+
+      const tempReading = readings.find((r) => r.type === 'temperature')
+      const humReading = readings.find((r) => r.type === 'humidity')
+
+      expect(tempReading).toBeDefined()
+      expect(tempReading?.value).toBeCloseTo(68, 1) // 20°C = 68°F
+      expect(humReading).toBeDefined()
+      expect(humReading?.value).toBeCloseTo(50, 1)
+    })
+
+    it('should handle port-based sensor readings', async () => {
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: {
+            devId: testDeviceId,
+            sensorData: [],
+            portData: [
+              {
+                portId: 1,
+                portName: 'Sensor Port 1',
+                portType: 7,
+                devType: 10,
+                surplus: 2200, // 22°C
+                speak: 0,
+                onOff: 0,
+                isSupport: true,
+                supportDim: 0,
+              },
+            ],
+          },
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      const readings = await adapter.readSensors(testDeviceId)
+
+      expect(readings.length).toBeGreaterThan(0)
+      const portReading = readings.find((r) => r.port === 1)
+      expect(portReading).toBeDefined()
+      expect(portReading?.type).toBe('temperature')
+      expect(portReading?.value).toBeCloseTo(71.6, 1) // 22°C ≈ 71.6°F
+    })
+
+    it('should handle zero sensor values correctly', async () => {
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: {
+            devId: testDeviceId,
+            sensorData: [
+              {
+                sensorType: 1,
+                sensorName: 'Temperature',
+                sensorValue: 0, // 0°C (freezing point)
+                unit: 'C',
+              },
+            ],
+            portData: [],
+          },
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      const readings = await adapter.readSensors(testDeviceId)
+
+      const tempReading = readings.find((r) => r.type === 'temperature')
+      expect(tempReading).toBeDefined()
+      expect(tempReading?.value).toBeCloseTo(32, 1) // 0°C = 32°F
+    })
+
+    it('should handle token expiry error', async () => {
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 1001,
+          msg: 'Token expired',
+          data: null,
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      await expect(adapter.readSensors(testDeviceId)).rejects.toThrow(
+        'Authentication token expired'
+      )
+    })
+
+    it('should handle CO2 sensor readings', async () => {
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: {
+            devId: testDeviceId,
+            sensorData: [
+              {
+                sensorType: 4,
+                sensorName: 'CO2',
+                sensorValue: 850, // 850 ppm (not scaled)
+                unit: 'ppm',
+              },
+            ],
+            portData: [],
+          },
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      const readings = await adapter.readSensors(testDeviceId)
+
+      const co2Reading = readings.find((r) => r.type === 'co2')
+      expect(co2Reading).toBeDefined()
+      expect(co2Reading?.value).toBe(850)
+      expect(co2Reading?.unit).toBe('ppm')
+    })
+
+    it('should handle light sensor readings', async () => {
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: {
+            devId: testDeviceId,
+            sensorData: [
+              {
+                sensorType: 5,
+                sensorName: 'Light',
+                sensorValue: 45000, // 45000 lux (not scaled)
+                unit: 'lux',
+              },
+            ],
+            portData: [],
+          },
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      const readings = await adapter.readSensors(testDeviceId)
+
+      const lightReading = readings.find((r) => r.type === 'light')
+      expect(lightReading).toBeDefined()
+      expect(lightReading?.value).toBe(45000)
+      expect(lightReading?.unit).toBe('lux')
+    })
+
+    it('should handle multiple sensor types simultaneously', async () => {
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: {
+            devId: testDeviceId,
+            temperature: 2400, // 24°C
+            humidity: 6000, // 60%
+            vpd: 150, // 1.5 kPa
+            sensorData: [
+              {
+                sensorType: 4,
+                sensorName: 'CO2',
+                sensorValue: 900,
+                unit: 'ppm',
+              },
+              {
+                sensorType: 5,
+                sensorName: 'Light',
+                sensorValue: 35000,
+                unit: 'lux',
+              },
+            ],
+            portData: [],
+          },
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      const readings = await adapter.readSensors(testDeviceId)
+
+      expect(readings.length).toBe(5)
+      expect(readings.find((r) => r.type === 'temperature')).toBeDefined()
+      expect(readings.find((r) => r.type === 'humidity')).toBeDefined()
+      expect(readings.find((r) => r.type === 'vpd')).toBeDefined()
+      expect(readings.find((r) => r.type === 'co2')).toBeDefined()
+      expect(readings.find((r) => r.type === 'light')).toBeDefined()
+    })
+  })
+
+  describe('controlDevice - advanced scenarios', () => {
+    beforeEach(async () => {
+      // Setup connection for all tests
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: { code: 200, data: { appId: 'token123' } },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: [
+            {
+              devId: testDeviceId,
+              devName: 'Test Controller',
+              devType: 3,
+              online: true,
+            },
+          ],
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: {
+            devId: testDeviceId,
+            portData: [],
+            sensorData: [],
+          },
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      await adapter.connect(validCredentials)
+      vi.clearAllMocks()
+    })
+
+    it('should handle toggle command', async () => {
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          msg: 'Success',
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      const command: DeviceCommand = { type: 'toggle' }
+      const result = await adapter.controlDevice(testDeviceId, 1, command)
+
+      expect(result.success).toBe(true)
+      expect(result.actualValue).toBe(100)
+    })
+
+    it('should clamp dimmer levels to valid range', async () => {
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          msg: 'Success',
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      const command: DeviceCommand = { type: 'set_level', value: 150 } // Over max
+      const result = await adapter.controlDevice(testDeviceId, 1, command)
+
+      expect(result.success).toBe(true)
+      expect(result.actualValue).toBe(100) // Clamped to max
+    })
+
+    it('should handle API error during control', async () => {
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 500,
+          msg: 'Internal server error',
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      const command: DeviceCommand = { type: 'turn_on' }
+      const result = await adapter.controlDevice(testDeviceId, 1, command)
+
+      expect(result.success).toBe(false)
+      expect(result.error).toBeDefined()
+    })
+
+    it('should handle network error during control', async () => {
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: false,
+        error: 'Network error',
+        attempts: 3,
+        totalTimeMs: 5000,
+        circuitState: 'closed',
+      })
+
+      const command: DeviceCommand = { type: 'turn_on' }
+      const result = await adapter.controlDevice(testDeviceId, 1, command)
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('Network error')
+    })
+  })
+
+  describe('connect - advanced scenarios', () => {
+    it('should connect to specific device when deviceId provided', async () => {
+      const credentialsWithDeviceId: ACInfinityCredentials = {
+        type: 'ac_infinity',
+        email: 'test@example.com',
+        password: 'testpass123',
+        deviceId: 'dev_specific',
+      }
+
+      // Mock login
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: { appId: 'token123' },
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      // Mock device list with multiple devices
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: [
+            {
+              devId: 'dev_other',
+              devName: 'Other Device',
+              devType: 3,
+              online: true,
+            },
+            {
+              devId: 'dev_specific',
+              devName: 'Specific Device',
+              devType: 4,
+              online: true,
+            },
+          ],
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      // Mock capabilities
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: {
+            portData: [],
+            sensorData: [],
+          },
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      const result = await adapter.connect(credentialsWithDeviceId)
+
+      expect(result.success).toBe(true)
+      expect(result.controllerId).toBe('dev_specific')
+      expect(result.metadata.model).toBe('Specific Device')
+    })
+
+    it('should fail when requested deviceId not found', async () => {
+      const credentialsWithInvalidDeviceId: ACInfinityCredentials = {
+        type: 'ac_infinity',
+        email: 'test@example.com',
+        password: 'testpass123',
+        deviceId: 'dev_nonexistent',
+      }
+
+      // Mock login
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: { appId: 'token123' },
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      // Mock device list
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: [
+            {
+              devId: 'dev_other',
+              devName: 'Other Device',
+              devType: 3,
+              online: true,
+            },
+          ],
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      const result = await adapter.connect(credentialsWithInvalidDeviceId)
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('not found')
+    })
+
+    it('should handle API error during device list fetch', async () => {
+      // Mock login
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 200,
+          data: { appId: 'token123' },
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      // Mock device list failure
+      mockedAdapterFetch.mockResolvedValueOnce({
+        success: true,
+        data: {
+          code: 500,
+          msg: 'Server error',
+          data: null,
+        },
+        attempts: 1,
+        totalTimeMs: 100,
+        circuitState: 'closed',
+      })
+
+      const result = await adapter.connect(validCredentials)
+
+      expect(result.success).toBe(false)
+      expect(result.error).toBeDefined()
+    })
+  })
+
+  describe('circuit breaker integration', () => {
+    it('should expose circuit breaker state', () => {
+      const state = adapter.getCircuitBreakerState()
+      expect(state).toBeDefined()
+      expect(state.state).toBe('closed')
+    })
+
+    it('should allow manual circuit breaker reset', () => {
+      expect(() => adapter.resetCircuitBreaker()).not.toThrow()
+    })
   })
 })

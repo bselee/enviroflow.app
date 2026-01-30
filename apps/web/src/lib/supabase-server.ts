@@ -14,6 +14,8 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 /**
  * Create a Supabase client for Server Components and API Routes
  * This client can read and write cookies for session management
+ *
+ * IMPORTANT: Configured to automatically refresh tokens when they expire
  */
 export function createClient() {
   const cookieStore = cookies();
@@ -33,6 +35,16 @@ export function createClient() {
           // This can be ignored if you have middleware refreshing sessions.
         }
       },
+    },
+    auth: {
+      // Automatically refresh tokens when they expire
+      autoRefreshToken: true,
+      // Persist session changes back to cookies
+      persistSession: true,
+      // Detect session from URL (for email confirmations, password resets)
+      detectSessionInUrl: true,
+      // Use PKCE flow for better security
+      flowType: 'pkce',
     },
   });
 }

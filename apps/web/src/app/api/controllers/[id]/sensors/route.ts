@@ -24,6 +24,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { calculateVPD } from '@/lib/vpd-utils'
 import {
   decryptCredentials as decryptCredentialsAES,
   EncryptionError,
@@ -256,32 +257,6 @@ function validateReading(reading: SensorReading): ValidatedReading {
       ? undefined
       : `Value ${reading.value} ${reading.unit} is outside acceptable range (${ranges.min}-${ranges.max} ${ranges.unit})`,
   }
-}
-
-/**
- * Calculate Vapor Pressure Deficit (VPD) from temperature and humidity.
- * This is calculated if not provided by the controller.
- *
- * @param temperatureF - Temperature in Fahrenheit
- * @param humidityPercent - Relative humidity as percentage
- * @returns VPD in kPa
- */
-function calculateVPD(temperatureF: number, humidityPercent: number): number {
-  // Convert F to C
-  const temperatureC = (temperatureF - 32) * (5 / 9)
-
-  // Calculate saturation vapor pressure (SVP) using Tetens formula
-  // SVP = 0.6108 * exp((17.27 * T) / (T + 237.3))
-  const svp = 0.6108 * Math.exp((17.27 * temperatureC) / (temperatureC + 237.3))
-
-  // Calculate actual vapor pressure (AVP)
-  const avp = svp * (humidityPercent / 100)
-
-  // VPD = SVP - AVP
-  const vpd = svp - avp
-
-  // Round to 2 decimal places
-  return Math.round(vpd * 100) / 100
 }
 
 // ============================================
@@ -526,7 +501,6 @@ export async function GET(
 
         // Handle token expiration - attempt ONE reconnect only
         if (errorMsg.includes('token expired') || errorMsg.includes('not connected')) {
-          console.log('[Sensors GET] Token expired, attempting reconnect...')
           warnings.push('Token expired - reconnecting to controller')
 
           try {
@@ -575,7 +549,7 @@ export async function GET(
           await adapter.disconnect(controllerId)
         }
       } catch (disconnectErr) {
-        console.warn('[Sensors GET] Error during disconnect:', disconnectErr)
+        // Disconnect error - non-critical
       }
 
       // Update controller status

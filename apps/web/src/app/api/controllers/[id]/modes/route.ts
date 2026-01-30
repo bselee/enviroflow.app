@@ -342,7 +342,7 @@ export async function GET(
 
       // Get device modes using adapter's existing method
       // Note: ACInfinityAdapter already has getDeviceModes method
-      const modes = await (adapter as any).getDeviceModes(controllerId)
+      const modes = await (adapter as { getDeviceModes: (id: string) => Promise<Array<{ port: number; [key: string]: unknown }>> }).getDeviceModes(controllerId)
 
       // Get capabilities to map ports to devices
       const capabilities = connectionResult.metadata.capabilities
@@ -350,7 +350,7 @@ export async function GET(
       // Build port mode responses
       const ports: PortModeResponse[] = capabilities.devices.map((device) => {
         // Find mode configuration for this port
-        const portMode = modes.find((m: any) => m.port === device.port) || {}
+        const portMode = modes.find((m) => m.port === device.port) || ({} as Record<string, unknown>)
 
         return {
           port: device.port,

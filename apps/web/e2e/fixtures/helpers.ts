@@ -155,13 +155,33 @@ export async function expectSuccess(page: Page, message?: string) {
 
 /**
  * Check for error message
+ * Looks for toast notifications (shadcn/ui) which is how errors are displayed
  */
 export async function expectError(page: Page, message?: string) {
-  const errorElement = page.locator(SELECTORS.errorMessage)
-  await expect(errorElement).toBeVisible({ timeout: TIMEOUTS.short })
+  // Toast notifications appear in a div with role="status" or class containing "toast"
+  const toastElement = page.locator('[role="status"]').first()
 
+  // Also try the legacy error message selector as fallback
+  const errorElement = page.locator(SELECTORS.errorMessage)
+
+  // Wait for either toast or error message to appear
+  const toastVisible = await toastElement
+    .isVisible({ timeout: TIMEOUTS.short })
+    .catch(() => false)
+  const errorVisible = await errorElement
+    .isVisible({ timeout: TIMEOUTS.short })
+    .catch(() => false)
+
+  // At least one should be visible
+  expect(toastVisible || errorVisible).toBe(true)
+
+  // If message is specified, check content
   if (message) {
-    await expect(errorElement).toContainText(message)
+    if (toastVisible) {
+      await expect(toastElement).toContainText(message)
+    } else if (errorVisible) {
+      await expect(errorElement).toContainText(message)
+    }
   }
 }
 
@@ -427,4 +447,24 @@ export async function waitForUrl(
   timeout = TIMEOUTS.long
 ) {
   await page.waitForURL(pattern, { timeout })
+}
+
+/**
+ * Check if E2E auth is configured
+ * Returns true if test users can be created/authenticated
+ */
+export function isAuthConfigured(): boolean {
+  return !!(
+    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+  )
+}
+
+/**
+ * Get skip reason for auth tests if not configured
+ */
+export function getAuthSkipReason(): string | false {
+  if (isAuthConfigured()) {
+    return false
+  }
+  return 'Test users not configured. Run: npx playwright test --headed to see setup instructions, or see e2e/E2E_TEST_SETUP.md'
 }

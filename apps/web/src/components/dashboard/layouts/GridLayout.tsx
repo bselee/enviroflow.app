@@ -126,9 +126,21 @@ export function GridLayout({
         className
       )}
     >
-      {roomsForDisplay.map((room, index) => (
-        <RoomCard key={room.id} room={room} index={index} getPortsForController={getPortsForController} />
-      ))}
+      {roomSummaries.map((summary, index) => {
+        const roomWithControllers = { ...summary.room, controllers: summary.controllers };
+        return (
+          <RoomCard 
+            key={summary.room.id} 
+            room={roomWithControllers} 
+            index={index} 
+            getPortsForController={getPortsForController}
+            sensorData={summary.latestSensorData}
+            timeSeriesData={summary.temperatureTimeSeries}
+            onlineCount={summary.onlineCount}
+            lastUpdate={summary.lastUpdateTimestamp}
+          />
+        );
+      })}
       {showAddRoomCard && <AddRoomCard onRoomCreated={onRoomCreated} />}
     </div>
   );

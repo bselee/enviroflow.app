@@ -6,21 +6,93 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import Bonjour from 'bonjour-service'
 import type {
   LocalDiscoveryOptions,
   LocalDiscoveryResult,
+  LocalDevice,
 } from '@/lib/local-discovery'
+
+/**
+ * Perform mDNS discovery and return discovered devices
+ */
+async function performMdnsDiscovery(
+  options: LocalDiscoveryOptions
+): Promise<LocalDevice[]> {
+  const devices: LocalDevice[] = []
+  const timeout = options.timeout || 5000
+
+  return new Promise((resolve) => {
+    const bonjour = new Bonjour()
+    const discoveredServices = new Map<string, LocalDevice>()
+
+    // Default service types to search for
+    const serviceTypes = options.serviceTypes || [
+      'http',
+      'https',
+      'mqtt',
+      'homeassistant',
+      'hap', // HomeKit
+    ]
+
+    let completedSearches = 0
+    const totalSearches = serviceTypes.length
+
+    // Search for each service type
+    serviceTypes.forEach((serviceType) => {
+      const browser = bonjour.find({ type: serviceType })
+
+      browser.on('up', (service) => {
+        // Extract device information from the service
+        const device: LocalDevice = {
+          ipAddress: service.addresses?.[0] || service.host || '',
+          port: service.port,
+          hostname: service.host,
+          name: service.name,
+          serviceType: service.type,
+          metadata: {
+            ...service.txt,
+            protocol: service.protocol,
+            subtypes: service.subtypes,
+          },
+          discoveryMethod: 'mdns',
+          discoveredAt: new Date().toISOString(),
+          isReachable: true,
+          responseTime: 0,
+        }
+
+        // Use host+port as unique key to avoid duplicates
+        const key = `${device.ipAddress}:${device.port}`
+        if (device.ipAddress && !discoveredServices.has(key)) {
+          discoveredServices.set(key, device)
+        }
+      })
+
+      // Stop searching after timeout
+      setTimeout(() => {
+        browser.stop()
+        completedSearches++
+
+        // When all searches complete, resolve with discovered devices
+        if (completedSearches === totalSearches) {
+          bonjour.destroy()
+          resolve(Array.from(discoveredServices.values()))
+        }
+      }, timeout)
+    })
+
+    // Fallback: If no service types specified, resolve empty array
+    if (serviceTypes.length === 0) {
+      bonjour.destroy()
+      resolve([])
+    }
+  })
+}
 
 /**
  * POST /api/discovery/local
  *
  * Discover devices on the local network using mDNS/Bonjour
- *
- * Note: Since mDNS requires native system access, this is a placeholder
- * implementation that would need a native Node.js mDNS library like 'bonjour'
- * or 'mdns' to work in production.
- *
- * For now, it returns mock data to demonstrate the API structure.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -35,41 +107,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // TODO: Implement actual mDNS discovery
-    // This requires a native Node.js library like:
-    // - bonjour (https://www.npmjs.com/package/bonjour)
-    // - mdns (https://www.npmjs.com/package/mdns)
-    // - dnssd (https://www.npmjs.com/package/dnssd)
-    //
-    // Example implementation with bonjour:
-    // ```
-    // import Bonjour from 'bonjour'
-    // const bonjour = Bonjour()
-    // const browser = bonjour.find({ type: 'http' }, (service) => {
-    //   // Handle discovered service
-    // })
-    // ```
+    const startTime = Date.now()
 
-    // For now, return a placeholder response
+    // Perform mDNS discovery
+    const devices = await performMdnsDiscovery(options)
+
+    // Filter by reachability if requested
+    const filteredDevices = options.includeOffline
+      ? devices
+      : devices.filter((d) => d.isReachable)
+
+    const scanDuration = Date.now() - startTime
+
     const result: LocalDiscoveryResult = {
       success: true,
-      devices: [],
-      totalDevices: 0,
-      reachableCount: 0,
+      devices: filteredDevices,
+      totalDevices: filteredDevices.length,
+      reachableCount: filteredDevices.filter((d) => d.isReachable).length,
       method: 'mdns',
       timestamp: new Date().toISOString(),
-      scanDuration: timeout,
-    }
-
-    // Add a note in development mode
-    if (process.env.NODE_ENV === 'development') {
-      return NextResponse.json(
-        {
-          ...result,
-          note: 'mDNS discovery requires a native Node.js library. Install "bonjour" or "mdns" package for full functionality.',
-        },
-        { status: 200 }
-      )
+      scanDuration,
     }
 
     return NextResponse.json(result, { status: 200 })
@@ -97,14 +154,20 @@ export async function POST(request: NextRequest) {
  */
 export async function GET() {
   return NextResponse.json({
-    available: false, // Set to true when mDNS library is installed
+    available: true,
     methods: ['mdns', 'manual'],
-    note: 'Install "bonjour" or "mdns" npm package to enable mDNS discovery',
     supportedServiceTypes: [
-      '_http._tcp.local.',
-      '_https._tcp.local.',
-      '_mqtt._tcp.local.',
-      '_homeassistant._tcp.local.',
+      'http',
+      'https',
+      'mqtt',
+      'homeassistant',
+      'hap', // HomeKit
+      'acinfinity',
+      'inkbird',
+      'govee',
+      'ecowitt',
     ],
+    defaultTimeout: 5000,
+    maxTimeout: 30000,
   })
 }

@@ -1287,8 +1287,11 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       }
 
       if (data.portData) {
+        log('info', `Raw portData for ${controllerId}:`, data.portData)
         for (const port of data.portData) {
-          if (port.devType !== 10 && port.portType !== 10) {
+          log('info', `Processing port ${port.portId}: devType=${port.devType}, portType=${port.portType}, name=${port.portName}`)
+          // Include all ports that have a valid portId, except empty/unused ports (devType 10 is "empty")
+          if (port.devType !== 10) {
             const hasDimming = port.supportDim === 1
             if (hasDimming) supportsDimming = true
 
@@ -1302,8 +1305,13 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
               currentLevel: port.surplus,
               isOn: port.onOff === 1
             })
+            log('info', `Added device: port=${port.portId}, name=${port.portName}, type=${this.mapDeviceType(port.portType)}, isOn=${port.onOff === 1}`)
+          } else {
+            log('info', `Skipping empty port ${port.portId} (devType=10)`)
           }
         }
+      } else {
+        log('warn', `No portData in API response for ${controllerId}`)
       }
 
       log('info', `Capabilities loaded for ${controllerId}`, {

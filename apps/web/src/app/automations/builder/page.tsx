@@ -11,7 +11,9 @@ import { WorkflowBuilder } from "@/components/workflow/WorkflowBuilder";
 import { NodePropertiesPanel } from "@/components/workflow/NodePropertiesPanel";
 import type { WorkflowDefinition, WorkflowNode } from "@/components/workflow/types";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { useToast } from "@/hooks/use-toast";
+import { useControllers } from "@/hooks/use-controllers";
 
 /**
  * WorkflowBuilderPage - Create a new automation workflow
@@ -26,16 +28,10 @@ import { useToast } from "@/hooks/use-toast";
  * - Save the workflow to the database
  */
 
-/** Mock controllers for development - replace with real data from API */
-const MOCK_CONTROLLERS = [
-  { id: "ctrl-1", name: "AC Infinity Controller 69 Pro" },
-  { id: "ctrl-2", name: "Inkbird ITC-308" },
-  { id: "ctrl-3", name: "Veg Tent Controller" },
-];
-
 export default function WorkflowBuilderPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { controllers } = useControllers();
   const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null);
   const [nodes, setNodes] = React.useState<WorkflowNode[]>([]);
   const [isSaving, setIsSaving] = React.useState(false);
@@ -43,6 +39,14 @@ export default function WorkflowBuilderPage() {
     nodeId: string;
     data: Partial<WorkflowNode["data"]>;
   } | null>(null);
+
+  // Transform controllers to match NodePropertiesPanel format
+  const controllerOptions = React.useMemo(() => {
+    return controllers.map((c) => ({
+      id: c.id,
+      name: c.name || c.device_id || 'Unknown Controller',
+    }));
+  }, [controllers]);
 
   /**
    * Finds the currently selected node from the nodes array
@@ -129,52 +133,54 @@ export default function WorkflowBuilderPage() {
 
   return (
     <AppLayout hideSidebar>
-      <div className="flex h-screen flex-col">
-        {/* Header */}
-        <header className="flex items-center justify-between border-b bg-card px-4 py-3">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" asChild>
-              <Link href="/automations">
-                <ArrowLeft className="h-5 w-5" />
-                <span className="sr-only">Back to automations</span>
-              </Link>
-            </Button>
-            <div>
-              <h1 className="text-lg font-semibold">New Workflow</h1>
-              <p className="text-sm text-muted-foreground">
-                Create a new automation workflow
-              </p>
+      <ErrorBoundary componentName="Workflow Builder" showRetry>
+        <div className="flex h-screen flex-col">
+          {/* Header */}
+          <header className="flex items-center justify-between border-b bg-card px-4 py-3">
+            <div className="flex items-center gap-4">
+              <Button variant="ghost" size="icon" asChild>
+                <Link href="/automations">
+                  <ArrowLeft className="h-5 w-5" />
+                  <span className="sr-only">Back to automations</span>
+                </Link>
+              </Button>
+              <div>
+                <h1 className="text-lg font-semibold">New Workflow</h1>
+                <p className="text-sm text-muted-foreground">
+                  Create a new automation workflow
+                </p>
+              </div>
             </div>
-          </div>
-        </header>
+          </header>
 
-        {/* Main Content */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Builder Canvas */}
-          <ReactFlowProvider>
-            <div className="flex-1">
-              <WorkflowBuilder
-                onSave={handleSave}
-                isSaving={isSaving}
-                onNodeSelect={handleNodeSelect}
-                selectedNodeId={selectedNodeId}
-                onNodesChange={handleNodesChange}
-                nodeUpdateTrigger={nodeUpdateTrigger}
+          {/* Main Content */}
+          <div className="flex flex-1 overflow-hidden">
+            {/* Builder Canvas */}
+            <ReactFlowProvider>
+              <div className="flex-1">
+                <WorkflowBuilder
+                  onSave={handleSave}
+                  isSaving={isSaving}
+                  onNodeSelect={handleNodeSelect}
+                  selectedNodeId={selectedNodeId}
+                  onNodesChange={handleNodesChange}
+                  nodeUpdateTrigger={nodeUpdateTrigger}
+                />
+              </div>
+            </ReactFlowProvider>
+
+            {/* Properties Panel */}
+            {selectedNode && (
+              <NodePropertiesPanel
+                node={selectedNode}
+                onUpdate={handleNodeUpdate}
+                onClose={handleClosePanel}
+                controllers={controllerOptions}
               />
-            </div>
-          </ReactFlowProvider>
-
-          {/* Properties Panel */}
-          {selectedNode && (
-            <NodePropertiesPanel
-              node={selectedNode}
-              onUpdate={handleNodeUpdate}
-              onClose={handleClosePanel}
-              controllers={MOCK_CONTROLLERS}
-            />
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      </ErrorBoundary>
     </AppLayout>
   );
 }

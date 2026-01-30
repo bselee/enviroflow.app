@@ -13,7 +13,7 @@
  * @module lib/schedule-executor
  */
 
-import type { createClient as _createClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { decryptCredentials } from '@/lib/server-encryption'
 import {
   getAdapter,
@@ -31,6 +31,7 @@ import {
   calculateSunrise,
   calculateSunset,
 } from '@/lib/dimming-curves'
+import { parseExpression } from 'cron-parser'
 
 // ============================================
 // Types
@@ -258,9 +259,31 @@ export function shouldExecuteSchedule(
     }
 
     case 'cron': {
-      // For now, cron expressions are not fully implemented
-      // TODO: Integrate a cron parser library
-      return false
+      // Parse and evaluate cron expression
+      if (!scheduleData.cron) {
+        return false
+      }
+
+      try {
+        // Parse the cron expression
+        const interval = parseExpression(scheduleData.cron, {
+          currentDate: now,
+          tz: room?.timezone,
+        })
+
+        // Get the next occurrence
+        const next = interval.next().toDate()
+
+        // Check if the next occurrence is within the current minute
+        // This handles the case where the cron matches the current time
+        const timeDiff = Math.abs(next.getTime() - now.getTime())
+
+        // Match if within 60 seconds (current minute window)
+        return timeDiff < 60 * 1000
+      } catch (error) {
+        console.error('[ScheduleExecutor] Invalid cron expression:', scheduleData.cron, error)
+        return false
+      }
     }
 
     default:
@@ -280,8 +303,7 @@ export async function executeSchedule(
   schedule: DeviceSchedule,
   controller: DBController,
   room: DBRoom | null,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase: any,
+  supabase: SupabaseClient,
   dryRun: boolean = false
 ): Promise<ExecutionResult> {
   const now = new Date()
@@ -506,8 +528,7 @@ export async function executeSchedule(
  */
 export async function logScheduleExecution(
   result: ExecutionResult,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase: any,
+  supabase: SupabaseClient,
   userId: string,
   roomId: string | null
 ): Promise<void> {
@@ -538,8 +559,7 @@ export async function logScheduleExecution(
 export async function updateScheduleMetadata(
   scheduleId: string,
   result: ExecutionResult,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase: any
+  supabase: SupabaseClient
 ): Promise<void> {
   try {
     const updates: Record<string, unknown> = {

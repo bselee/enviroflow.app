@@ -19,6 +19,7 @@ import {
   createTestController,
   createTestRoom,
   waitForLoading,
+  getAuthSkipReason,
 } from './fixtures/helpers'
 import {
   TEST_USER,
@@ -30,6 +31,9 @@ import {
 } from './fixtures/test-data'
 
 test.describe('Device Control Flow', () => {
+  // Skip if test users are not configured
+  test.skip(getAuthSkipReason())
+
   test.beforeEach(async ({ page }) => {
     // Login before each test
     await login(page)

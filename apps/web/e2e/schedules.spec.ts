@@ -21,6 +21,7 @@ import {
   createTestController,
   createTestRoom,
   waitForLoading,
+  getAuthSkipReason,
 } from './fixtures/helpers'
 import {
   TEST_ROOMS,
@@ -30,6 +31,9 @@ import {
 } from './fixtures/test-data'
 
 test.describe('Schedule Management', () => {
+  // Skip if test users are not configured
+  test.skip(getAuthSkipReason())
+
   test.beforeEach(async ({ page }) => {
     // Login before each test
     await login(page)

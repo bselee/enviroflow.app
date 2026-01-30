@@ -267,11 +267,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         .eq("token", token);
     }
 
-    console.log("[Push Tokens POST] Token registered:", {
-      userId: `${userId.substring(0, 8)}...`,
-      platform,
-    });
-
     return NextResponse.json(
       {
         success: true,
@@ -350,10 +345,6 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
         { status: 404 }
       );
     }
-
-    console.log("[Push Tokens DELETE] Token removed:", {
-      userId: `${userId.substring(0, 8)}...`,
-    });
 
     return NextResponse.json({
       success: true,

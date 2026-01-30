@@ -22,6 +22,7 @@ const PROTECTED_ROUTES = [
   "/settings",
   "/analytics",
   "/rooms",
+  "/schedules",
 ];
 
 /**
@@ -94,7 +95,9 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       },
       setAll(cookiesToSet) {
         cookiesToSet.forEach(({ name, value, options }) => {
+          // Set cookie on the request (for subsequent middleware)
           request.cookies.set(name, value);
+          // Set cookie on the response (critical for persistence)
           response.cookies.set(name, value, options);
         });
       },
@@ -102,9 +105,27 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   });
 
   // Get user from session (this also refreshes the session if needed)
+  // IMPORTANT: getUser() will automatically refresh expired tokens
+  // and the refreshed tokens will be set in cookies via setAll()
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
+
+  // If getUser fails, try to refresh the session explicitly
+  if (userError && !user) {
+    console.log("[Middleware] getUser failed, attempting session refresh:", userError.message);
+
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session) {
+      console.log("[Middleware] Session refresh failed:", sessionError?.message);
+      // Session is invalid - user needs to re-authenticate
+    }
+  }
 
   const isAuthenticated = !!user;
 

@@ -12,6 +12,7 @@ import {
   createTestRoom,
   createTestController,
   cleanupTestData,
+  getAuthSkipReason,
 } from './fixtures/helpers'
 import {
   TEST_USER,
@@ -22,6 +23,9 @@ import {
 } from './fixtures/test-data'
 
 test.describe('Dashboard Viewing', () => {
+  // Skip all dashboard tests if test users are not configured
+  test.skip(getAuthSkipReason())
+
   test.beforeEach(async ({ page }) => {
     await login(page)
   })

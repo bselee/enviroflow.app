@@ -15,6 +15,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { calculateVPD } from "./vpd-utils";
 import type {
   Room,
   Controller,
@@ -149,29 +150,7 @@ function calculateBaseHumidity(temperature: number, offset: number = 0): number 
   return Math.max(HUMIDITY_MIN, Math.min(HUMIDITY_MAX, humidity + offset));
 }
 
-/**
- * Calculates Vapor Pressure Deficit (VPD) from temperature and humidity.
- * Uses the Magnus-Tetens approximation for saturation vapor pressure.
- *
- * Formula: VPD = SVP * (1 - RH/100)
- * Where SVP = 0.6108 * exp(17.27 * T / (T + 237.3))
- *
- * @param temperatureFahrenheit - Temperature in Fahrenheit
- * @param humidityPercent - Relative humidity (0-100)
- * @returns VPD in kPa
- */
-function calculateVPD(temperatureFahrenheit: number, humidityPercent: number): number {
-  // Convert Fahrenheit to Celsius
-  const tempCelsius = (temperatureFahrenheit - 32) * (5 / 9);
-
-  // Magnus-Tetens approximation for saturation vapor pressure
-  const svp = 0.6108 * Math.exp((17.27 * tempCelsius) / (tempCelsius + 237.3));
-
-  // VPD calculation
-  const vpd = svp * (1 - humidityPercent / 100);
-
-  return Math.round(vpd * 100) / 100;
-}
+// VPD calculation is now imported from vpd-utils.ts for consistency
 
 /**
  * Adds realistic random noise to a value.
@@ -304,7 +283,7 @@ export function generateCurrentSensorData(roomIndex: number): LatestSensorData {
   const baseHumidity = calculateBaseHumidity(baseTemp, config.humidityOffset);
   const humidity = Math.round(addNoise(baseHumidity, HUMIDITY_NOISE));
 
-  const vpd = Math.round(addNoise(calculateVPD(temperature, humidity), VPD_NOISE) * 100) / 100;
+  const vpd = Math.round(addNoise(calculateVPD(temperature, humidity) ?? 1.0, VPD_NOISE) * 100) / 100;
 
   return { temperature, humidity, vpd };
 }
@@ -332,8 +311,8 @@ export function generateTrendData(roomIndex: number): {
   const currentHumidity = calculateBaseHumidity(currentTemp, config.humidityOffset);
   const pastHumidity = calculateBaseHumidity(pastTemp, config.humidityOffset);
 
-  const currentVpd = calculateVPD(currentTemp, currentHumidity);
-  const pastVpd = calculateVPD(pastTemp, pastHumidity);
+  const currentVpd = calculateVPD(currentTemp, currentHumidity) ?? 1.0;
+  const pastVpd = calculateVPD(pastTemp, pastHumidity) ?? 1.0;
 
   return {
     temperature: {
@@ -406,7 +385,7 @@ export function generateTimelineData(): TimeSeriesData[] {
     const baseHumidity = calculateBaseHumidity(baseTemp, config.humidityOffset);
     const humidity = Math.round(addNoise(baseHumidity, HUMIDITY_NOISE * 0.3));
 
-    const vpd = Math.round(calculateVPD(temperature, humidity) * 100) / 100;
+    const vpd = Math.round((calculateVPD(temperature, humidity) ?? 1.0) * 100) / 100;
 
     data.push({
       timestamp: timestamp.toISOString(),
@@ -438,7 +417,7 @@ export function generateHistoricalVpd(): TimeSeriesPoint[] {
 
     const baseTemp = calculateBaseTemperature(hour, config.tempOffset);
     const baseHumidity = calculateBaseHumidity(baseTemp, config.humidityOffset);
-    const vpd = calculateVPD(baseTemp, baseHumidity);
+    const vpd = calculateVPD(baseTemp, baseHumidity) ?? 1.0;
 
     points.push({
       timestamp: timestamp.toISOString(),

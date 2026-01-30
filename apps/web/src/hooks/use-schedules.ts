@@ -417,7 +417,6 @@ export function useSchedules(controllerId?: string): UseSchedulesState {
           filter: controllerId ? `controller_id=eq.${controllerId}` : undefined,
         },
         (payload) => {
-          console.log("Schedule change detected:", payload);
           // Refresh schedules on any change
           fetchSchedules();
         }

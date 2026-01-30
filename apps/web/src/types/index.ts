@@ -1027,6 +1027,47 @@ export interface OnboardingAnalytics {
 }
 
 // =============================================================================
+// Live Sensor Types (Direct API)
+// =============================================================================
+
+/**
+ * Live sensor data from direct AC Infinity API call
+ */
+export interface LiveSensor {
+  id: string;
+  name: string;
+  deviceType: 'ac_infinity';
+  temperature: number;  // Fahrenheit
+  humidity: number;     // Percentage
+  vpd: number;          // kPa
+  online: boolean;
+  lastUpdate: string;   // ISO timestamp
+  ports?: LivePort[];
+}
+
+/**
+ * Live port status from AC Infinity device
+ */
+export interface LivePort {
+  portId: number;
+  name: string;
+  speed: number;  // 0-100 percentage (converted from AC Infinity's 0-10 scale)
+  isOn: boolean;
+}
+
+/**
+ * Response from /api/sensors/live endpoint
+ */
+export interface LiveSensorResponse {
+  sensors: LiveSensor[];
+  timestamp: string;    // ISO timestamp
+  source: 'ac_infinity';
+  count: number;
+  responseTimeMs: number;
+  error?: string;
+}
+
+// =============================================================================
 // Hook State Types
 // =============================================================================
 

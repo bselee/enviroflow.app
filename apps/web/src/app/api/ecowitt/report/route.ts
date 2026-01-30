@@ -20,7 +20,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, PostgrestError } from '@supabase/supabase-js'
 
 // Lazy initialization of Supabase client with service role key
 let supabase: ReturnType<typeof createClient> | null = null
@@ -264,7 +264,7 @@ export async function POST(req: NextRequest) {
       .eq('brand', 'ecowitt')
       .in('controller_id', possibleControllerIds)
       .limit(1)
-      .single() as { data: { id: string; controller_id: string; user_id: string; name: string; brand: string } | null; error: any }
+      .single() as { data: { id: string; controller_id: string; user_id: string; name: string; brand: string } | null; error: PostgrestError | null }
 
     if (lookupError || !controller) {
       console.warn('[Ecowitt Webhook] Controller not found for MAC:', {

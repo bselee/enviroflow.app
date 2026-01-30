@@ -13,6 +13,7 @@
 import { useMemo, useCallback } from 'react'
 import { useDashboardData } from './use-dashboard-data'
 import { memoize, downsampleTimeSeries } from '@/lib/performance-utils'
+import { calculateVPD } from '@/lib/vpd-utils'
 import type { RoomSummary, DashboardMetrics } from './use-dashboard-data'
 import type { TimeSeriesPoint } from '@/types'
 
@@ -23,30 +24,10 @@ import type { TimeSeriesPoint } from '@/types'
 /**
  * Memoized VPD calculation to avoid redundant computation.
  * Uses LRU cache with key based on temp and humidity.
+ * Now uses the consolidated calculateVPD from vpd-utils.
  */
 const calculateVPDMemoized = memoize(
-  (temp: number, humidity: number): number | null => {
-    // Validate inputs
-    if (!Number.isFinite(temp) || !Number.isFinite(humidity)) {
-      return null
-    }
-    if (temp < 32 || temp > 140 || humidity < 0 || humidity > 100) {
-      return null
-    }
-
-    // Convert F to C
-    const tempC = (temp - 32) * 5 / 9
-
-    // Calculate VPD
-    const svp = 0.6108 * Math.exp((17.27 * tempC) / (tempC + 237.3))
-    const vpd = svp * (1 - humidity / 100)
-
-    if (!Number.isFinite(vpd) || vpd < 0 || vpd > 5) {
-      return null
-    }
-
-    return Math.round(vpd * 100) / 100
-  },
+  calculateVPD,
   (temp, humidity) => `${temp.toFixed(1)}_${humidity.toFixed(1)}`,
   200 // Cache last 200 calculations
 )

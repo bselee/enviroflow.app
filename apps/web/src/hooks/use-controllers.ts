@@ -93,7 +93,6 @@ export function useControllers(): UseControllersState {
     // Debounce rapid refetches to prevent race conditions
     const now = Date.now();
     if (!skipDebounce && now - lastFetchTime.current < FETCH_DEBOUNCE_MS) {
-      console.log("[Controllers] Skipping fetch - too soon since last fetch");
       return;
     }
     lastFetchTime.current = now;
@@ -121,7 +120,6 @@ export function useControllers(): UseControllersState {
       }
 
       if (!session?.user) {
-        console.log("[Controllers] No authenticated session - returning empty controllers list");
         // Return empty array for unauthenticated users - dashboard will show demo mode
         if (isMounted.current) {
           setControllers([]);
@@ -129,8 +127,6 @@ export function useControllers(): UseControllersState {
         }
         return;
       }
-
-      console.log("[Controllers] Fetching controllers for user:", session.user.email);
 
       // Fetch controllers with room join
       const { data, error: fetchError } = await supabase
@@ -191,16 +187,6 @@ export function useControllers(): UseControllersState {
           }
         );
 
-        console.log("[Controllers] Fetched controllers:", {
-          count: controllersWithRooms.length,
-          controllers: controllersWithRooms.map(c => ({
-            id: c.id,
-            name: c.name,
-            status: c.status,
-            room: c.room?.name || "(unassigned)"
-          }))
-        });
-
         setControllers(controllersWithRooms);
       }
     } catch (err) {
@@ -246,7 +232,7 @@ export function useControllers(): UseControllersState {
       clearTimeout(timeoutId);
 
       if (err instanceof Error && err.name === 'AbortError') {
-        console.warn("Brands fetch timed out");
+        // Brands fetch timed out
       } else {
         console.error("Error fetching brands:", err);
       }
@@ -598,7 +584,6 @@ export function useControllers(): UseControllersState {
       // Get the current user's ID first
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) {
-        console.log("[Controllers] No session - skipping realtime subscription");
         return null;
       }
 
@@ -614,7 +599,6 @@ export function useControllers(): UseControllersState {
           },
           () => {
             // Refresh on any change - use debouncing to prevent race conditions
-            console.log("[Controllers] Realtime update received");
             fetchControllers(); // Use debounced version
           }
         )

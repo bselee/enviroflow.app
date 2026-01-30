@@ -131,7 +131,16 @@ export function ScheduleModal({
     );
   };
 
-  const onSubmit = async (data: any) => {
+  const onSubmit = async (data: {
+    name: string;
+    description: string;
+    controller_id: string;
+    device_port: number;
+    start_time: string;
+    end_time: string;
+    cron_expression: string;
+    offset_minutes: number;
+  }) => {
     try {
       setLoading(true);
 

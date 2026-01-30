@@ -253,7 +253,6 @@ export async function GET(
       })
 
       // Connect to get fresh metadata
-      console.log(`[Full Info] Connecting to ${brand} controller: ${id}`)
       const connectionResult = await adapter.connect(adapterCredentials)
 
       if (!connectionResult.success) {

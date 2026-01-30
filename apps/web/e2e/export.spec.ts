@@ -21,6 +21,7 @@ import {
   parseCSV,
   validateCSV,
   selectOption,
+  getAuthSkipReason,
 } from './fixtures/helpers'
 import {
   TEST_ROOMS,
@@ -31,6 +32,9 @@ import {
 } from './fixtures/test-data'
 
 test.describe('Data Export', () => {
+  // Skip if test users are not configured
+  test.skip(getAuthSkipReason())
+
   test.beforeEach(async ({ page }) => {
     // Login before each test
     await login(page)

@@ -332,8 +332,8 @@ export async function GET(
       const controllerId = connectionResult.controllerId || id
 
       // Get modes for this port
-      const modes = await (adapter as any).getDeviceModes(controllerId)
-      const portMode = modes.find((m: any) => m.port === port)
+      const modes = await (adapter as { getDeviceModes: (id: string) => Promise<Array<{ port: number; [key: string]: unknown }>> }).getDeviceModes(controllerId)
+      const portMode = modes.find((m) => m.port === port)
 
       // Find device info for this port
       const device = connectionResult.metadata.capabilities.devices.find(

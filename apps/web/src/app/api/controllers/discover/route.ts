@@ -365,14 +365,6 @@ export async function POST(request: NextRequest) {
 
     const alreadyRegisteredCount = devices.filter(d => d.isAlreadyRegistered).length
 
-    // Log successful discovery for analytics (without credentials)
-    console.log(
-      `[Discovery] Success: brand=${brand}, ` +
-      `total=${devices.length}, ` +
-      `registered=${alreadyRegisteredCount}, ` +
-      `userId=${userId ? 'authenticated' : 'anonymous'}`
-    )
-
     return NextResponse.json({
       success: true,
       devices,

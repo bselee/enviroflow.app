@@ -22,6 +22,7 @@ import { WorkflowBuilder } from "@/components/workflow/WorkflowBuilder";
 import { NodePropertiesPanel } from "@/components/workflow/NodePropertiesPanel";
 import type { WorkflowDefinition, WorkflowNode } from "@/components/workflow/types";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -410,121 +411,123 @@ export default function EditWorkflowPage() {
 
   return (
     <AppLayout hideSidebar>
-      <div className="flex h-screen flex-col">
-        {/* Header */}
-        <header className="flex items-center justify-between border-b bg-card px-4 py-3">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" asChild>
-              <Link href="/automations">
-                <ArrowLeft className="h-5 w-5" />
-                <span className="sr-only">Back to automations</span>
-              </Link>
-            </Button>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-lg font-semibold">{workflow.name}</h1>
-                <Badge
-                  variant="secondary"
-                  className={cn(
-                    workflow.isActive
-                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                      : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400"
-                  )}
-                >
-                  {workflow.isActive ? "Active" : "Inactive"}
-                </Badge>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                {workflow.description || "Edit your automation workflow"}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Toggle Active Button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleToggleActive}
-              disabled={isTogglingActive}
-            >
-              {isTogglingActive ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : workflow.isActive ? (
-                <PowerOff className="mr-2 h-4 w-4" />
-              ) : (
-                <Power className="mr-2 h-4 w-4" />
-              )}
-              {workflow.isActive ? "Deactivate" : "Activate"}
-            </Button>
-
-            {/* Delete Button */}
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="outline" size="sm" className="text-destructive">
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete Workflow</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Are you sure you want to delete &quot;{workflow.name}&quot;? This action
-                    cannot be undone and will permanently remove the workflow and its
-                    execution history.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={handleDelete}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    disabled={isDeleting}
-                  >
-                    {isDeleting ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Deleting...
-                      </>
-                    ) : (
-                      "Delete"
+      <ErrorBoundary componentName="Workflow Editor" showRetry>
+        <div className="flex h-screen flex-col">
+          {/* Header */}
+          <header className="flex items-center justify-between border-b bg-card px-4 py-3">
+            <div className="flex items-center gap-4">
+              <Button variant="ghost" size="icon" asChild>
+                <Link href="/automations">
+                  <ArrowLeft className="h-5 w-5" />
+                  <span className="sr-only">Back to automations</span>
+                </Link>
+              </Button>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-lg font-semibold">{workflow.name}</h1>
+                  <Badge
+                    variant="secondary"
+                    className={cn(
+                      workflow.isActive
+                        ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                        : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400"
                     )}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
-        </header>
-
-        {/* Main Content */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Builder Canvas */}
-          <ReactFlowProvider>
-            <div className="flex-1">
-              <WorkflowBuilder
-                workflow={workflow}
-                onSave={handleSave}
-                isSaving={isSaving}
-                onNodeSelect={handleNodeSelect}
-                selectedNodeId={selectedNodeId}
-                onNodesChange={handleNodesChange}
-                nodeUpdateTrigger={nodeUpdateTrigger}
-              />
+                  >
+                    {workflow.isActive ? "Active" : "Inactive"}
+                  </Badge>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {workflow.description || "Edit your automation workflow"}
+                </p>
+              </div>
             </div>
-          </ReactFlowProvider>
 
-          {/* Properties Panel */}
-          {selectedNode && (
-            <NodePropertiesPanel
-              node={selectedNode}
-              onUpdate={handleNodeUpdate}
-              onClose={handleClosePanel}
-              controllers={MOCK_CONTROLLERS}
-            />
-          )}
+            <div className="flex items-center gap-2">
+              {/* Toggle Active Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleToggleActive}
+                disabled={isTogglingActive}
+              >
+                {isTogglingActive ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : workflow.isActive ? (
+                  <PowerOff className="mr-2 h-4 w-4" />
+                ) : (
+                  <Power className="mr-2 h-4 w-4" />
+                )}
+                {workflow.isActive ? "Deactivate" : "Activate"}
+              </Button>
+
+              {/* Delete Button */}
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" size="sm" className="text-destructive">
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete Workflow</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Are you sure you want to delete &quot;{workflow.name}&quot;? This action
+                      cannot be undone and will permanently remove the workflow and its
+                      execution history.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDelete}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      disabled={isDeleting}
+                    >
+                      {isDeleting ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Deleting...
+                        </>
+                      ) : (
+                        "Delete"
+                      )}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </header>
+
+          {/* Main Content */}
+          <div className="flex flex-1 overflow-hidden">
+            {/* Builder Canvas */}
+            <ReactFlowProvider>
+              <div className="flex-1">
+                <WorkflowBuilder
+                  workflow={workflow}
+                  onSave={handleSave}
+                  isSaving={isSaving}
+                  onNodeSelect={handleNodeSelect}
+                  selectedNodeId={selectedNodeId}
+                  onNodesChange={handleNodesChange}
+                  nodeUpdateTrigger={nodeUpdateTrigger}
+                />
+              </div>
+            </ReactFlowProvider>
+
+            {/* Properties Panel */}
+            {selectedNode && (
+              <NodePropertiesPanel
+                node={selectedNode}
+                onUpdate={handleNodeUpdate}
+                onClose={handleClosePanel}
+                controllers={MOCK_CONTROLLERS}
+              />
+            )}
+          </div>
         </div>
-      </div>
+      </ErrorBoundary>
     </AppLayout>
   );
 }

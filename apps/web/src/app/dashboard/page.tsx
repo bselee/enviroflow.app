@@ -9,10 +9,8 @@ import { IntelligentTimeline } from "@/components/dashboard/IntelligentTimeline"
 import { SmartActionCards, SmartActionCardsSkeleton } from "@/components/dashboard/SmartActionCards";
 import { UnassignedControllersCard } from "@/components/dashboard/UnassignedControllersCard";
 import { AnalyticsSummaryCards } from "@/components/dashboard/AnalyticsSummaryCards";
-import {
-  DemoBanner,
-  ConnectCTA,
-} from "@/components/dashboard/DemoMode";
+import { ConnectCTA } from "@/components/dashboard/DemoMode";
+import { LiveSensorDashboard } from "@/components/LiveSensorDashboard";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -245,14 +243,7 @@ export default function DashboardPage(): JSX.Element {
         {/* Main Content */}
         <ErrorBoundary componentName="Dashboard" showRetry>
         <div className="p-6 lg:p-8 space-y-8">
-          {/* Demo Mode Banner - Shows status indicator */}
-          {!isLoading && (
-            <DemoBanner
-              isDemoMode={isDemoMode}
-              roomCount={rooms.length}
-              isTransitioning={isTransitioningFromDemo}
-            />
-          )}
+          {/* Demo Mode Banner - Removed (was showing incorrect data) */}
 
           {/* Connect CTA - Prominent button when in demo mode */}
           {isDemoMode && !isLoading && (
@@ -260,6 +251,9 @@ export default function DashboardPage(): JSX.Element {
               <ConnectCTA />
             </div>
           )}
+
+          {/* Live Sensor Dashboard - Direct API Data (no Supabase dependency) */}
+          <LiveSensorDashboard className="mb-4" />
 
           {/* Environment Snapshot Section */}
           <div

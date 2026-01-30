@@ -298,6 +298,10 @@ export async function GET(
       const capabilities = connectionResult.metadata.capabilities
       const devices = capabilities.devices || []
 
+      console.log('[Devices GET] Connection result metadata:', JSON.stringify(connectionResult.metadata, null, 2))
+      console.log('[Devices GET] Capabilities:', JSON.stringify(capabilities, null, 2))
+      console.log('[Devices GET] Devices found:', devices.length)
+
       // Disconnect after getting capabilities
       const controllerId = connectionResult.controllerId || id
       try {

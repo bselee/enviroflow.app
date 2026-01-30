@@ -113,14 +113,41 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
     initializeAuth();
 
     // Subscribe to auth state changes
+    // This will fire on:
+    // - SIGNED_IN: User signs in
+    // - SIGNED_OUT: User signs out
+    // - TOKEN_REFRESHED: Access token is refreshed (happens automatically)
+    // - USER_UPDATED: User metadata is updated
+    // - PASSWORD_RECOVERY: Password reset initiated
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, newSession) => {
+    } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       console.log("[AuthContext] Auth state changed:", {
         event,
         hasSession: !!newSession,
         userEmail: newSession?.user?.email,
+        expiresAt: newSession?.expires_at,
       });
+
+      // Handle token refresh errors by signing out
+      if (event === 'TOKEN_REFRESHED' && !newSession) {
+        console.error("[AuthContext] Token refresh failed - session expired");
+        setSession(null);
+        setUser(null);
+        // Optionally redirect to login
+        // window.location.href = '/login';
+        return;
+      }
+
+      // Handle signed out event
+      if (event === 'SIGNED_OUT') {
+        console.log("[AuthContext] User signed out");
+        setSession(null);
+        setUser(null);
+        return;
+      }
+
+      // Update session and user for all other events
       setSession(newSession);
       setUser(newSession?.user ?? null);
       setLoading(false);

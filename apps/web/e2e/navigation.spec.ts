@@ -5,10 +5,13 @@
  */
 
 import { test, expect } from '@playwright/test'
-import { login, navigateTo, waitForElement } from './fixtures/helpers'
+import { login, navigateTo, waitForElement, getAuthSkipReason } from './fixtures/helpers'
 import { SELECTORS, TIMEOUTS } from './fixtures/test-data'
 
 test.describe('Navigation', () => {
+  // Skip all navigation tests if test users are not configured
+  test.skip(getAuthSkipReason())
+
   test.beforeEach(async ({ page }) => {
     await login(page)
   })

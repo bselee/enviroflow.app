@@ -77,7 +77,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed left-0 top-0 z-50 flex h-full w-60 flex-col bg-sidebar text-sidebar-foreground transition-transform duration-300 lg:translate-x-0",
+          "fixed left-0 top-0 z-[9999] flex h-full w-60 flex-col bg-sidebar text-sidebar-foreground transition-transform duration-300 lg:translate-x-0 border-r border-sidebar-border shadow-lg pointer-events-auto",
           isOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
@@ -100,26 +100,24 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 space-y-1 px-3 py-4">
+        <nav className="flex-1 space-y-1 px-3 py-4 relative" style={{ zIndex: 99999 }}>
           {navigation.map((item) => {
             const isActive = pathname?.startsWith(item.href);
             return (
-              <Link
+              <a
                 key={item.name}
                 href={item.href}
+                style={{ position: 'relative', zIndex: 99999, display: 'flex' }}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                  "items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors cursor-pointer",
                   isActive
                     ? "bg-sidebar-primary text-sidebar-primary-foreground"
                     : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 )}
-                onClick={() => {
-                  if (typeof window !== "undefined" && window.innerWidth < 1024) onToggle();
-                }}
               >
                 <item.icon className="h-5 w-5" />
                 {item.name}
-              </Link>
+              </a>
             );
           })}
         </nav>

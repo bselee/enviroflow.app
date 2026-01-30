@@ -5,6 +5,7 @@
  * across time periods, including averages, ranges, trends, and compliance metrics.
  */
 
+import { calculateVPD } from "./vpd-utils";
 import type { SensorReading, DateRangeValue, RoomSettings } from "@/types";
 
 // =============================================================================
@@ -131,41 +132,7 @@ function calculateTrend(currentAvg: number, previousAvg: number): number {
   return Math.round(Math.max(-100, Math.min(100, percentChange)) * 10) / 10;
 }
 
-/**
- * Calculates VPD from temperature and humidity.
- * VPD = SVP * (1 - RH/100) where SVP is saturation vapor pressure.
- */
-function _calculateVPD(
-  temperatureFahrenheit: number,
-  humidityPercent: number
-): number | null {
-  if (
-    !Number.isFinite(temperatureFahrenheit) ||
-    !Number.isFinite(humidityPercent)
-  ) {
-    return null;
-  }
-
-  if (
-    temperatureFahrenheit < 32 ||
-    temperatureFahrenheit > 140 ||
-    humidityPercent < 0 ||
-    humidityPercent > 100
-  ) {
-    return null;
-  }
-
-  const temperatureCelsius = ((temperatureFahrenheit - 32) * 5) / 9;
-  const svp =
-    0.6108 * Math.exp((17.27 * temperatureCelsius) / (temperatureCelsius + 237.3));
-  const vpd = svp * (1 - humidityPercent / 100);
-
-  if (!Number.isFinite(vpd) || vpd < 0 || vpd > 5) {
-    return null;
-  }
-
-  return Math.round(vpd * 100) / 100;
-}
+// VPD calculation is now imported from vpd-utils.ts for consistency
 
 /**
  * Calculates compliance percentage for a sensor type against target range.

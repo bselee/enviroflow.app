@@ -5,6 +5,7 @@
  * and related calculations (VPD, time parsing, validation, etc.)
  */
 
+import { calculateLeafVPD } from './vpd-utils'
 import type {
   DeviceMode,
   ModeConfiguration,
@@ -500,26 +501,15 @@ export function fromApiFormat(apiConfig: Record<string, unknown>): ModeConfigura
  *
  * @param tempF Temperature in Fahrenheit
  * @param humidity Relative humidity (0-100)
- * @param leafTempOffset Leaf temperature offset in Fahrenheit (default: -2)
+ * @param leafTempOffset Leaf temperature offset in Fahrenheit (default: -2, leaves are cooler)
  * @returns VPD in kPa
  */
 export function calculateVpd(tempF: number, humidity: number, leafTempOffset: number = -2): number {
-  // Convert Fahrenheit to Celsius
-  const tempC = (tempF - 32) * 5 / 9
-  const leafTempC = tempC + (leafTempOffset * 5 / 9)
-
-  // Calculate saturation vapor pressure (SVP) using Magnus formula
-  // SVP in kPa
-  const airSvp = 0.61078 * Math.exp((17.27 * tempC) / (tempC + 237.3))
-  const leafSvp = 0.61078 * Math.exp((17.27 * leafTempC) / (leafTempC + 237.3))
-
-  // Calculate actual vapor pressure (AVP)
-  const avp = airSvp * (humidity / 100)
-
-  // Calculate VPD
-  const vpd = leafSvp - avp
-
-  return Math.max(0, Math.round(vpd * 100) / 100) // Round to 2 decimal places
+  // Note: leafTempOffset is negative because leaves are cooler than air
+  // calculateLeafVPD expects a positive offset value (it subtracts internally)
+  const offset = Math.abs(leafTempOffset)
+  const vpd = calculateLeafVPD(tempF, humidity, offset)
+  return vpd ?? 0 // Default to 0 if calculation fails
 }
 
 /**

@@ -112,7 +112,6 @@ export function useControllerCapabilities(
     // Check cache first
     const cached = capabilitiesCache.get(id);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      console.log(`[Capabilities] Using cached data for controller ${id}`);
       return cached.data;
     }
 
@@ -133,7 +132,6 @@ export function useControllerCapabilities(
 
       if (!response.ok) {
         if (response.status === 404) {
-          console.warn(`[Capabilities] Controller ${id} not found`);
           return null;
         }
         throw new Error(`Failed to fetch capabilities: ${response.statusText}`);
@@ -325,7 +323,6 @@ export function useControllerCapabilities(
             filter: `user_id=eq.${session.user.id}`,
           },
           (payload) => {
-            console.log('[Capabilities] Controller updated, invalidating cache');
             // Invalidate cache for updated controller
             if (payload.new && 'id' in payload.new) {
               capabilitiesCache.delete(payload.new.id as string);

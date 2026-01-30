@@ -51,6 +51,7 @@ Turborepo monorepo with two main applications:
 - **Auth:** Supabase Auth (email/password, TOTP 2FA)
 - **API:** Next.js API Routes (server-side operations)
 - **Automation:** Vercel Cron (every minute) → /api/cron/workflows
+- **Error Tracking:** Sentry (optional, see apps/web/SENTRY_SETUP.md)
 
 ### Controller Adapter Pattern
 
@@ -143,6 +144,14 @@ ENCRYPTION_KEY=<64-character-hex-string>
 CRON_SECRET=...
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=...  # Push notifications
 VAPID_PRIVATE_KEY=...
+
+# Sentry Error Tracking (optional)
+# See apps/web/SENTRY_SETUP.md for full setup instructions
+SENTRY_DSN=...  # Server-side DSN
+NEXT_PUBLIC_SENTRY_DSN=...  # Client-side DSN
+SENTRY_AUTH_TOKEN=...  # For source map upload
+SENTRY_ORG=...  # Organization slug
+SENTRY_PROJECT=...  # Project slug
 ```
 
 ## Key Database Tables

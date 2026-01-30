@@ -14,10 +14,14 @@ import {
   createTestRoom,
   cleanupTestData,
   waitForApiResponse,
+  getAuthSkipReason,
 } from './fixtures/helpers'
 import { TEST_ROOMS, SELECTORS, TIMEOUTS } from './fixtures/test-data'
 
 test.describe('Room Management', () => {
+  // Skip if test users are not configured
+  test.skip(getAuthSkipReason())
+
   test.beforeEach(async ({ page }) => {
     await login(page)
   })

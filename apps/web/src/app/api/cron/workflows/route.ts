@@ -31,6 +31,7 @@ import {
   createWorkflowNotification,
   type NotificationPriority,
 } from '@/lib/push-notification-service'
+import { calculateDimmingValue, type DimmerCurveType } from '@/lib/dimming-curves'
 
 // Import adapter factory and types from automation-engine workspace package
 import {
@@ -117,6 +118,16 @@ interface PortConditionNodeConfig {
   condition: 'is_on' | 'is_off' | 'level_equals' | 'level_above' | 'level_below' | 'mode_equals'
   targetLevel?: number
   targetMode?: string
+}
+
+interface DimmerNodeConfig {
+  controllerId: string
+  port: number
+  sunriseTime?: string
+  sunsetTime?: string
+  minLevel?: number
+  maxLevel?: number
+  curve?: DimmerCurveType
 }
 
 // Port state snapshot structure
@@ -775,16 +786,19 @@ async function executeAction(
     }
 
     case 'dimmer': {
-      const dimmerData = data as {
+      const dimmerData = data.config as {
         controllerId?: string
         port?: number
-        targetIntensity?: number
-        durationMinutes?: number
-        curve?: string
+        sunriseTime?: string
+        sunsetTime?: string
+        minLevel?: number
+        maxLevel?: number
+        curve?: 'linear' | 'sigmoid' | 'exponential' | 'logarithmic'
       }
 
-      // TODO: Start gradual dimming sequence
-      console.log(`Dimmer: Ramp to ${dimmerData.targetIntensity}% over ${dimmerData.durationMinutes} min`)
+      if (dimmerData) {
+        await executeDimmerNode(supabase, userId, dimmerData, context)
+      }
       break
     }
 
@@ -1775,6 +1789,234 @@ async function executeVerifiedActionNode(
 
   } catch (error) {
     console.error('[VERIFIED_ACTION Node] Error:', error)
+    throw error
+  }
+}
+
+/**
+ * Execute DIMMER node - Gradual light dimming with sunrise/sunset simulation
+ *
+ * This node implements smooth light transitions over a configurable period:
+ * - Sunrise: Gradually ramp from minLevel to maxLevel
+ * - Daytime: Maintain maxLevel
+ * - Sunset: Gradually ramp from maxLevel to minLevel
+ * - Night: Maintain minLevel
+ *
+ * The transition uses step-based dimming with configurable curves (linear, sigmoid, etc.)
+ * to simulate natural lighting conditions.
+ */
+async function executeDimmerNode(
+  supabase: SupabaseClient,
+  userId: string,
+  config: DimmerNodeConfig,
+  context: ActionContext
+): Promise<void> {
+  const startTime = Date.now()
+
+  console.log(`[DIMMER Node] Executing dimmer schedule for port ${config.port}`)
+
+  try {
+    // Validate configuration
+    if (!config.controllerId || config.port === undefined) {
+      throw new Error('Invalid dimmer configuration: missing controllerId or port')
+    }
+
+    if (!config.sunriseTime || !config.sunsetTime) {
+      throw new Error('Invalid dimmer configuration: missing sunrise or sunset time')
+    }
+
+    if (config.minLevel === undefined || config.maxLevel === undefined) {
+      throw new Error('Invalid dimmer configuration: missing min or max level')
+    }
+
+    // Default curve to sigmoid (natural S-curve) if not specified
+    const curve = config.curve || 'sigmoid'
+
+    // Parse times (HH:MM format)
+    const [sunriseHours, sunriseMinutes] = config.sunriseTime.split(':').map(Number)
+    const [sunsetHours, sunsetMinutes] = config.sunsetTime.split(':').map(Number)
+
+    const now = new Date()
+    const currentMinutes = now.getHours() * 60 + now.getMinutes()
+
+    const sunriseTimeMinutes = sunriseHours * 60 + sunriseMinutes
+    const sunsetTimeMinutes = sunsetHours * 60 + sunsetMinutes
+
+    // Calculate target level based on current time
+    let targetLevel: number
+    let transitionPhase: 'sunrise' | 'daytime' | 'sunset' | 'night'
+
+    // Default transition duration: 30 minutes for sunrise/sunset
+    const transitionDurationMinutes = 30
+
+    if (currentMinutes < sunriseTimeMinutes) {
+      // Before sunrise - night mode
+      targetLevel = config.minLevel
+      transitionPhase = 'night'
+    } else if (currentMinutes < sunriseTimeMinutes + transitionDurationMinutes) {
+      // During sunrise transition
+      const elapsedMinutes = currentMinutes - sunriseTimeMinutes
+      const elapsedMs = elapsedMinutes * 60 * 1000
+      const durationMs = transitionDurationMinutes * 60 * 1000
+
+      targetLevel = calculateDimmingValue(
+        config.minLevel,
+        config.maxLevel,
+        elapsedMs,
+        durationMs,
+        curve
+      )
+      transitionPhase = 'sunrise'
+    } else if (currentMinutes < sunsetTimeMinutes) {
+      // Daytime - maintain max level
+      targetLevel = config.maxLevel
+      transitionPhase = 'daytime'
+    } else if (currentMinutes < sunsetTimeMinutes + transitionDurationMinutes) {
+      // During sunset transition
+      const elapsedMinutes = currentMinutes - sunsetTimeMinutes
+      const elapsedMs = elapsedMinutes * 60 * 1000
+      const durationMs = transitionDurationMinutes * 60 * 1000
+
+      targetLevel = calculateDimmingValue(
+        config.maxLevel,
+        config.minLevel,
+        elapsedMs,
+        durationMs,
+        curve
+      )
+      transitionPhase = 'sunset'
+    } else {
+      // After sunset - night mode
+      targetLevel = config.minLevel
+      transitionPhase = 'night'
+    }
+
+    console.log(
+      `[DIMMER Node] Phase: ${transitionPhase}, Target level: ${targetLevel}%, ` +
+      `Curve: ${curve}, Time: ${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}`
+    )
+
+    // Get controller
+    const { data: controller, error: controllerError } = await supabase
+      .from('controllers')
+      .select('*')
+      .eq('id', config.controllerId)
+      .eq('user_id', userId)
+      .single()
+
+    if (controllerError || !controller) {
+      throw new Error(`Controller not found: ${controllerError?.message || 'Unknown error'}`)
+    }
+
+    // Handle offline controllers gracefully
+    if (controller.status === 'offline') {
+      console.warn(`[DIMMER Node] Controller ${controller.name} is offline - skipping`)
+      await logActivity(supabase, {
+        user_id: userId,
+        workflow_id: context.workflowId,
+        controller_id: config.controllerId,
+        action_type: 'dimmer_skipped',
+        action_data: {
+          port: config.port,
+          phase: transitionPhase,
+          targetLevel,
+          reason: 'controller_offline'
+        },
+        result: 'skipped'
+      })
+      return
+    }
+
+    // Check current port state to avoid unnecessary commands
+    const { data: portState } = await supabase
+      .from('controller_ports')
+      .select('power_level')
+      .eq('controller_id', config.controllerId)
+      .eq('port_number', config.port)
+      .single()
+
+    // Round to nearest integer for comparison (AC Infinity uses 0-10 scale)
+    const targetLevelScaled = Math.round(targetLevel / 10) // Convert 0-100 to 0-10
+    const currentLevelScaled = portState ? Math.round((portState.power_level || 0)) : null
+
+    // Skip if already at target level (within tolerance of ±0.5 on 0-10 scale)
+    if (currentLevelScaled !== null && Math.abs(currentLevelScaled - targetLevelScaled) < 1) {
+      console.log(
+        `[DIMMER Node] Port ${config.port} already at target level ${targetLevelScaled} ` +
+        `(current: ${currentLevelScaled}) - skipping command`
+      )
+
+      await logActivity(supabase, {
+        user_id: userId,
+        workflow_id: context.workflowId,
+        controller_id: config.controllerId,
+        action_type: 'dimmer_skipped',
+        action_data: {
+          port: config.port,
+          phase: transitionPhase,
+          targetLevel,
+          currentLevel: currentLevelScaled * 10,
+          reason: 'already_at_target'
+        },
+        result: 'skipped'
+      })
+      return
+    }
+
+    // Execute the control command
+    await executeDeviceControl(
+      supabase,
+      userId,
+      controller,
+      config.port,
+      'set_level',
+      targetLevel
+    )
+
+    const executionDuration = Date.now() - startTime
+
+    // Log success
+    await logActivity(supabase, {
+      user_id: userId,
+      workflow_id: context.workflowId,
+      controller_id: config.controllerId,
+      action_type: 'dimmer_executed',
+      action_data: {
+        port: config.port,
+        phase: transitionPhase,
+        targetLevel,
+        previousLevel: currentLevelScaled ? currentLevelScaled * 10 : null,
+        curve,
+        sunriseTime: config.sunriseTime,
+        sunsetTime: config.sunsetTime,
+        executionDurationMs: executionDuration
+      },
+      result: 'success'
+    })
+
+    console.log(
+      `[DIMMER Node] Successfully set port ${config.port} to ${targetLevel}% ` +
+      `(phase: ${transitionPhase}) in ${executionDuration}ms`
+    )
+
+  } catch (error) {
+    console.error('[DIMMER Node] Error:', error)
+
+    // Log failure
+    await logActivity(supabase, {
+      user_id: userId,
+      workflow_id: context.workflowId,
+      controller_id: config.controllerId,
+      action_type: 'dimmer_executed',
+      action_data: {
+        port: config.port,
+        sunriseTime: config.sunriseTime,
+        sunsetTime: config.sunsetTime
+      },
+      result: 'failed',
+      error_message: error instanceof Error ? error.message : 'Unknown error'
+    })
+
     throw error
   }
 }
