@@ -331,7 +331,8 @@ async function getLastKnownGoodReadings(
 
 function buildAdapterCredentials(
   brand: ControllerBrand,
-  rawCredentials: Record<string, unknown>
+  rawCredentials: Record<string, unknown>,
+  deviceId?: string
 ): ControllerCredentials {
   switch (brand) {
     case 'ac_infinity':
@@ -339,6 +340,8 @@ function buildAdapterCredentials(
         type: 'ac_infinity',
         email: (rawCredentials.email as string) || '',
         password: (rawCredentials.password as string) || '',
+        // Pass the deviceId to ensure we connect to the correct device (for multi-device accounts)
+        deviceId: deviceId,
       } satisfies ACInfinityCredentials
 
     case 'inkbird':
@@ -480,9 +483,10 @@ export async function pollController(
   console.log(`[pollController] Building adapter credentials...`)
   const adapterCredentials = buildAdapterCredentials(
     brand as ControllerBrand,
-    decryptedCredentials
+    decryptedCredentials,
+    controller.controller_id  // Pass the stored device ID to connect to the correct device
   )
-  console.log(`[pollController] Adapter credentials built with type: ${adapterCredentials.type}`)
+  console.log(`[pollController] Adapter credentials built with type: ${adapterCredentials.type}, deviceId: ${controller.controller_id}`)
 
   console.log(`[pollController] Connecting to ${brand} controller "${name}"...`)
 
