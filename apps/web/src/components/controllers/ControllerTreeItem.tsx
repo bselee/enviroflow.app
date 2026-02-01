@@ -55,6 +55,8 @@ interface ControllerTreeItemProps {
   onDelete: (id: string) => void;
   onAssignRoom: (controller: ControllerWithRoom) => void;
   onRefresh: () => void;
+  /** Index for staggering initial data fetch to avoid rate limits */
+  index?: number;
 }
 
 interface LiveSensorData {
@@ -94,6 +96,7 @@ export function ControllerTreeItem({
   onDelete,
   onAssignRoom,
   onRefresh,
+  index = 0,
 }: ControllerTreeItemProps) {
   const [sensorData, setSensorData] = useState<LiveSensorData>({
     temperature: null,
@@ -158,10 +161,16 @@ export function ControllerTreeItem({
     }
   }, [controller.id]);
 
-  // Fetch sensors on mount
+  // Fetch sensors on mount with staggered delay to avoid rate limits
   useEffect(() => {
-    fetchSensors();
-  }, [fetchSensors]);
+    // Stagger initial fetch: 800ms delay per controller index
+    const delay = index * 800;
+    const timeoutId = setTimeout(() => {
+      fetchSensors();
+    }, delay);
+
+    return () => clearTimeout(timeoutId);
+  }, [fetchSensors, index]);
 
   const handleRefresh = async () => {
     await fetchSensors();

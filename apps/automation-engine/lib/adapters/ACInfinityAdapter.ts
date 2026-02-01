@@ -1277,6 +1277,18 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       }
 
       const data = result.data.data!
+
+      // DEBUG: Log full API response structure to understand what AC Infinity returns
+      log('info', `Full API response for ${controllerId}`, {
+        responseKeys: Object.keys(data),
+        hasPortData: !!data.portData,
+        hasSensorData: !!data.sensorData,
+        portDataType: typeof data.portData,
+        portDataLength: Array.isArray(data.portData) ? data.portData.length : 'not-array',
+        // Log first few chars of stringified response to see structure
+        dataPreview: JSON.stringify(data).substring(0, 500)
+      })
+
       const sensors: SensorCapability[] = []
       const devices: DeviceCapability[] = []
       let supportsDimming = false

@@ -84,7 +84,7 @@ export function UnifiedControllerTree({
 
   return (
     <div className="space-y-3">
-      {controllers.map((controller) => (
+      {controllers.map((controller, index) => (
         <ControllerTreeItem
           key={controller.id}
           controller={controller}
@@ -93,6 +93,7 @@ export function UnifiedControllerTree({
           onDelete={onDelete}
           onAssignRoom={onAssignRoom}
           onRefresh={onRefresh}
+          index={index}
         />
       ))}
     </div>
