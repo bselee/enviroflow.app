@@ -8,7 +8,7 @@
  * Expands to show connected devices with inline controls.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   ChevronRight,
   ChevronDown,
@@ -106,14 +106,28 @@ export function ControllerTreeItem({
   const [isLoadingSensors, setIsLoadingSensors] = useState(false);
   const [sensorError, setSensorError] = useState<string | null>(null);
 
-  // Only load devices when expanded
+  // Track if user has explicitly expanded this controller (vs restored from localStorage)
+  const [userExpanded, setUserExpanded] = useState(false);
+  const hasLoadedDevices = useRef(false);
+
+  // Only load devices after user explicitly expands, not from localStorage restore
+  // This prevents all previously-expanded controllers from fetching at once on page load
+  const shouldFetchDevices = isExpanded && (userExpanded || hasLoadedDevices.current);
+
   const {
     devices,
     isLoading: isLoadingDevices,
     error: devicesError,
     controlDevice,
     refreshDevices,
-  } = useDeviceControl(isExpanded ? controller.id : "");
+  } = useDeviceControl(shouldFetchDevices ? controller.id : "");
+
+  // Track when devices have been loaded for this session
+  useEffect(() => {
+    if (isExpanded && devices.length > 0) {
+      hasLoadedDevices.current = true;
+    }
+  }, [isExpanded, devices.length]);
 
   const isOnline = controller.status === "online";
   const lastSeenDate = controller.last_seen ? new Date(controller.last_seen) : null;
@@ -185,10 +199,19 @@ export function ControllerTreeItem({
     sensorData.humidity !== null ||
     sensorData.vpd !== null;
 
+  // Handle user-initiated expansion (not from localStorage restore)
+  const handleToggle = useCallback(() => {
+    if (!isExpanded) {
+      // User is expanding - mark as user-initiated
+      setUserExpanded(true);
+    }
+    onToggleExpanded(controller.id);
+  }, [isExpanded, onToggleExpanded, controller.id]);
+
   return (
     <Collapsible
       open={isExpanded}
-      onOpenChange={() => onToggleExpanded(controller.id)}
+      onOpenChange={handleToggle}
       className="border rounded-lg overflow-hidden transition-all"
     >
       {/* Controller Header */}
