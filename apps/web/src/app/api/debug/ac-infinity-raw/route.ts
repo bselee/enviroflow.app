@@ -8,11 +8,23 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
 import { decryptCredentials } from '@/lib/server-encryption'
 
 const API_BASE = 'http://www.acinfinityserver.com'
 const USER_AGENT = 'ACController/1.8.2 (com.acinfinity.humiture; build:489; iOS 16.5.1) Alamofire/5.4.4'
+
+// Use service role client to bypass RLS
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) {
+    throw new Error('Supabase credentials not configured')
+  }
+  return createClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -22,8 +34,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'controllerId query param required' }, { status: 400 })
     }
 
-    // Get controller from database
-    const supabase = createServerClient()
+    // Get controller from database using service role
+    const supabase = getSupabase()
     const { data: controller, error: dbError } = await supabase
       .from('controllers')
       .select('*')
@@ -35,9 +47,24 @@ export async function GET(request: NextRequest) {
     }
 
     // Decrypt credentials
-    const credentials = decryptCredentials(controller.credentials_encrypted) as { email?: string; password?: string }
+    let credentials: { email?: string; password?: string }
+    try {
+      credentials = decryptCredentials(controller.credentials_encrypted) as { email?: string; password?: string }
+    } catch (err) {
+      return NextResponse.json({
+        error: 'Failed to decrypt credentials',
+        message: err instanceof Error ? err.message : String(err),
+        credentialsField: typeof controller.credentials_encrypted,
+      }, { status: 400 })
+    }
+
     if (!credentials || !credentials.email || !credentials.password) {
-      return NextResponse.json({ error: 'Invalid credentials' }, { status: 400 })
+      return NextResponse.json({
+        error: 'Invalid credentials structure',
+        hasEmail: !!credentials?.email,
+        hasPassword: !!credentials?.password,
+        credentialsKeys: credentials ? Object.keys(credentials) : [],
+      }, { status: 400 })
     }
 
     // Step 1: Login to AC Infinity
