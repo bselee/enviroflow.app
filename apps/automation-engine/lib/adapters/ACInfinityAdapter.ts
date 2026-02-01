@@ -67,6 +67,7 @@ const REQUEST_TIMEOUT = 100000 // 100 seconds, matching official client
 const tokenStore = new Map<string, {
   token: string
   userId: string
+  email: string  // Store email for account-based rate limiting
   expiresAt: Date
 }>()
 
@@ -626,9 +627,11 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       const controllerId = device.devId
 
       // Store token with 24-hour expiry
+      // Include email for account-based rate limiting (AC Infinity rate limits by account, not device)
       tokenStore.set(controllerId, {
         token: loginResult.token,
         userId: loginResult.userId || '',
+        email: email,  // Store email for rate limiting across all controllers on same account
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
       })
 
@@ -674,9 +677,10 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       throw new Error('Authentication token expired. Please reconnect.')
     }
 
-    // Apply rate limiting per controller
+    // Apply rate limiting per ACCOUNT (email), not per controller
+    // AC Infinity enforces ~60 requests/minute per account across ALL devices
     try {
-      await waitForRateLimit(`ac_infinity:controller:${controllerId}`)
+      await waitForRateLimit(`ac_infinity:${stored.email}`)
     } catch (err) {
       throw new Error(err instanceof Error ? err.message : 'Rate limit exceeded')
     }
@@ -899,9 +903,10 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       throw new Error('Authentication token expired. Please reconnect.')
     }
 
-    // Rate limit
+    // Apply rate limiting per ACCOUNT (email), not per controller
+    // AC Infinity enforces ~60 requests/minute per account across ALL devices
     try {
-      await waitForRateLimit(`ac_infinity:controller:${controllerId}`)
+      await waitForRateLimit(`ac_infinity:${stored.email}`)
     } catch (err) {
       throw new Error(err instanceof Error ? err.message : 'Rate limit exceeded')
     }
@@ -1075,9 +1080,10 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       }
     }
 
-    // Apply rate limiting per controller
+    // Apply rate limiting per ACCOUNT (email), not per controller
+    // AC Infinity enforces ~60 requests/minute per account across ALL devices
     try {
-      await waitForRateLimit(`ac_infinity:controller:${controllerId}`)
+      await waitForRateLimit(`ac_infinity:${stored.email}`)
     } catch (err) {
       return {
         success: false,

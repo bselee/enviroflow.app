@@ -23,6 +23,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { pollController, type PollResult } from '@/lib/poll-sensors'
+import { decryptCredentials } from '@/lib/server-encryption'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseClient = ReturnType<typeof createClient<any>>
@@ -137,12 +138,71 @@ export async function GET(request: NextRequest) {
 
     log('info', `Polling ${controllers.length} controllers`)
 
-    // Process controllers in parallel with concurrency limit
+    // Group AC Infinity controllers by account (email) to prevent rate limiting
+    // AC Infinity enforces ~60 requests/minute per ACCOUNT, not per device
+    // Controllers on the same account must be polled sequentially
+    const acInfinityByEmail = new Map<string, DBController[]>()
+    const otherControllers: DBController[] = []
+
+    for (const controller of controllers as DBController[]) {
+      if (controller.brand === 'ac_infinity') {
+        // Extract email from credentials to group by account
+        try {
+          const creds = decryptCredentials(controller.credentials)
+          const email = (creds.email as string) || 'unknown'
+          const existing = acInfinityByEmail.get(email) || []
+          existing.push(controller)
+          acInfinityByEmail.set(email, existing)
+        } catch {
+          // If we can't decrypt, treat as separate account
+          otherControllers.push(controller)
+        }
+      } else {
+        otherControllers.push(controller)
+      }
+    }
+
+    log('info', `AC Infinity accounts: ${acInfinityByEmail.size}, other controllers: ${otherControllers.length}`)
+
+    // Poll AC Infinity controllers SEQUENTIALLY per account with delay
+    // This prevents hammering the AC Infinity API with multiple simultaneous requests
+    const AC_INFINITY_DELAY_MS = 2000  // 2 second delay between same-account polls
+
+    for (const [email, acControllers] of Array.from(acInfinityByEmail.entries())) {
+      log('info', `Polling ${acControllers.length} AC Infinity controllers for account ${email.replace(/(.{2}).*(@.*)/, '$1***$2')}`)
+
+      for (let i = 0; i < acControllers.length; i++) {
+        const controller = acControllers[i]
+
+        // Add delay between same-account controllers (not before first one)
+        if (i > 0) {
+          log('info', `Waiting ${AC_INFINITY_DELAY_MS}ms before polling next controller on same account`)
+          await new Promise(resolve => setTimeout(resolve, AC_INFINITY_DELAY_MS))
+        }
+
+        try {
+          const result = await pollController(supabase, controller)
+          results.push(result)
+        } catch (error) {
+          log('error', `Controller ${controller.id} poll failed`, { error })
+          results.push({
+            controllerId: controller.id,
+            controllerName: controller.name,
+            brand: controller.brand,
+            status: 'failed',
+            readingsCount: 0,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          })
+        }
+      }
+    }
+
+    // Process other controllers in parallel with concurrency limit
     const CONCURRENCY_LIMIT = 5
     const controllerBatches: DBController[][] = []
 
-    for (let i = 0; i < controllers.length; i += CONCURRENCY_LIMIT) {
-      controllerBatches.push(controllers.slice(i, i + CONCURRENCY_LIMIT) as DBController[])
+    for (let i = 0; i < otherControllers.length; i += CONCURRENCY_LIMIT) {
+      controllerBatches.push(otherControllers.slice(i, i + CONCURRENCY_LIMIT))
     }
 
     for (const batch of controllerBatches) {
