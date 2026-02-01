@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase'
-import { decrypt } from '@/lib/server-encryption'
+import { decryptCredentials } from '@/lib/server-encryption'
 
 const API_BASE = 'http://www.acinfinityserver.com'
 const USER_AGENT = 'ACController/1.8.2 (com.acinfinity.humiture; build:489; iOS 16.5.1) Alamofire/5.4.4'
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Decrypt credentials
-    const credentials = decrypt(controller.credentials_encrypted)
+    const credentials = decryptCredentials(controller.credentials_encrypted) as { email?: string; password?: string }
     if (!credentials || !credentials.email || !credentials.password) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 400 })
     }
