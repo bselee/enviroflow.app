@@ -1335,13 +1335,47 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
         }
       } else {
         log('warn', `No portData in API response for ${controllerId}`)
+
+        // For UIS devices (inline fans, LED bars, etc.) that don't have ports,
+        // the device itself is controllable at port 0
+        // Check if this is a UIS device by looking at devType at the device level
+        const devType = (dataAny['devType'] as number) || 0
+
+        // UIS devTypes: 11-15, 18 = standalone controllable devices
+        const isUISDevice = devType >= 11 && devType <= 15 || devType === 18
+
+        if (isUISDevice) {
+          log('info', `Device ${controllerId} is a UIS device (devType ${devType}), treating as single controllable device`)
+
+          // UIS devices have device-level control fields
+          const deviceOnOff = (dataAny['onOff'] as number) ?? (dataAny['devOnOff'] as number) ?? 0
+          const deviceLevel = (dataAny['speak'] as number) ?? (dataAny['devSpeak'] as number) ?? (dataAny['surplus'] as number) ?? 0
+          const hasDimming = (dataAny['supportDim'] as number) === 1 || devType === 13 // LED bars support dimming
+
+          if (hasDimming) supportsDimming = true
+
+          devices.push({
+            port: 0, // UIS devices use port 0
+            name: (dataAny['devName'] as string) || this.mapDeviceTypeToModel(devType),
+            type: this.mapDeviceType(devType <= 12 || devType === 14 || devType === 15 ? 1 : 2), // fan or light
+            supportsDimming: hasDimming,
+            minLevel: 0,
+            maxLevel: 10,
+            currentLevel: deviceLevel,
+            isOn: deviceOnOff === 1
+          })
+
+          log('info', `Added UIS device: name=${dataAny['devName']}, devType=${devType}, isOn=${deviceOnOff === 1}, level=${deviceLevel}`)
+        }
       }
+
+      const maxPorts = portArray?.length || (devices.length > 0 ? devices.length : 4)
 
       log('info', `Capabilities loaded for ${controllerId}`, {
         sensorCount: sensors.length,
         deviceCount: devices.length,
         supportsDimming,
-        maxPorts: data.portData?.length || 4
+        maxPorts
       })
 
       return {
@@ -1349,7 +1383,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
         devices,
         supportsDimming,
         supportsScheduling: true,
-        maxPorts: data.portData?.length || 4
+        maxPorts
       }
 
     } catch (err) {
