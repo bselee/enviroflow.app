@@ -315,6 +315,17 @@ export function ControllerTreeItem({
       <CollapsibleContent>
         <div className="bg-muted/20 px-4 py-3">
           {/* Sensor Readings (expanded view) */}
+          {isLoadingSensors && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4 pb-3 border-b border-border/50">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Loading sensor data...</span>
+            </div>
+          )}
+          {sensorError && !hasSensorData && (
+            <div className="mb-4 pb-3 border-b border-border/50">
+              <p className="text-sm text-destructive">{sensorError}</p>
+            </div>
+          )}
           {hasSensorData && (
             <div className="flex items-center gap-6 text-sm mb-4 pb-3 border-b border-border/50">
               {sensorData.temperature !== null && (
@@ -369,14 +380,18 @@ export function ControllerTreeItem({
             {isLoadingDevices ? (
               <div className="flex items-center justify-center py-6">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-sm text-muted-foreground">Loading devices from {controller.brand.replace("_", " ")}...</span>
               </div>
             ) : devicesError ? (
-              <div className="text-center py-4 text-sm text-destructive">
-                {devicesError}
+              <div className="text-center py-4">
+                <p className="text-sm text-destructive mb-1">{devicesError}</p>
+                <p className="text-xs text-muted-foreground">
+                  Check Vercel logs for details. Common issues: rate limiting, expired credentials.
+                </p>
               </div>
             ) : devices.length === 0 ? (
               <div className="text-center py-4 text-sm text-muted-foreground">
-                No devices found on this controller
+                No devices found. The controller may be offline or have no connected devices.
               </div>
             ) : (
               <div className="space-y-1">
