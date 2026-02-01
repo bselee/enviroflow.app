@@ -110,6 +110,12 @@ export function ControllerTreeItem({
   const [userExpanded, setUserExpanded] = useState(false);
   const hasLoadedDevices = useRef(false);
 
+  // Prevent duplicate/rapid fetches
+  const isFetchingRef = useRef(false);
+  const lastFetchTimeRef = useRef(0);
+  const hasFetchedOnceRef = useRef(false);
+  const MIN_FETCH_INTERVAL = 30000; // 30 seconds minimum between fetches
+
   // Only load devices after user explicitly expands, not from localStorage restore
   // This prevents all previously-expanded controllers from fetching at once on page load
   const shouldFetchDevices = isExpanded && (userExpanded || hasLoadedDevices.current);
@@ -135,8 +141,21 @@ export function ControllerTreeItem({
     ? Date.now() - lastSeenDate.getTime() > 24 * 60 * 60 * 1000
     : false;
 
-  // Fetch sensor data
-  const fetchSensors = useCallback(async () => {
+  // Fetch sensor data with deduplication
+  const fetchSensors = useCallback(async (force = false) => {
+    // Prevent concurrent fetches
+    if (isFetchingRef.current) {
+      return;
+    }
+
+    // Enforce minimum interval between fetches (unless forced by user)
+    const now = Date.now();
+    if (!force && lastFetchTimeRef.current > 0 && now - lastFetchTimeRef.current < MIN_FETCH_INTERVAL) {
+      return;
+    }
+
+    isFetchingRef.current = true;
+    lastFetchTimeRef.current = now;
     setIsLoadingSensors(true);
     setSensorError(null);
 
@@ -165,6 +184,7 @@ export function ControllerTreeItem({
           humidity: humidityReading?.value ?? null,
           vpd: vpdReading?.value ?? null,
         });
+        hasFetchedOnceRef.current = true;
       } else {
         setSensorError(data.error || "Failed to fetch sensors");
       }
@@ -172,13 +192,19 @@ export function ControllerTreeItem({
       setSensorError(err instanceof Error ? err.message : "Network error");
     } finally {
       setIsLoadingSensors(false);
+      isFetchingRef.current = false;
     }
   }, [controller.id]);
 
-  // Fetch sensors on mount with staggered delay to avoid rate limits
+  // Fetch sensors ONCE on mount with staggered delay to avoid rate limits
   useEffect(() => {
-    // Stagger initial fetch: 800ms delay per controller index
-    const delay = index * 800;
+    // Only fetch if we haven't fetched yet
+    if (hasFetchedOnceRef.current) {
+      return;
+    }
+
+    // Stagger initial fetch: 1500ms delay per controller index (increased from 800ms)
+    const delay = index * 1500;
     const timeoutId = setTimeout(() => {
       fetchSensors();
     }, delay);
@@ -187,7 +213,8 @@ export function ControllerTreeItem({
   }, [fetchSensors, index]);
 
   const handleRefresh = async () => {
-    await fetchSensors();
+    // Force refresh bypasses the rate limit check
+    await fetchSensors(true);
     if (isExpanded) {
       await refreshDevices();
     }
