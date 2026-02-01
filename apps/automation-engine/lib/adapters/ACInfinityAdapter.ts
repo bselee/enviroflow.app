@@ -664,6 +664,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
 
   /**
    * Read all sensor values from controller
+   * Queries all 4 ports (1-4) for Controller 69 devices to get complete data
    */
   async readSensors(controllerId: string): Promise<SensorReading[]> {
     const stored = tokenStore.get(controllerId)
@@ -677,205 +678,188 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       throw new Error('Authentication token expired. Please reconnect.')
     }
 
-    // Apply rate limiting per ACCOUNT (email), not per controller
-    // AC Infinity enforces ~60 requests/minute per account across ALL devices
-    try {
-      await waitForRateLimit(`ac_infinity:${stored.email}`)
-    } catch (err) {
-      throw new Error(err instanceof Error ? err.message : 'Rate limit exceeded')
-    }
-
-    // Use getdevModeSettingList endpoint for sensor and device data
-    const result = await adapterFetch<ACDeviceSettingResponse>(
-      ADAPTER_NAME,
-      `${API_BASE}/api/dev/getdevModeSettingList`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': 'application/json',
-          'User-Agent': USER_AGENT,
-          'token': stored.token,
-        },
-        body: new URLSearchParams({ devId: controllerId }).toString()
-      }
-    )
-
-    if (!result.success || !result.data) {
-      throw new Error(result.error || 'Failed to read sensor data')
-    }
-
-    const data = result.data
-
-    // Check for server-side token expiry (code 1001)
-    // This happens when the token is invalidated server-side before our local expiry
-    if (data.code === 1001) {
-      log('warn', `Token expired server-side for ${controllerId}`, { code: data.code, msg: data.msg })
-      tokenStore.delete(controllerId)
-      throw new Error('Authentication token expired (server). Please reconnect.')
-    }
-
-    if (data.code !== 200 || !data.data) {
-      throw new Error(data.msg || 'Failed to get device settings')
-    }
-
     const readings: SensorReading[] = []
     const now = new Date()
+    let deviceLevelDataProcessed = false
 
-    // Log full API response structure for debugging
-    log('info', `API response data structure for ${controllerId}`, {
-      hasSensorData: !!data.data.sensorData,
-      sensorDataLength: data.data.sensorData?.length || 0,
-      hasPortData: !!data.data.portData,
-      portDataLength: data.data.portData?.length || 0,
-      // Log first port structure to understand format
-      samplePort: data.data.portData?.[0] ? JSON.stringify(data.data.portData[0]) : 'none',
-      // Log full response keys to identify sensor data locations
-      responseKeys: Object.keys(data.data)
-    })
+    // Query all 4 ports (Controller 69 has ports 1-4)
+    for (const portNum of [1, 2, 3, 4]) {
+      // Apply rate limiting per ACCOUNT (email), not per controller
+      // AC Infinity enforces ~60 requests/minute per account across ALL devices
+      try {
+        await waitForRateLimit(`ac_infinity:${stored.email}`)
+      } catch (err) {
+        throw new Error(err instanceof Error ? err.message : 'Rate limit exceeded')
+      }
 
-    // Process explicit sensor probes from sensorData array
-    if (data.data.sensorData && data.data.sensorData.length > 0) {
-      for (const sensor of data.data.sensorData) {
-        // Handle both "sensorValue" and "value" field names
-        const rawValue = sensor.sensorValue ?? sensor.value ?? 0
-
-        // Only add readings with valid values (null/undefined check, NOT zero check)
-        // Zero is a valid sensor reading (0°F, 0% humidity)
-        if (rawValue != null) {
-          readings.push({
-            port: 0,
-            type: this.mapSensorType(sensor.sensorType),
-            value: this.convertSensorValue(rawValue, sensor.sensorType),
-            unit: this.mapSensorUnit(sensor.sensorType),
-            timestamp: now,
-            isStale: false
-          })
+      // Use getdevModeSettingList endpoint for sensor and device data
+      const result = await adapterFetch<ACDeviceSettingResponse>(
+        ADAPTER_NAME,
+        `${API_BASE}/api/dev/getdevModeSettingList`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'User-Agent': USER_AGENT,
+            'token': stored.token,
+          },
+          body: new URLSearchParams({ devId: controllerId, port: String(portNum) }).toString()
         }
+      )
+
+      if (!result.success || !result.data) {
+        log('warn', `Failed to read port ${portNum} for ${controllerId}`, { error: result.error })
+        continue
       }
-      log('info', `Found ${readings.length} sensors from sensorData array`)
-    }
 
-    // Check for built-in controller sensors at device level
-    // Some AC Infinity controllers report temp/humidity/VPD at the device level, not port level
-    const deviceData = data.data as Record<string, unknown>
+      const data = result.data
 
-    if (typeof deviceData.temperature === 'number' || typeof deviceData.temp === 'number') {
-      const rawTempValue = (deviceData.temperature as number) ?? (deviceData.temp as number)
-      // Zero is a valid temperature reading - only filter null/undefined
-      if (rawTempValue != null) {
-        // AC Infinity returns temperature as Celsius × 100 (e.g., 2350 = 23.5°C)
-        // Convert to Fahrenheit: (C × 9/5) + 32
-        const celsiusValue = rawTempValue / 100
-        const fahrenheitValue = (celsiusValue * 9/5) + 32
-        readings.push({
-          port: 0,
-          type: 'temperature',
-          value: Math.round(fahrenheitValue * 10) / 10, // Round to 1 decimal
-          unit: 'F',
-          timestamp: now,
-          isStale: false
-        })
-        log('info', 'Found device-level temperature sensor', {
-          rawValue: rawTempValue,
-          celsius: celsiusValue,
-          fahrenheit: fahrenheitValue
-        })
+      // Check for server-side token expiry (code 1001)
+      if (data.code === 1001) {
+        log('warn', `Token expired server-side for ${controllerId}`, { code: data.code, msg: data.msg })
+        tokenStore.delete(controllerId)
+        throw new Error('Authentication token expired (server). Please reconnect.')
       }
-    }
 
-    if (typeof deviceData.humidity === 'number') {
-      const rawHumidityValue = deviceData.humidity as number
-      // Zero is a valid humidity reading - only filter null/undefined
-      if (rawHumidityValue != null) {
-        // AC Infinity returns humidity as percentage × 100 (e.g., 6500 = 65%)
-        const humidityValue = rawHumidityValue / 100
-        readings.push({
-          port: 0,
-          type: 'humidity',
-          value: Math.round(humidityValue * 10) / 10, // Round to 1 decimal
-          unit: '%',
-          timestamp: now,
-          isStale: false
-        })
-        log('info', 'Found device-level humidity sensor', {
-          rawValue: rawHumidityValue,
-          percentage: humidityValue
-        })
+      if (data.code !== 200 || !data.data) {
+        log('warn', `Port ${portNum} returned error for ${controllerId}`, { code: data.code, msg: data.msg })
+        continue
       }
-    }
 
-    if (typeof deviceData.vpd === 'number') {
-      const rawVpdValue = deviceData.vpd as number
-      // Zero is a valid VPD reading - only filter null/undefined
-      if (rawVpdValue != null) {
-        // VPD is reported as kPa × 100 (e.g., 120 = 1.2 kPa)
-        const vpdValue = rawVpdValue / 100
-        readings.push({
-          port: 0,
-          type: 'vpd',
-          value: Math.round(vpdValue * 100) / 100, // Round to 2 decimals
-          unit: 'kPa',
-          timestamp: now,
-          isStale: false
-        })
-        log('info', 'Found device-level VPD sensor', {
-          rawValue: rawVpdValue,
-          kPa: vpdValue
-        })
-      }
-    }
-
-    // Process port-based sensors (more liberal extraction)
-    // Check ports for sensor readings - some controllers report via port data
-    for (const port of data.data.portData || []) {
-      // Log port structure for debugging
-      log('info', `Analyzing port ${port.portId}`, {
-        portType: port.portType,
-        devType: port.devType,
-        surplus: port.surplus,
-        speak: port.speak,
-        onOff: port.onOff
+      // Log API response structure for this port
+      log('info', `API response for ${controllerId} port ${portNum}`, {
+        hasSensorData: !!data.data.sensorData,
+        sensorDataLength: data.data.sensorData?.length || 0,
+        hasPortData: !!data.data.portData,
+        portDataLength: data.data.portData?.length || 0,
+        responseKeys: Object.keys(data.data)
       })
 
-      // Extract sensor-like values from ports
-      // devType 10 = sensor probe
-      // portType 10 = sensor port
-      // portType 7/8 = often temperature sensors
-      // Check surplus field which often contains current sensor value
-      // Note: Zero is a valid reading, only filter null/undefined
-      if (port.surplus != null) {
-        // Determine if this is a sensor port based on type indicators
-        if (port.devType === 10 || port.portType === 10 || port.portType === 7 || port.portType === 8) {
-          // This is a sensor port - extract the reading
-          // AC Infinity port sensors use same scaling as device sensors:
-          // - Temperature: Celsius × 100 (e.g., 2350 = 23.5°C)
-          // - Humidity: Percentage × 100 (e.g., 6500 = 65%)
-          const sensorType = port.portType === 8 ? 'humidity' : 'temperature'
-
-          let transformedValue: number
-          if (sensorType === 'temperature') {
-            // Convert: raw / 100 → Celsius, then Celsius → Fahrenheit
-            const celsiusValue = port.surplus / 100
-            transformedValue = Math.round(((celsiusValue * 9/5) + 32) * 10) / 10
-          } else {
-            // Humidity: raw / 100 → percentage
-            transformedValue = Math.round((port.surplus / 100) * 10) / 10
+      // Process device-level sensors only once (from first successful port response)
+      if (!deviceLevelDataProcessed) {
+        // Process explicit sensor probes from sensorData array
+        if (data.data.sensorData && data.data.sensorData.length > 0) {
+          for (const sensor of data.data.sensorData) {
+            const rawValue = sensor.sensorValue ?? sensor.value ?? 0
+            if (rawValue != null) {
+              readings.push({
+                port: 0,
+                type: this.mapSensorType(sensor.sensorType),
+                value: this.convertSensorValue(rawValue, sensor.sensorType),
+                unit: this.mapSensorUnit(sensor.sensorType),
+                timestamp: now,
+                isStale: false
+              })
+            }
           }
+          log('info', `Found ${readings.length} sensors from sensorData array`)
+        }
 
-          readings.push({
-            port: port.portId,
-            type: sensorType,
-            value: transformedValue,
-            unit: sensorType === 'humidity' ? '%' : 'F',
-            timestamp: now,
-            isStale: false
-          })
-          log('info', `Found port-based sensor on port ${port.portId}`, {
-            type: sensorType,
-            rawValue: port.surplus,
-            transformedValue
-          })
+        // Check for built-in controller sensors at device level
+        const deviceData = data.data as Record<string, unknown>
+
+        if (typeof deviceData.temperature === 'number' || typeof deviceData.temp === 'number') {
+          const rawTempValue = (deviceData.temperature as number) ?? (deviceData.temp as number)
+          if (rawTempValue != null) {
+            const celsiusValue = rawTempValue / 100
+            const fahrenheitValue = (celsiusValue * 9/5) + 32
+            readings.push({
+              port: 0,
+              type: 'temperature',
+              value: Math.round(fahrenheitValue * 10) / 10,
+              unit: 'F',
+              timestamp: now,
+              isStale: false
+            })
+            log('info', 'Found device-level temperature sensor', {
+              rawValue: rawTempValue,
+              celsius: celsiusValue,
+              fahrenheit: fahrenheitValue
+            })
+          }
+        }
+
+        if (typeof deviceData.humidity === 'number') {
+          const rawHumidityValue = deviceData.humidity as number
+          if (rawHumidityValue != null) {
+            const humidityValue = rawHumidityValue / 100
+            readings.push({
+              port: 0,
+              type: 'humidity',
+              value: Math.round(humidityValue * 10) / 10,
+              unit: '%',
+              timestamp: now,
+              isStale: false
+            })
+            log('info', 'Found device-level humidity sensor', {
+              rawValue: rawHumidityValue,
+              percentage: humidityValue
+            })
+          }
+        }
+
+        if (typeof deviceData.vpd === 'number') {
+          const rawVpdValue = deviceData.vpd as number
+          if (rawVpdValue != null) {
+            const vpdValue = rawVpdValue / 100
+            readings.push({
+              port: 0,
+              type: 'vpd',
+              value: Math.round(vpdValue * 100) / 100,
+              unit: 'kPa',
+              timestamp: now,
+              isStale: false
+            })
+            log('info', 'Found device-level VPD sensor', {
+              rawValue: rawVpdValue,
+              kPa: vpdValue
+            })
+          }
+        }
+
+        deviceLevelDataProcessed = true
+      }
+
+      // Process port-based sensors from portData
+      for (const port of data.data.portData || []) {
+        log('info', `Analyzing port ${port.portId} from port ${portNum} query`, {
+          portType: port.portType,
+          devType: port.devType,
+          surplus: port.surplus,
+          speak: port.speak,
+          onOff: port.onOff
+        })
+
+        if (port.surplus != null) {
+          if (port.devType === 10 || port.portType === 10 || port.portType === 7 || port.portType === 8) {
+            const sensorType = port.portType === 8 ? 'humidity' : 'temperature'
+            let transformedValue: number
+            if (sensorType === 'temperature') {
+              const celsiusValue = port.surplus / 100
+              transformedValue = Math.round(((celsiusValue * 9/5) + 32) * 10) / 10
+            } else {
+              transformedValue = Math.round((port.surplus / 100) * 10) / 10
+            }
+
+            // Avoid duplicate readings for the same port
+            const existingReading = readings.find(r => r.port === port.portId && r.type === sensorType)
+            if (!existingReading) {
+              readings.push({
+                port: port.portId,
+                type: sensorType,
+                value: transformedValue,
+                unit: sensorType === 'humidity' ? '%' : 'F',
+                timestamp: now,
+                isStale: false
+              })
+              log('info', `Found port-based sensor on port ${port.portId}`, {
+                type: sensorType,
+                rawValue: port.surplus,
+                transformedValue
+              })
+            }
+          }
         }
       }
     }
@@ -888,7 +872,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
   }
 
   /**
-   * Precision polling: Read sensors, ports, and modes in one request.
+   * Precision polling: Read sensors, ports, and modes by querying all 4 ports.
    * This provides a complete state of the controller including attached devices (ports),
    * their names, current modes, and all sensor readings.
    */
@@ -903,162 +887,188 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       throw new Error('Authentication token expired. Please reconnect.')
     }
 
-    // Apply rate limiting per ACCOUNT (email), not per controller
-    // AC Infinity enforces ~60 requests/minute per account across ALL devices
-    try {
-      await waitForRateLimit(`ac_infinity:${stored.email}`)
-    } catch (err) {
-      throw new Error(err instanceof Error ? err.message : 'Rate limit exceeded')
-    }
-
     const now = new Date()
-
-    // 1. Fetch data using the rich endpoint
-    const result = await adapterFetch<ACDeviceSettingResponse>(
-      ADAPTER_NAME,
-      `${API_BASE}/api/dev/getdevModeSettingList`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': 'application/json',
-          'User-Agent': USER_AGENT,
-          'token': stored.token,
-        },
-        body: new URLSearchParams({ devId: controllerId }).toString()
-      }
-    )
-
-    if (!result.success || !result.data) {
-      throw new Error(result.error || 'Failed to read device data')
-    }
-
-    const data = result.data
-    if (data.code !== 200 || !data.data) {
-      throw new Error(data.msg || 'Failed to get device settings')
-    }
-
-    const rawData = data.data
-    
-    // 2. Reuse readSensors logic for basic sensors (inline for safety)
     const readings: SensorReading[] = []
-    
-    // 2a. SensorData
-    if (rawData.sensorData && rawData.sensorData.length > 0) {
-      for (const sensor of rawData.sensorData) {
-        const rawValue = sensor.sensorValue ?? sensor.value ?? 0
-        if (rawValue != null) {
-          readings.push({
-            port: 0,
-            type: this.mapSensorType(sensor.sensorType),
-            value: this.convertSensorValue(rawValue, sensor.sensorType),
-            unit: this.mapSensorUnit(sensor.sensorType),
-            timestamp: now,
-            isStale: false
-          })
-        }
-      }
-    }
-
-    // 2b. Device level sensors
-    const deviceData = rawData as any
-    if (typeof deviceData.temperature === 'number' || typeof deviceData.temp === 'number') {
-       const val = (deviceData.temperature as number) ?? (deviceData.temp as number)
-       if (val != null) {
-         readings.push({
-           port: 0,
-           type: 'temperature',
-           value: Math.round(((val/100) * 9/5 + 32) * 10) / 10,
-           unit: 'F',
-           timestamp: now,
-           isStale: false
-         })
-       }
-    }
-    if (typeof deviceData.humidity === 'number') {
-       const val = deviceData.humidity as number
-       if (val != null) {
-         readings.push({
-           port: 0,
-           type: 'humidity',
-           value: Math.round((val/100) * 10) / 10,
-           unit: '%',
-           timestamp: now,
-           isStale: false
-         })
-       }
-    }
-    if (typeof deviceData.vpd === 'number') {
-      const val = deviceData.vpd as number
-      if (val != null) {
-         readings.push({
-           port: 0,
-           type: 'vpd',
-           value: Math.round((val/100) * 100) / 100,
-           unit: 'kPa',
-           timestamp: now,
-           isStale: false
-         })
-      }
-    }
-
-    // 3. Process Ports
     const ports: PortState[] = []
-    if (rawData.portData) {
-      for (const port of rawData.portData) {
-        ports.push({
-          port: port.portId,
-          portName: port.portName,
-          portType: port.portType,
-          deviceType: port.devType,
-          
-          isConnected: port.onOff !== undefined,
-          isOn: port.onOff === 1,
-          isOnline: true,
-          
-          powerLevel: port.speak || 0,
-          
-          loadType: 'unknown',
-          devType: port.devType ? String(port.devType) : 'unknown',
-          
-          surplus: port.surplus,
-          speak: port.speak,
-          externalPort: port.externalPort,
-          
-          updatedAt: now
-        })
+    let deviceLevelDataProcessed = false
+    let lastRawData: typeof ACDeviceSettingResponse.prototype.data = null as any
 
-        // 3b. Port Sensors
-        if (port.surplus != null && (port.devType === 10 || port.portType === 10 || port.portType === 7 || port.portType === 8)) {
-           const sensorType = port.portType === 8 ? 'humidity' : 'temperature'
-           let val: number
-           if (sensorType === 'temperature') {
-             val = Math.round(((port.surplus / 100) * 9/5 + 32) * 10) / 10
-           } else {
-             val = Math.round((port.surplus / 100) * 10) / 10
-           }
-           readings.push({
-             port: port.portId,
-             type: sensorType,
-             value: val,
-             unit: sensorType === 'humidity' ? '%' : 'F',
-             timestamp: now,
-             isStale: false
-           })
+    // Query all 4 ports (Controller 69 has ports 1-4)
+    for (const portNum of [1, 2, 3, 4]) {
+      // Apply rate limiting per ACCOUNT (email), not per controller
+      try {
+        await waitForRateLimit(`ac_infinity:${stored.email}`)
+      } catch (err) {
+        throw new Error(err instanceof Error ? err.message : 'Rate limit exceeded')
+      }
+
+      const result = await adapterFetch<ACDeviceSettingResponse>(
+        ADAPTER_NAME,
+        `${API_BASE}/api/dev/getdevModeSettingList`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'User-Agent': USER_AGENT,
+            'token': stored.token,
+          },
+          body: new URLSearchParams({ devId: controllerId, port: String(portNum) }).toString()
+        }
+      )
+
+      if (!result.success || !result.data) {
+        log('warn', `Failed to read port ${portNum} for ${controllerId}`, { error: result.error })
+        continue
+      }
+
+      const data = result.data
+      if (data.code !== 200 || !data.data) {
+        log('warn', `Port ${portNum} returned error for ${controllerId}`, { code: data.code, msg: data.msg })
+        continue
+      }
+
+      const rawData = data.data
+      lastRawData = rawData
+
+      // Process device-level sensors only once
+      if (!deviceLevelDataProcessed) {
+        // Process sensorData array
+        if (rawData.sensorData && rawData.sensorData.length > 0) {
+          for (const sensor of rawData.sensorData) {
+            const rawValue = sensor.sensorValue ?? sensor.value ?? 0
+            if (rawValue != null) {
+              readings.push({
+                port: 0,
+                type: this.mapSensorType(sensor.sensorType),
+                value: this.convertSensorValue(rawValue, sensor.sensorType),
+                unit: this.mapSensorUnit(sensor.sensorType),
+                timestamp: now,
+                isStale: false
+              })
+            }
+          }
+        }
+
+        // Device level sensors
+        const deviceData = rawData as any
+        if (typeof deviceData.temperature === 'number' || typeof deviceData.temp === 'number') {
+          const val = (deviceData.temperature as number) ?? (deviceData.temp as number)
+          if (val != null) {
+            readings.push({
+              port: 0,
+              type: 'temperature',
+              value: Math.round(((val/100) * 9/5 + 32) * 10) / 10,
+              unit: 'F',
+              timestamp: now,
+              isStale: false
+            })
+          }
+        }
+        if (typeof deviceData.humidity === 'number') {
+          const val = deviceData.humidity as number
+          if (val != null) {
+            readings.push({
+              port: 0,
+              type: 'humidity',
+              value: Math.round((val/100) * 10) / 10,
+              unit: '%',
+              timestamp: now,
+              isStale: false
+            })
+          }
+        }
+        if (typeof deviceData.vpd === 'number') {
+          const val = deviceData.vpd as number
+          if (val != null) {
+            readings.push({
+              port: 0,
+              type: 'vpd',
+              value: Math.round((val/100) * 100) / 100,
+              unit: 'kPa',
+              timestamp: now,
+              isStale: false
+            })
+          }
+        }
+
+        deviceLevelDataProcessed = true
+      }
+
+      // Process ports from this query
+      if (rawData.portData) {
+        for (const port of rawData.portData) {
+          // Skip if we already have this port
+          const existingPort = ports.find(p => p.port === port.portId)
+          if (existingPort) {
+            continue
+          }
+
+          ports.push({
+            port: port.portId,
+            portName: port.portName || `Port ${port.portId}`,
+            portType: port.portType,
+            deviceType: port.devType,
+
+            isConnected: port.onOff !== undefined,
+            isOn: port.onOff === 1,
+            isOnline: true,
+
+            powerLevel: port.speak || 0,
+
+            loadType: 'unknown',
+            devType: port.devType ? String(port.devType) : 'unknown',
+
+            surplus: port.surplus,
+            speak: port.speak,
+            externalPort: port.externalPort,
+
+            updatedAt: now
+          })
+
+          // Port-based sensors
+          if (port.surplus != null && (port.devType === 10 || port.portType === 10 || port.portType === 7 || port.portType === 8)) {
+            const sensorType = port.portType === 8 ? 'humidity' : 'temperature'
+            let val: number
+            if (sensorType === 'temperature') {
+              val = Math.round(((port.surplus / 100) * 9/5 + 32) * 10) / 10
+            } else {
+              val = Math.round((port.surplus / 100) * 10) / 10
+            }
+
+            // Avoid duplicate readings
+            const existingReading = readings.find(r => r.port === port.portId && r.type === sensorType)
+            if (!existingReading) {
+              readings.push({
+                port: port.portId,
+                type: sensorType,
+                value: val,
+                unit: sensorType === 'humidity' ? '%' : 'F',
+                timestamp: now,
+                isStale: false
+              })
+            }
+          }
         }
       }
     }
 
-    // 4. Capture Raw API Data
+    // Capture Raw API Data (from last successful response)
     const rawCapture: RawApiCapture = {
-        endpoint: 'getdevModeSettingList',
-        responseHash: createHash('md5').update(JSON.stringify(rawData)).digest('hex'),
-        rawSensorData: rawData.sensorData || {},
-        rawPortData: rawData.portData || {},
-        rawModeData: rawData.devModeSettingList || {},
-        latencyMs: 0, 
-        capturedAt: now
+      endpoint: 'getdevModeSettingList',
+      responseHash: lastRawData ? createHash('md5').update(JSON.stringify(lastRawData)).digest('hex') : '',
+      rawSensorData: lastRawData?.sensorData || {},
+      rawPortData: lastRawData?.portData || {},
+      rawModeData: lastRawData?.devModeSettingList || {},
+      latencyMs: 0,
+      capturedAt: now
     }
+
+    log('info', `readSensorsAndPorts complete for ${controllerId}`, {
+      sensorCount: readings.length,
+      portCount: ports.length,
+      ports: ports.map(p => ({ port: p.port, name: p.portName, isOn: p.isOn }))
+    })
 
     return { sensors: readings, ports, modes: [], rawCapture }
   }
@@ -1190,7 +1200,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
             'User-Agent': USER_AGENT,
             'token': stored.token,
           },
-          body: new URLSearchParams({ devId: controllerId }).toString()
+          body: new URLSearchParams({ devId: controllerId, port: '1' }).toString()
         },
         { maxRetries: 1, timeoutMs: 5000 }
       )
@@ -1239,159 +1249,152 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
   }
 
   private async getDeviceCapabilities(controllerId: string, token: string) {
-    log('info', `Fetching capabilities for device ${controllerId}`)
-    try {
-      const result = await adapterFetch<ACDeviceSettingResponse>(
-        ADAPTER_NAME,
-        `${API_BASE}/api/dev/getdevModeSettingList`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json',
-            'User-Agent': USER_AGENT,
-            'token': token,
-          },
-          body: new URLSearchParams({ devId: controllerId }).toString()
+    log('info', `Fetching capabilities for device ${controllerId} (querying all 4 ports)`)
+
+    const sensors: SensorCapability[] = []
+    const devices: DeviceCapability[] = []
+    let supportsDimming = false
+    let sensorDataProcessed = false
+
+    // Query all 4 ports (Controller 69 has ports 1-4)
+    for (const portNum of [1, 2, 3, 4]) {
+      try {
+        const result = await adapterFetch<ACDeviceSettingResponse>(
+          ADAPTER_NAME,
+          `${API_BASE}/api/dev/getdevModeSettingList`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'Accept': 'application/json',
+              'User-Agent': USER_AGENT,
+              'token': token,
+            },
+            body: new URLSearchParams({ devId: controllerId, port: String(portNum) }).toString()
+          }
+        )
+
+        if (!result.success || !result.data) {
+          log('warn', `Capabilities fetch failed for ${controllerId} port ${portNum}`, { error: result.error })
+          continue
         }
-      )
 
-      if (!result.success) {
-        log('error', `Capabilities fetch failed for ${controllerId}`, {
-          error: result.error
-        })
-        return this.emptyCapabilities()
-      }
-
-      if (!result.data) {
-        log('error', `Capabilities response empty for ${controllerId}`)
-        return this.emptyCapabilities()
-      }
-
-      if (result.data.code !== 200) {
-        log('error', `Capabilities API error for ${controllerId}`, {
-          code: result.data.code,
-          msg: result.data.msg
-        })
-        return this.emptyCapabilities()
-      }
-
-      const data = result.data.data!
-
-      // DEBUG: Log full API response structure to understand what AC Infinity returns
-      log('info', `Full API response for ${controllerId}`, {
-        responseKeys: Object.keys(data),
-        hasPortData: !!data.portData,
-        hasSensorData: !!data.sensorData,
-        portDataType: typeof data.portData,
-        portDataLength: Array.isArray(data.portData) ? data.portData.length : 'not-array',
-        // Log first few chars of stringified response to see structure
-        dataPreview: JSON.stringify(data).substring(0, 500)
-      })
-
-      const sensors: SensorCapability[] = []
-      const devices: DeviceCapability[] = []
-      let supportsDimming = false
-
-      if (data.sensorData) {
-        for (const sensor of data.sensorData) {
-          sensors.push({
-            port: 0,
-            name: sensor.sensorName,
-            type: this.mapSensorType(sensor.sensorType),
-            unit: this.mapSensorUnit(sensor.sensorType)
+        if (result.data.code !== 200 || !result.data.data) {
+          log('warn', `Capabilities API error for ${controllerId} port ${portNum}`, {
+            code: result.data.code,
+            msg: result.data.msg
           })
+          continue
         }
-      }
 
-      // Check for port data under various possible field names
-      // AC Infinity API may use different field names in different versions
-      const dataAny = data as Record<string, unknown>
-      const portArray = data.portData || (dataAny['portList'] as ACPort[]) || (dataAny['ports'] as ACPort[]) || (dataAny['devPorts'] as ACPort[])
+        const data = result.data.data
 
-      if (portArray && Array.isArray(portArray) && portArray.length > 0) {
-        log('info', `Raw portData for ${controllerId}:`, portArray)
-        for (const port of portArray) {
-          log('info', `Processing port ${port.portId}: devType=${port.devType}, portType=${port.portType}, name=${port.portName}`)
-          // Include all ports that have a valid portId, except empty/unused ports (devType 10 is "empty")
-          if (port.devType !== 10) {
-            const hasDimming = port.supportDim === 1
+        // Log API response structure for this port
+        log('info', `API response for ${controllerId} port ${portNum}`, {
+          responseKeys: Object.keys(data),
+          hasPortData: !!data.portData,
+          hasSensorData: !!data.sensorData,
+          portDataLength: Array.isArray(data.portData) ? data.portData.length : 0
+        })
+
+        // Process sensor data only once (from first successful response)
+        if (!sensorDataProcessed && data.sensorData) {
+          for (const sensor of data.sensorData) {
+            sensors.push({
+              port: 0,
+              name: sensor.sensorName,
+              type: this.mapSensorType(sensor.sensorType),
+              unit: this.mapSensorUnit(sensor.sensorType)
+            })
+          }
+          sensorDataProcessed = true
+          log('info', `Found ${sensors.length} sensors from sensorData`)
+        }
+
+        // Process port data - each port query should return info about that port
+        const dataAny = data as Record<string, unknown>
+        const portArray = data.portData || (dataAny['portList'] as ACPort[]) || (dataAny['ports'] as ACPort[]) || (dataAny['devPorts'] as ACPort[])
+
+        if (portArray && Array.isArray(portArray) && portArray.length > 0) {
+          for (const port of portArray) {
+            // Skip if we already have this port
+            const existingDevice = devices.find(d => d.port === port.portId)
+            if (existingDevice) {
+              continue
+            }
+
+            log('info', `Processing port ${port.portId} from port ${portNum} query: devType=${port.devType}, portType=${port.portType}, name=${port.portName}`)
+
+            // Include all ports that have a valid portId, except empty/unused ports (devType 10 is "empty")
+            if (port.devType !== 10) {
+              const hasDimming = port.supportDim === 1
+              if (hasDimming) supportsDimming = true
+
+              devices.push({
+                port: port.portId,
+                name: port.portName || `Port ${port.portId}`,
+                type: this.mapDeviceType(port.portType),
+                supportsDimming: hasDimming,
+                minLevel: 0,
+                maxLevel: 10,
+                currentLevel: port.surplus,
+                isOn: port.onOff === 1
+              })
+              log('info', `Added device: port=${port.portId}, name=${port.portName}, type=${this.mapDeviceType(port.portType)}, isOn=${port.onOff === 1}`)
+            } else {
+              log('info', `Skipping empty port ${port.portId} (devType=10)`)
+            }
+          }
+        } else {
+          log('warn', `No portData in API response for ${controllerId} port ${portNum}`)
+
+          // For UIS devices (inline fans, LED bars, etc.) that don't have ports
+          const devType = (dataAny['devType'] as number) || 0
+          const isUISDevice = devType >= 11 && devType <= 15 || devType === 18
+
+          if (isUISDevice && devices.length === 0) {
+            log('info', `Device ${controllerId} is a UIS device (devType ${devType}), treating as single controllable device`)
+
+            const deviceOnOff = (dataAny['onOff'] as number) ?? (dataAny['devOnOff'] as number) ?? 0
+            const deviceLevel = (dataAny['speak'] as number) ?? (dataAny['devSpeak'] as number) ?? (dataAny['surplus'] as number) ?? 0
+            const hasDimming = (dataAny['supportDim'] as number) === 1 || devType === 13
+
             if (hasDimming) supportsDimming = true
 
             devices.push({
-              port: port.portId,
-              name: port.portName,
-              type: this.mapDeviceType(port.portType),
+              port: 0,
+              name: (dataAny['devName'] as string) || this.mapDeviceTypeToModel(devType),
+              type: this.mapDeviceType(devType <= 12 || devType === 14 || devType === 15 ? 1 : 2),
               supportsDimming: hasDimming,
               minLevel: 0,
               maxLevel: 10,
-              currentLevel: port.surplus,
-              isOn: port.onOff === 1
+              currentLevel: deviceLevel,
+              isOn: deviceOnOff === 1
             })
-            log('info', `Added device: port=${port.portId}, name=${port.portName}, type=${this.mapDeviceType(port.portType)}, isOn=${port.onOff === 1}`)
-          } else {
-            log('info', `Skipping empty port ${port.portId} (devType=10)`)
+
+            log('info', `Added UIS device: name=${dataAny['devName']}, devType=${devType}, isOn=${deviceOnOff === 1}, level=${deviceLevel}`)
           }
         }
-      } else {
-        log('warn', `No portData in API response for ${controllerId}`)
-
-        // For UIS devices (inline fans, LED bars, etc.) that don't have ports,
-        // the device itself is controllable at port 0
-        // Check if this is a UIS device by looking at devType at the device level
-        const devType = (dataAny['devType'] as number) || 0
-
-        // UIS devTypes: 11-15, 18 = standalone controllable devices
-        const isUISDevice = devType >= 11 && devType <= 15 || devType === 18
-
-        if (isUISDevice) {
-          log('info', `Device ${controllerId} is a UIS device (devType ${devType}), treating as single controllable device`)
-
-          // UIS devices have device-level control fields
-          const deviceOnOff = (dataAny['onOff'] as number) ?? (dataAny['devOnOff'] as number) ?? 0
-          const deviceLevel = (dataAny['speak'] as number) ?? (dataAny['devSpeak'] as number) ?? (dataAny['surplus'] as number) ?? 0
-          const hasDimming = (dataAny['supportDim'] as number) === 1 || devType === 13 // LED bars support dimming
-
-          if (hasDimming) supportsDimming = true
-
-          devices.push({
-            port: 0, // UIS devices use port 0
-            name: (dataAny['devName'] as string) || this.mapDeviceTypeToModel(devType),
-            type: this.mapDeviceType(devType <= 12 || devType === 14 || devType === 15 ? 1 : 2), // fan or light
-            supportsDimming: hasDimming,
-            minLevel: 0,
-            maxLevel: 10,
-            currentLevel: deviceLevel,
-            isOn: deviceOnOff === 1
-          })
-
-          log('info', `Added UIS device: name=${dataAny['devName']}, devType=${devType}, isOn=${deviceOnOff === 1}, level=${deviceLevel}`)
-        }
+      } catch (err) {
+        log('error', `Exception getting capabilities for ${controllerId} port ${portNum}`, {
+          error: err instanceof Error ? err.message : String(err)
+        })
       }
+    }
 
-      const maxPorts = portArray?.length || (devices.length > 0 ? devices.length : 4)
+    log('info', `Capabilities loaded for ${controllerId}`, {
+      sensorCount: sensors.length,
+      deviceCount: devices.length,
+      supportsDimming,
+      devices: devices.map(d => ({ port: d.port, name: d.name, type: d.type }))
+    })
 
-      log('info', `Capabilities loaded for ${controllerId}`, {
-        sensorCount: sensors.length,
-        deviceCount: devices.length,
-        supportsDimming,
-        maxPorts
-      })
-
-      return {
-        sensors,
-        devices,
-        supportsDimming,
-        supportsScheduling: true,
-        maxPorts
-      }
-
-    } catch (err) {
-      log('error', `Exception getting device capabilities for ${controllerId}`, {
-        error: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined
-      })
-      return this.emptyCapabilities()
+    return {
+      sensors,
+      devices,
+      supportsDimming,
+      supportsScheduling: true,
+      maxPorts: 4
     }
   }
 
