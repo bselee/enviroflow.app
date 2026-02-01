@@ -697,7 +697,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
           'User-Agent': USER_AGENT,
           'token': stored.token,
         },
-        body: new URLSearchParams({ devId: controllerId, port: '0' }).toString()
+        body: new URLSearchParams({ devId: controllerId }).toString()
       }
     )
 
@@ -925,7 +925,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
           'User-Agent': USER_AGENT,
           'token': stored.token,
         },
-        body: new URLSearchParams({ devId: controllerId, port: '0' }).toString()
+        body: new URLSearchParams({ devId: controllerId }).toString()
       }
     )
 
@@ -1190,7 +1190,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
             'User-Agent': USER_AGENT,
             'token': stored.token,
           },
-          body: new URLSearchParams({ devId: controllerId, port: '0' }).toString()
+          body: new URLSearchParams({ devId: controllerId }).toString()
         },
         { maxRetries: 1, timeoutMs: 5000 }
       )
@@ -1252,7 +1252,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
             'User-Agent': USER_AGENT,
             'token': token,
           },
-          body: new URLSearchParams({ devId: controllerId, port: '0' }).toString()
+          body: new URLSearchParams({ devId: controllerId }).toString()
         }
       )
 
