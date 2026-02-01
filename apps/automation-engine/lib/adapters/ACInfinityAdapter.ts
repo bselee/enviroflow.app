@@ -1304,9 +1304,14 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
         }
       }
 
-      if (data.portData) {
-        log('info', `Raw portData for ${controllerId}:`, data.portData)
-        for (const port of data.portData) {
+      // Check for port data under various possible field names
+      // AC Infinity API may use different field names in different versions
+      const dataAny = data as Record<string, unknown>
+      const portArray = data.portData || (dataAny['portList'] as ACPort[]) || (dataAny['ports'] as ACPort[]) || (dataAny['devPorts'] as ACPort[])
+
+      if (portArray && Array.isArray(portArray) && portArray.length > 0) {
+        log('info', `Raw portData for ${controllerId}:`, portArray)
+        for (const port of portArray) {
           log('info', `Processing port ${port.portId}: devType=${port.devType}, portType=${port.portType}, name=${port.portName}`)
           // Include all ports that have a valid portId, except empty/unused ports (devType 10 is "empty")
           if (port.devType !== 10) {
