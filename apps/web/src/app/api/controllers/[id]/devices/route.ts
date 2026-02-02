@@ -287,13 +287,30 @@ export async function GET(
       // Continue to fallback instead of returning error
     }
 
+    console.log('[Devices GET] Cached ports from DB:', {
+      controllerId: id,
+      cachedPortsCount: cachedPorts?.length || 0,
+      cachedPorts: cachedPorts?.map((p: CachedPort) => ({
+        port: p.port_number,
+        name: p.port_name,
+        devType: p.dev_type,
+        portType: p.port_type,
+      })),
+    })
+
     // Filter out sensor ports (devType 10 or portType 10 are sensors, not controllable devices)
     // Handle both number and string types (database may have stored as string)
     const controllablePorts = (cachedPorts || []).filter((port: CachedPort) => {
       const devType = typeof port.dev_type === 'string' ? parseInt(port.dev_type, 10) : port.dev_type
       const portType = typeof port.port_type === 'string' ? parseInt(port.port_type, 10) : port.port_type
       const isSensorPort = devType === 10 || portType === 10
+      console.log(`[Devices GET] Port ${port.port_number}: devType=${devType}, portType=${portType}, isSensor=${isSensorPort}`)
       return !isSensorPort
+    })
+
+    console.log('[Devices GET] After filtering:', {
+      controllerId: id,
+      controllablePortsCount: controllablePorts.length,
     })
 
     // If we have cached data, return it
@@ -342,7 +359,10 @@ export async function GET(
 
     // FALLBACK: No cached data - fetch from live API
     // This happens when cron job hasn't run yet for this controller
-    console.log('[Devices GET] No cached data, falling back to live API for:', controller.name)
+    console.log('[Devices GET] No cached controllable ports, falling back to live API for:', controller.name, {
+      cachedPortsCount: cachedPorts?.length || 0,
+      controllablePortsCount: controllablePorts.length,
+    })
 
     try {
       const adapter = getAdapter(brand)
@@ -390,6 +410,17 @@ export async function GET(
       // Get device capabilities from metadata
       const capabilities = connectionResult.metadata.capabilities
       const devices = capabilities.devices || []
+
+      console.log('[Devices GET] Live API capabilities:', {
+        controllerId: id,
+        sensorsCount: capabilities.sensors?.length || 0,
+        devicesCount: devices.length,
+        devices: devices.map((d: DeviceCapability) => ({
+          port: d.port,
+          name: d.name,
+          type: d.type,
+        })),
+      })
 
       // Disconnect after getting capabilities
       const controllerId = connectionResult.controllerId || id
