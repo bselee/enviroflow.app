@@ -89,6 +89,15 @@ export function useDeviceControl(controllerId: string): UseDeviceControlReturn {
 
       const data = await response.json()
 
+      console.log('[useDeviceControl] API response:', {
+        controllerId,
+        success: data.success,
+        portCount: data.ports?.length || 0,
+        cached: data.cached,
+        message: data.message,
+        debug_error: data.debug_error,
+      })
+
       if (!isMounted.current) return
 
       if (data.success) {

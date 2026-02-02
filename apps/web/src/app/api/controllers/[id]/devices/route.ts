@@ -200,10 +200,13 @@ export async function GET(
   request: NextRequest,
   { params }: RouteParams
 ): Promise<NextResponse> {
+  console.log('========== DEVICES API CALLED ==========')
   try {
     const { id } = await params
+    console.log('[Devices GET] Controller ID:', id)
     const client = getSupabase()
     const userId = await getUserId(request, client)
+    console.log('[Devices GET] User ID:', userId)
 
     if (!userId) {
       return NextResponse.json(
@@ -461,6 +464,7 @@ export async function GET(
       })
 
     } catch (adapterError) {
+      console.error('[Devices GET] Fallback adapter error:', adapterError)
       safeError('[Devices GET] Fallback adapter error:', adapterError)
       return NextResponse.json({
         success: true,
@@ -468,6 +472,7 @@ export async function GET(
         ports: [],
         cached: false,
         message: 'Device data pending - will be available after cron job runs.',
+        debug_error: adapterError instanceof Error ? adapterError.message : String(adapterError),
       }, {
         headers: createRateLimitHeaders(rateLimitResult)
       })
