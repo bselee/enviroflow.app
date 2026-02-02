@@ -1,9 +1,7 @@
 /**
  * DEBUG: Raw AC Infinity API Response
  *
- * This endpoint fetches and returns the raw API response from AC Infinity
- * so we can see exactly what fields are available.
- *
+ * Returns raw API responses from AC Infinity for debugging.
  * Usage: GET /api/debug/ac-infinity-raw?controllerId=<uuid>
  */
 
@@ -14,27 +12,21 @@ import { decryptCredentials } from '@/lib/server-encryption'
 const API_BASE = 'http://www.acinfinityserver.com'
 const USER_AGENT = 'ACController/1.8.2 (com.acinfinity.humiture; build:489; iOS 16.5.1) Alamofire/5.4.4'
 
-// Use service role client to bypass RLS
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) {
-    throw new Error('Supabase credentials not configured')
-  }
-  return createClient(url, key, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
+  if (!url || !key) throw new Error('Supabase credentials not configured')
+  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
 }
 
 export async function GET(request: NextRequest) {
   try {
     const controllerId = request.nextUrl.searchParams.get('controllerId')
-
     if (!controllerId) {
       return NextResponse.json({ error: 'controllerId query param required' }, { status: 400 })
     }
 
-    // Get controller from database using service role
+    // Get controller from database
     const supabase = getSupabase()
     const { data: controller, error: dbError } = await supabase
       .from('controllers')
@@ -46,47 +38,42 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Controller not found', dbError }, { status: 404 })
     }
 
-    // Decrypt credentials - show debug info
-    let credentials: Record<string, unknown>
-    try {
-      const raw = controller.credentials_encrypted
-      credentials = decryptCredentials(raw) as Record<string, unknown>
+    // Show what columns we got from DB
+    const dbColumns = Object.keys(controller)
 
-      // If empty, return debug info
-      if (!credentials || Object.keys(credentials).length === 0) {
-        return NextResponse.json({
-          error: 'Decrypted to empty object',
-          rawType: typeof raw,
-          rawLength: typeof raw === 'string' ? raw.length : null,
-          rawPreview: typeof raw === 'string' ? raw.substring(0, 50) + '...' : JSON.stringify(raw).substring(0, 50),
-        }, { status: 400 })
-      }
-    } catch (err) {
+    // The column is 'credentials' (JSONB), not 'credentials_encrypted'
+    const rawCredentials = controller.credentials
+    if (!rawCredentials) {
       return NextResponse.json({
-        error: 'Failed to decrypt credentials',
-        message: err instanceof Error ? err.message : String(err),
-        credentialsField: typeof controller.credentials_encrypted,
-        rawPreview: typeof controller.credentials_encrypted === 'string'
-          ? controller.credentials_encrypted.substring(0, 50) + '...'
-          : 'not a string',
+        error: 'No credentials field in controller',
+        availableColumns: dbColumns,
       }, { status: 400 })
     }
 
-    // Check for email/password - they might be nested or have different names
-    const email = (credentials.email || credentials.Email || credentials.appEmail) as string | undefined
-    const password = (credentials.password || credentials.Password || credentials.appPassword) as string | undefined
+    // Decrypt credentials
+    let credentials: Record<string, unknown>
+    try {
+      credentials = decryptCredentials(rawCredentials) as Record<string, unknown>
+    } catch (err) {
+      return NextResponse.json({
+        error: 'Failed to decrypt',
+        message: err instanceof Error ? err.message : String(err),
+        rawType: typeof rawCredentials,
+        rawPreview: typeof rawCredentials === 'string' ? rawCredentials.substring(0, 100) : JSON.stringify(rawCredentials).substring(0, 100),
+      }, { status: 400 })
+    }
+
+    const email = (credentials.email || credentials.Email) as string | undefined
+    const password = (credentials.password || credentials.Password) as string | undefined
 
     if (!email || !password) {
       return NextResponse.json({
-        error: 'Missing email or password in credentials',
+        error: 'Missing email/password',
         credentialsKeys: Object.keys(credentials),
-        hasEmail: !!email,
-        hasPassword: !!password,
-        // Show keys but not values for security
       }, { status: 400 })
     }
 
-    // Step 1: Login to AC Infinity
+    // Login to AC Infinity
     const loginResponse = await fetch(`${API_BASE}/api/user/appUserLogin`, {
       method: 'POST',
       headers: {
@@ -94,42 +81,18 @@ export async function GET(request: NextRequest) {
         'Accept': 'application/json',
         'User-Agent': USER_AGENT,
       },
-      body: new URLSearchParams({
-        appEmail: email,
-        appPasswordl: password,
-      }).toString(),
+      body: new URLSearchParams({ appEmail: email, appPasswordl: password }).toString(),
     })
-
     const loginData = await loginResponse.json()
 
     if (loginData.code !== 200 || !loginData.data?.appId) {
-      return NextResponse.json({
-        step: 'login',
-        error: 'Login failed',
-        loginResponse: loginData
-      }, { status: 401 })
+      return NextResponse.json({ step: 'login', error: 'Login failed', loginResponse: loginData }, { status: 401 })
     }
 
     const token = loginData.data.appId
-
-    // Step 2: Get device mode settings (the endpoint we're debugging)
     const deviceId = controller.controller_id
 
-    // Try with port=1
-    const settingsResponse = await fetch(`${API_BASE}/api/dev/getdevModeSettingList`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json',
-        'User-Agent': USER_AGENT,
-        'token': token,
-      },
-      body: new URLSearchParams({ devId: deviceId, port: '1' }).toString(),
-    })
-
-    const settingsData = await settingsResponse.json()
-
-    // Also try getting the device list to compare
+    // Get ALL devices for this account first
     const devicesResponse = await fetch(`${API_BASE}/api/user/devInfoListAll`, {
       method: 'POST',
       headers: {
@@ -140,10 +103,35 @@ export async function GET(request: NextRequest) {
       },
       body: new URLSearchParams({ userId: token }).toString(),
     })
-
     const devicesData = await devicesResponse.json()
 
-    // Return everything for debugging
+    // Get device settings with port=1
+    const settingsResponse = await fetch(`${API_BASE}/api/dev/getdevModeSettingList`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+        'User-Agent': USER_AGENT,
+        'token': token,
+      },
+      body: new URLSearchParams({ devId: deviceId, port: '1' }).toString(),
+    })
+    const settingsData = await settingsResponse.json()
+
+    // Try the Home Assistant endpoint: getDevInfoList (different from devInfoListAll)
+    const devInfoResponse = await fetch(`${API_BASE}/api/user/getDevInfoList`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+        'User-Agent': USER_AGENT,
+        'token': token,
+      },
+      body: new URLSearchParams({ userId: token }).toString(),
+    })
+    const devInfoData = await devInfoResponse.json()
+
+    // Return all responses for analysis
     return NextResponse.json({
       success: true,
       controller: {
@@ -152,20 +140,22 @@ export async function GET(request: NextRequest) {
         controller_id: controller.controller_id,
         brand: controller.brand,
       },
-      getdevModeSettingList: {
-        requestBody: { devId: deviceId, port: '1' },
-        response: settingsData,
-        responseKeys: settingsData.data ? Object.keys(settingsData.data) : [],
-      },
-      devInfoListAll: {
-        response: devicesData,
+      api_responses: {
+        devInfoListAll: devicesData,
+        getDevInfoList: devInfoData,
+        getdevModeSettingList: {
+          request: { devId: deviceId, port: '1' },
+          response: settingsData,
+          dataKeys: settingsData.data ? Object.keys(settingsData.data) : [],
+        },
       },
     }, { status: 200 })
 
   } catch (error) {
     return NextResponse.json({
-      error: 'Exception occurred',
+      error: 'Exception',
       message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
     }, { status: 500 })
   }
 }
