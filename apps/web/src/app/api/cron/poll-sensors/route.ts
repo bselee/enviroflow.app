@@ -100,8 +100,20 @@ export async function GET(request: NextRequest) {
     }
 
     const authHeader = request.headers.get('authorization')
+
+    // Debug: Log what we're receiving vs expecting
+    log('info', 'Auth check', {
+      hasAuthHeader: !!authHeader,
+      authHeaderPrefix: authHeader?.substring(0, 20),
+      expectedPrefix: `Bearer ${cronSecret.substring(0, 8)}...`,
+      headersReceived: Array.from(request.headers.keys()).join(', ')
+    })
+
     if (authHeader !== `Bearer ${cronSecret}`) {
-      log('warn', 'Unauthorized cron request')
+      log('warn', 'Unauthorized cron request', {
+        receivedLength: authHeader?.length,
+        expectedLength: `Bearer ${cronSecret}`.length
+      })
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
