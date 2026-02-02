@@ -660,6 +660,14 @@ export function useDashboardData(
       // This provides a fallback when polling is failing but old data exists
       let finalSensorReadings = sensorsResult.data || [];
 
+      // Debug logging
+      console.log('[useDashboardData] Sensor readings query result:', {
+        count: finalSensorReadings.length,
+        error: sensorsResult.error?.message,
+        startTime: startTime.toISOString(),
+        sampleReading: finalSensorReadings[0],
+      });
+
       if (finalSensorReadings.length === 0) {
         const allControllers = [
           ...(roomsResult.data?.flatMap((r: RoomWithControllers) => r.controllers || []) || []),

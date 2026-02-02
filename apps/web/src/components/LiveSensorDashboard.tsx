@@ -149,7 +149,7 @@ function SensorCard({ sensor }: { sensor: LiveSensor }) {
               <span>Temperature</span>
             </div>
             <div className="text-2xl font-bold tabular-nums">
-              {sensor.temperature.toFixed(1)}°F
+              {sensor.temperature.toFixed(1)}°C
             </div>
           </div>
 

@@ -98,12 +98,12 @@ interface ACInfinityResponse {
 // ============================================
 
 /**
- * Convert AC Infinity temperature format to Fahrenheit.
- * AC Infinity API returns temperature in hundredths (e.g., 7500 = 75.00°F)
+ * Convert AC Infinity temperature format to Celsius.
+ * AC Infinity API returns temperature in hundredths of Celsius (e.g., 2181 = 21.81°C)
  */
 function convertTemperature(rawTemp: number | undefined): number | null {
   if (rawTemp === undefined || rawTemp === null) return null
-  // Divide by 100 to get actual temperature
+  // Divide by 100 to get actual temperature in Celsius
   return rawTemp / 100
 }
 

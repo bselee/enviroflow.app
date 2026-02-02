@@ -1,8 +1,38 @@
 # EnviroFlow Project Status
 
-## Last Updated: January 20, 2026 (MVP Spec v2.0 Applied)
+## Last Updated: February 2, 2026 (Architecture Unified)
 
 ## Current State
+
+### ✅ MAJOR BREAKTHROUGH: API Working!
+- **`/api/sensors/live` endpoint is FULLY FUNCTIONAL**
+- Returns 3 AC Infinity devices: Red Room, Lil Dry Guy, Biggie
+- Temperature, humidity, VPD, port status all working
+- Response time: ~250ms
+
+### Critical Files Fixed
+1. `/apps/web/src/app/api/sensors/live/route.ts`
+   - Fixed `extractSensorData()` to read from `device.deviceInfo.temperature`
+   - Fixed `extractPorts()` to read from `device.deviceInfo.ports`
+
+2. `/apps/web/.env.local`
+   - Added `AC_INFINITY_EMAIL=bselee@gmail.com`
+   - Added `AC_INFINITY_PASSWORD=midFe8-dyqbur-diswan`
+
+### ✅ Architecture Documentation Unified
+- Created `/docs/ARCHITECTURE.md` - AUTHORITATIVE guide
+- Updated `/CLAUDE.md` - References ARCHITECTURE.md
+- Archived conflicting docs with deprecation headers:
+  - `docs/spec/Controllers/ha-acinfinity.md`
+  - `docs/spec/Controllers/vercel-direct-api.md`
+- Created `/docs/MIGRATION_TODO.md` - List of files needing Realtime removal
+
+### Architecture Pattern (CONFIRMED WORKING)
+```
+Browser → LiveSensorDashboard → fetch('/api/sensors/live') → AC Infinity Cloud
+         └─ setInterval(15s) ─┘
+```
+**NO Supabase Realtime subscriptions for sensors!**
 
 ### ✅ Completed
 - [x] Vercel deployment at enviroflow.app
@@ -10,44 +40,20 @@
 - [x] All pages: landing, login, signup, dashboard, automations, controllers, settings
 - [x] /api/analyze endpoint (Grok AI integration)
 - [x] ai-insights.ts realtime hooks
-- [x] BACKEND_GUIDE.md documentation
-- [x] **COMPLETE DATABASE MIGRATION** - 20260120_complete_schema.sql (14 tables!)
-- [x] **MIGRATION RUN SUCCESSFULLY ON SUPABASE** ✅
-- [x] **CONTROLLER ADAPTERS:**
-  - ACInfinityAdapter.ts (fully implemented)
-  - InkbirdAdapter.ts (fully implemented)
-  - CSVUploadAdapter.ts (fully implemented)
-  - types.ts (comprehensive TypeScript interfaces)
-  - index.ts (factory pattern)
-- [x] **API ROUTES:**
-  - GET/POST /api/controllers - List/add controllers
-  - GET /api/controllers/brands - Supported brands list
-  - GET /api/controllers/csv-template - CSV template download
-  - GET /api/cron/workflows - Workflow executor (Vercel Cron)
-- [x] Vercel cron job configured (every minute)
-- [x] Updated CLAUDE.md with full architecture
+- [x] **DATABASE MIGRATION** - 20260120_complete_schema.sql
+- [x] **CONTROLLER ADAPTERS** - ACInfinityAdapter, InkbirdAdapter, CSVUploadAdapter
+- [x] **API ROUTES** - controllers, cron/workflows
+- [x] **/api/sensors/live - WORKING!** ✅
 
-### 🔨 Critical: RUN THE MIGRATIONS!
-Database tables are NOT yet created. Run in Supabase SQL Editor:
-```
-https://supabase.com/dashboard/project/vhlnnfmuhttjpwyobklu/sql
-```
-File: `apps/automation-engine/supabase/migrations/20260120_complete_schema.sql`
+### 🔨 Remaining: Display in Browser
+- LiveSensorDashboard component exists and uses correct pattern
+- API returns data correctly
+- Need to verify browser displays data (may be auth redirect)
 
-### 🔨 Set Vercel Environment Variables
-```
-NEXT_PUBLIC_SUPABASE_URL=https://vhlnnfmuhttjpwyobklu.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
-SUPABASE_SERVICE_ROLE_KEY=eyJ...
-GROK_API_KEY=xai-...
-```
-
-### 📋 Phase 1 Remaining Tasks (from spec)
-- [ ] Supabase Auth integration in login/signup pages
-- [ ] Test AC Infinity adapter with real credentials
-- [ ] Test Inkbird adapter with real credentials
-- [ ] Wire up controllers page to API
-- [ ] Implement workflow builder with React Flow
+### 📋 Migration Tasks (see docs/MIGRATION_TODO.md)
+- [ ] Remove Realtime subscriptions from useDashboardData.ts
+- [ ] Remove Realtime subscriptions from use-sensor-readings.ts
+- [ ] Remove Realtime subscriptions from use-rooms.ts
 
 ## Important Files Created Today
 

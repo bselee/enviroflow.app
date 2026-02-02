@@ -1037,7 +1037,7 @@ export interface LiveSensor {
   id: string;
   name: string;
   deviceType: 'ac_infinity';
-  temperature: number;  // Fahrenheit
+  temperature: number;  // Celsius (AC Infinity API returns Celsius)
   humidity: number;     // Percentage
   vpd: number;          // kPa
   online: boolean;
