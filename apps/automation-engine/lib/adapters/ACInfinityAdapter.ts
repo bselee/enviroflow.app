@@ -663,8 +663,8 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
   }
 
   /**
-   * Read all sensor values from controller
-   * Makes a single API call and extracts all sensor data from the response
+   * Read all sensor values from controller using devInfoListAll endpoint
+   * This returns complete device info including sensors for all devices on the account
    */
   async readSensors(controllerId: string): Promise<SensorReading[]> {
     const stored = tokenStore.get(controllerId)
@@ -672,13 +672,11 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       throw new Error('Controller not connected. Call connect() first.')
     }
 
-    // Check if token is expired
     if (stored.expiresAt < new Date()) {
       tokenStore.delete(controllerId)
       throw new Error('Authentication token expired. Please reconnect.')
     }
 
-    // Apply rate limiting per ACCOUNT (email), not per controller
     try {
       await waitForRateLimit(`ac_infinity:${stored.email}`)
     } catch (err) {
@@ -688,10 +686,10 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
     const readings: SensorReading[] = []
     const now = new Date()
 
-    // Make a single API call - the response should contain all data for this device
-    const result = await adapterFetch<ACDeviceSettingResponse>(
+    // Use devInfoListAll - returns ALL devices with complete sensor/port data
+    const result = await adapterFetch<ACDeviceListResponse>(
       ADAPTER_NAME,
-      `${API_BASE}/api/dev/getdevModeSettingList`,
+      `${API_BASE}/api/user/devInfoListAll`,
       {
         method: 'POST',
         headers: {
@@ -700,7 +698,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
           'User-Agent': USER_AGENT,
           'token': stored.token,
         },
-        body: new URLSearchParams({ devId: controllerId, port: '1' }).toString()
+        body: new URLSearchParams({ userId: stored.token }).toString()
       }
     )
 
@@ -708,153 +706,71 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       throw new Error(result.error || 'Failed to read sensor data')
     }
 
-    const data = result.data
-
-    // Check for server-side token expiry (code 1001)
-    if (data.code === 1001) {
-      log('warn', `Token expired server-side for ${controllerId}`, { code: data.code, msg: data.msg })
-      tokenStore.delete(controllerId)
-      throw new Error('Authentication token expired (server). Please reconnect.')
+    if (result.data.code !== 200 || !result.data.data) {
+      throw new Error(result.data.msg || 'Failed to get device list')
     }
 
-    if (data.code !== 200 || !data.data) {
-      throw new Error(data.msg || 'Failed to get device settings')
+    // Find our specific device in the list
+    const device = result.data.data.find(d => d.devId === controllerId)
+    if (!device) {
+      throw new Error(`Device ${controllerId} not found in account`)
     }
 
-    // DEBUG: Log FULL API response structure to understand what AC Infinity returns
-    const rawData = data.data as Record<string, unknown>
-    log('info', `FULL API response for ${controllerId}`, {
-      responseKeys: Object.keys(rawData),
-      // Log first 1000 chars of stringified response to see actual structure
-      responsePreview: JSON.stringify(rawData).substring(0, 1000),
-      // Check for various possible port/device field names
-      hasPortData: 'portData' in rawData,
-      hasPortList: 'portList' in rawData,
-      hasPorts: 'ports' in rawData,
-      hasDevPorts: 'devPorts' in rawData,
-      hasDevices: 'devices' in rawData,
-      hasDeviceList: 'deviceList' in rawData,
-      hasSettings: 'settings' in rawData,
-      hasModeSettings: 'modeSettings' in rawData,
-      hasDevModeSettingList: 'devModeSettingList' in rawData
+    const deviceInfo = (device as any).deviceInfo
+    if (!deviceInfo) {
+      throw new Error(`No deviceInfo for device ${controllerId}`)
+    }
+
+    log('info', `Got deviceInfo for ${controllerId}`, {
+      temperature: deviceInfo.temperature,
+      temperatureF: deviceInfo.temperatureF,
+      humidity: deviceInfo.humidity,
+      vpdnums: deviceInfo.vpdnums,
+      portsCount: deviceInfo.ports?.length || 0
     })
 
-    // Process explicit sensor probes from sensorData array
-    if (data.data.sensorData && data.data.sensorData.length > 0) {
-      for (const sensor of data.data.sensorData) {
-        const rawValue = sensor.sensorValue ?? sensor.value ?? 0
-        if (rawValue != null) {
-          readings.push({
-            port: 0,
-            type: this.mapSensorType(sensor.sensorType),
-            value: this.convertSensorValue(rawValue, sensor.sensorType),
-            unit: this.mapSensorUnit(sensor.sensorType),
-            timestamp: now,
-            isStale: false
-          })
-        }
-      }
-      log('info', `Found ${readings.length} sensors from sensorData array`)
+    // Extract temperature (temperatureF is in F × 100)
+    if (typeof deviceInfo.temperatureF === 'number') {
+      readings.push({
+        port: 0,
+        type: 'temperature',
+        value: Math.round(deviceInfo.temperatureF) / 100,
+        unit: 'F',
+        timestamp: now,
+        isStale: false
+      })
     }
 
-    // Check for built-in controller sensors at device level
-    if (typeof rawData.temperature === 'number' || typeof rawData.temp === 'number') {
-      const rawTempValue = (rawData.temperature as number) ?? (rawData.temp as number)
-      if (rawTempValue != null) {
-        const celsiusValue = rawTempValue / 100
-        const fahrenheitValue = (celsiusValue * 9/5) + 32
-        readings.push({
-          port: 0,
-          type: 'temperature',
-          value: Math.round(fahrenheitValue * 10) / 10,
-          unit: 'F',
-          timestamp: now,
-          isStale: false
-        })
-        log('info', 'Found device-level temperature sensor', { rawValue: rawTempValue, fahrenheit: fahrenheitValue })
-      }
+    // Extract humidity (humidity is % × 100)
+    if (typeof deviceInfo.humidity === 'number') {
+      readings.push({
+        port: 0,
+        type: 'humidity',
+        value: Math.round(deviceInfo.humidity) / 100,
+        unit: '%',
+        timestamp: now,
+        isStale: false
+      })
     }
 
-    if (typeof rawData.humidity === 'number') {
-      const rawHumidityValue = rawData.humidity as number
-      if (rawHumidityValue != null) {
-        const humidityValue = rawHumidityValue / 100
-        readings.push({
-          port: 0,
-          type: 'humidity',
-          value: Math.round(humidityValue * 10) / 10,
-          unit: '%',
-          timestamp: now,
-          isStale: false
-        })
-        log('info', 'Found device-level humidity sensor', { rawValue: rawHumidityValue, percentage: humidityValue })
-      }
-    }
-
-    if (typeof rawData.vpd === 'number') {
-      const rawVpdValue = rawData.vpd as number
-      if (rawVpdValue != null) {
-        const vpdValue = rawVpdValue / 100
-        readings.push({
-          port: 0,
-          type: 'vpd',
-          value: Math.round(vpdValue * 100) / 100,
-          unit: 'kPa',
-          timestamp: now,
-          isStale: false
-        })
-        log('info', 'Found device-level VPD sensor', { rawValue: rawVpdValue, kPa: vpdValue })
-      }
-    }
-
-    // Try to find port data under various field names
-    const portArray = data.data.portData ||
-      (rawData['portList'] as ACPort[]) ||
-      (rawData['ports'] as ACPort[]) ||
-      (rawData['devPorts'] as ACPort[]) ||
-      (rawData['deviceList'] as ACPort[])
-
-    if (portArray && Array.isArray(portArray) && portArray.length > 0) {
-      log('info', `Found ${portArray.length} ports in response`)
-      for (const port of portArray) {
-        log('info', `Port ${port.portId}`, {
-          portType: port.portType,
-          devType: port.devType,
-          surplus: port.surplus,
-          speak: port.speak,
-          onOff: port.onOff
-        })
-
-        if (port.surplus != null) {
-          if (port.devType === 10 || port.portType === 10 || port.portType === 7 || port.portType === 8) {
-            const sensorType = port.portType === 8 ? 'humidity' : 'temperature'
-            let transformedValue: number
-            if (sensorType === 'temperature') {
-              const celsiusValue = port.surplus / 100
-              transformedValue = Math.round(((celsiusValue * 9/5) + 32) * 10) / 10
-            } else {
-              transformedValue = Math.round((port.surplus / 100) * 10) / 10
-            }
-
-            readings.push({
-              port: port.portId,
-              type: sensorType,
-              value: transformedValue,
-              unit: sensorType === 'humidity' ? '%' : 'F',
-              timestamp: now,
-              isStale: false
-            })
-          }
-        }
-      }
-    } else {
-      log('warn', `No portData found in API response for ${controllerId}`)
+    // Extract VPD (vpdnums is kPa × 100)
+    if (typeof deviceInfo.vpdnums === 'number') {
+      readings.push({
+        port: 0,
+        type: 'vpd',
+        value: Math.round(deviceInfo.vpdnums) / 100,
+        unit: 'kPa',
+        timestamp: now,
+        isStale: false
+      })
     }
 
     log('info', `Read ${readings.length} sensor values from ${controllerId}`, {
-      sensorCount: readings.length,
-      types: readings.map(r => r.type)
+      temp: readings.find(r => r.type === 'temperature')?.value,
+      humidity: readings.find(r => r.type === 'humidity')?.value,
+      vpd: readings.find(r => r.type === 'vpd')?.value
     })
+
     return readings
   }
 
@@ -862,6 +778,12 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
    * Precision polling: Read sensors, ports, and modes with a single API call.
    * This provides a complete state of the controller including attached devices (ports),
    * their names, current modes, and all sensor readings.
+   *
+   * Uses devInfoListAll endpoint which returns complete data including:
+   * - deviceInfo.temperatureF (°F × 100)
+   * - deviceInfo.humidity (% × 100)
+   * - deviceInfo.vpdnums (kPa × 100)
+   * - deviceInfo.ports[] - array of port objects
    */
   async readSensorsAndPorts(controllerId: string): Promise<FullControllerData> {
     const stored = tokenStore.get(controllerId)
@@ -885,10 +807,10 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
     const readings: SensorReading[] = []
     const ports: PortState[] = []
 
-    // Make a single API call
-    const result = await adapterFetch<ACDeviceSettingResponse>(
+    // Use devInfoListAll - returns complete device info including ports
+    const result = await adapterFetch<ACDeviceListResponse>(
       ADAPTER_NAME,
-      `${API_BASE}/api/dev/getdevModeSettingList`,
+      `${API_BASE}/api/user/devInfoListAll`,
       {
         method: 'POST',
         headers: {
@@ -897,7 +819,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
           'User-Agent': USER_AGENT,
           'token': stored.token,
         },
-        body: new URLSearchParams({ devId: controllerId, port: '1' }).toString()
+        body: new URLSearchParams({ userId: stored.token }).toString()
       }
     )
 
@@ -905,140 +827,123 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       throw new Error(result.error || 'Failed to read device data')
     }
 
-    const data = result.data
-    if (data.code !== 200 || !data.data) {
-      throw new Error(data.msg || 'Failed to get device settings')
+    if (result.data.code !== 200 || !result.data.data) {
+      throw new Error(result.data.msg || 'Failed to get device list')
     }
 
-    const rawData = data.data
-    const dataAny = rawData as Record<string, unknown>
+    // Find our specific device in the list
+    const device = result.data.data.find(d => d.devId === controllerId)
+    if (!device) {
+      throw new Error(`Device ${controllerId} not found in account`)
+    }
 
-    // DEBUG: Log FULL response structure
-    log('info', `FULL readSensorsAndPorts response for ${controllerId}`, {
-      allKeys: Object.keys(dataAny),
-      fullResponse: JSON.stringify(dataAny).substring(0, 2000)
+    const deviceInfo = (device as any).deviceInfo
+    if (!deviceInfo) {
+      throw new Error(`No deviceInfo for device ${controllerId}`)
+    }
+
+    log('info', `readSensorsAndPorts deviceInfo for ${controllerId}`, {
+      temperatureF: deviceInfo.temperatureF,
+      humidity: deviceInfo.humidity,
+      vpdnums: deviceInfo.vpdnums,
+      portsCount: deviceInfo.ports?.length || 0
     })
 
-    // Process sensorData array
-    if (rawData.sensorData && rawData.sensorData.length > 0) {
-      for (const sensor of rawData.sensorData) {
-        const rawValue = sensor.sensorValue ?? sensor.value ?? 0
-        if (rawValue != null) {
-          readings.push({
-            port: 0,
-            type: this.mapSensorType(sensor.sensorType),
-            value: this.convertSensorValue(rawValue, sensor.sensorType),
-            unit: this.mapSensorUnit(sensor.sensorType),
-            timestamp: now,
-            isStale: false
-          })
-        }
-      }
+    // Extract temperature (temperatureF is in F × 100)
+    if (typeof deviceInfo.temperatureF === 'number') {
+      readings.push({
+        port: 0,
+        type: 'temperature',
+        value: Math.round(deviceInfo.temperatureF) / 100,
+        unit: 'F',
+        timestamp: now,
+        isStale: false
+      })
     }
 
-    // Device level sensors
-    if (typeof dataAny.temperature === 'number' || typeof dataAny.temp === 'number') {
-      const val = (dataAny.temperature as number) ?? (dataAny.temp as number)
-      if (val != null) {
-        readings.push({
-          port: 0,
-          type: 'temperature',
-          value: Math.round(((val/100) * 9/5 + 32) * 10) / 10,
-          unit: 'F',
-          timestamp: now,
-          isStale: false
-        })
-      }
-    }
-    if (typeof dataAny.humidity === 'number') {
-      const val = dataAny.humidity as number
-      if (val != null) {
-        readings.push({
-          port: 0,
-          type: 'humidity',
-          value: Math.round((val/100) * 10) / 10,
-          unit: '%',
-          timestamp: now,
-          isStale: false
-        })
-      }
-    }
-    if (typeof dataAny.vpd === 'number') {
-      const val = dataAny.vpd as number
-      if (val != null) {
-        readings.push({
-          port: 0,
-          type: 'vpd',
-          value: Math.round((val/100) * 100) / 100,
-          unit: 'kPa',
-          timestamp: now,
-          isStale: false
-        })
-      }
+    // Extract humidity (humidity is % × 100)
+    if (typeof deviceInfo.humidity === 'number') {
+      readings.push({
+        port: 0,
+        type: 'humidity',
+        value: Math.round(deviceInfo.humidity) / 100,
+        unit: '%',
+        timestamp: now,
+        isStale: false
+      })
     }
 
-    // Try to find port data under various field names
-    const portArray = rawData.portData ||
-      (dataAny['portList'] as ACPort[]) ||
-      (dataAny['ports'] as ACPort[]) ||
-      (dataAny['devPorts'] as ACPort[]) ||
-      (dataAny['deviceList'] as ACPort[])
+    // Extract VPD (vpdnums is kPa × 100)
+    if (typeof deviceInfo.vpdnums === 'number') {
+      readings.push({
+        port: 0,
+        type: 'vpd',
+        value: Math.round(deviceInfo.vpdnums) / 100,
+        unit: 'kPa',
+        timestamp: now,
+        isStale: false
+      })
+    }
 
-    if (portArray && Array.isArray(portArray) && portArray.length > 0) {
-      log('info', `Found ${portArray.length} ports in readSensorsAndPorts`)
-      for (const port of portArray) {
+    // Extract ports from deviceInfo.ports
+    const portsArray = deviceInfo.ports as any[]
+    if (portsArray && Array.isArray(portsArray)) {
+      log('info', `Found ${portsArray.length} ports in readSensorsAndPorts`)
+
+      for (const port of portsArray) {
+        // Port data structure from API:
+        // port: number, portName: string, speak: number (0-10), online: number, loadType: number
+        const portNum = port.port as number
+        const portName = (port.portName as string) || `Port ${portNum}`
+        const isOnline = port.online === 1
+        const powerLevel = port.speak as number || 0
+        const loadType = port.loadType as number || 0
+
+        // Map loadType to device type string
+        let loadTypeStr = 'outlet'
+        if (loadType === 0 || loadType === 6) loadTypeStr = 'fan'
+        else if (loadType === 2) loadTypeStr = 'humidifier'
+        else if (loadType === 128) loadTypeStr = 'light'
+
         ports.push({
-          port: port.portId,
-          portName: port.portName || `Port ${port.portId}`,
-          portType: port.portType,
-          deviceType: port.devType,
+          port: portNum,
+          portName: portName,
+          portType: loadType,
+          deviceType: loadType,
 
-          isConnected: port.onOff !== undefined,
-          isOn: port.onOff === 1,
-          isOnline: true,
+          isConnected: true,
+          isOn: powerLevel > 0,
+          isOnline: isOnline,
 
-          powerLevel: port.speak || 0,
+          powerLevel: powerLevel,
 
-          loadType: 'unknown',
-          devType: port.devType ? String(port.devType) : 'unknown',
+          loadType: loadTypeStr,
+          devType: String(loadType),
 
           surplus: port.surplus,
-          speak: port.speak,
+          speak: powerLevel,
           externalPort: port.externalPort,
 
           updatedAt: now
         })
 
-        // Port-based sensors
-        if (port.surplus != null && (port.devType === 10 || port.portType === 10 || port.portType === 7 || port.portType === 8)) {
-          const sensorType = port.portType === 8 ? 'humidity' : 'temperature'
-          let val: number
-          if (sensorType === 'temperature') {
-            val = Math.round(((port.surplus / 100) * 9/5 + 32) * 10) / 10
-          } else {
-            val = Math.round((port.surplus / 100) * 10) / 10
-          }
-          readings.push({
-            port: port.portId,
-            type: sensorType,
-            value: val,
-            unit: sensorType === 'humidity' ? '%' : 'F',
-            timestamp: now,
-            isStale: false
-          })
-        }
+        log('info', `Port ${portNum}: ${portName}, power=${powerLevel}, online=${isOnline}, loadType=${loadType}`)
       }
     } else {
-      log('warn', `No portData found in readSensorsAndPorts for ${controllerId}`)
+      log('warn', `No ports array found in deviceInfo for ${controllerId}`)
     }
 
     // Capture Raw API Data
     const rawCapture: RawApiCapture = {
-      endpoint: 'getdevModeSettingList',
-      responseHash: createHash('md5').update(JSON.stringify(rawData)).digest('hex'),
-      rawSensorData: rawData.sensorData || {},
-      rawPortData: rawData.portData || {},
-      rawModeData: rawData.devModeSettingList || {},
+      endpoint: 'devInfoListAll',
+      responseHash: createHash('md5').update(JSON.stringify(deviceInfo)).digest('hex'),
+      rawSensorData: {
+        temperatureF: deviceInfo.temperatureF,
+        humidity: deviceInfo.humidity,
+        vpdnums: deviceInfo.vpdnums
+      },
+      rawPortData: deviceInfo.ports || [],
+      rawModeData: {},
       latencyMs: 0,
       capturedAt: now
     }
@@ -1046,7 +951,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
     log('info', `readSensorsAndPorts complete for ${controllerId}`, {
       sensorCount: readings.length,
       portCount: ports.length,
-      ports: ports.map(p => ({ port: p.port, name: p.portName, isOn: p.isOn }))
+      ports: ports.map(p => ({ port: p.port, name: p.portName, isOn: p.isOn, power: p.powerLevel }))
     })
 
     return { sensors: readings, ports, modes: [], rawCapture }
@@ -1228,17 +1133,17 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
   }
 
   private async getDeviceCapabilities(controllerId: string, token: string) {
-    log('info', `Fetching capabilities for device ${controllerId}`)
+    log('info', `Fetching capabilities for device ${controllerId} via devInfoListAll`)
 
     const sensors: SensorCapability[] = []
     const devices: DeviceCapability[] = []
     let supportsDimming = false
 
     try {
-      // Make a single API call
-      const result = await adapterFetch<ACDeviceSettingResponse>(
+      // Use devInfoListAll - returns complete device info including ports
+      const result = await adapterFetch<ACDeviceListResponse>(
         ADAPTER_NAME,
-        `${API_BASE}/api/dev/getdevModeSettingList`,
+        `${API_BASE}/api/user/devInfoListAll`,
         {
           method: 'POST',
           headers: {
@@ -1247,116 +1152,78 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
             'User-Agent': USER_AGENT,
             'token': token,
           },
-          body: new URLSearchParams({ devId: controllerId, port: '1' }).toString()
+          body: new URLSearchParams({ userId: token }).toString()
         }
       )
 
-      if (!result.success || !result.data) {
+      if (!result.success || !result.data || result.data.code !== 200) {
         log('error', `Capabilities fetch failed for ${controllerId}`, { error: result.error })
         return this.emptyCapabilities()
       }
 
-      if (result.data.code !== 200 || !result.data.data) {
-        log('error', `Capabilities API error for ${controllerId}`, {
-          code: result.data.code,
-          msg: result.data.msg
-        })
+      // Find our specific device
+      const device = result.data.data?.find(d => d.devId === controllerId)
+      if (!device) {
+        log('error', `Device ${controllerId} not found in devInfoListAll`)
         return this.emptyCapabilities()
       }
 
-      const data = result.data.data
-      const dataAny = data as Record<string, unknown>
-
-      // DEBUG: Log FULL response to understand structure
-      log('info', `FULL capabilities response for ${controllerId}`, {
-        allKeys: Object.keys(dataAny),
-        // Log first 2000 chars of full response
-        fullResponse: JSON.stringify(dataAny).substring(0, 2000)
-      })
-
-      // Process sensor data
-      if (data.sensorData && Array.isArray(data.sensorData)) {
-        for (const sensor of data.sensorData) {
-          sensors.push({
-            port: 0,
-            name: sensor.sensorName,
-            type: this.mapSensorType(sensor.sensorType),
-            unit: this.mapSensorUnit(sensor.sensorType)
-          })
-        }
-        log('info', `Found ${sensors.length} sensors from sensorData`)
+      const deviceInfo = (device as any).deviceInfo
+      if (!deviceInfo) {
+        log('error', `No deviceInfo for device ${controllerId}`)
+        return this.emptyCapabilities()
       }
 
-      // Try to find port/device data under various field names
-      const portArray = data.portData ||
-        (dataAny['portList'] as ACPort[]) ||
-        (dataAny['ports'] as ACPort[]) ||
-        (dataAny['devPorts'] as ACPort[]) ||
-        (dataAny['deviceList'] as ACPort[])
+      // Add built-in sensors (all Controller 69s have temp/humidity/VPD)
+      sensors.push(
+        { port: 0, name: 'Temperature', type: 'temperature', unit: 'F' },
+        { port: 0, name: 'Humidity', type: 'humidity', unit: '%' },
+        { port: 0, name: 'VPD', type: 'vpd', unit: 'kPa' }
+      )
 
-      if (portArray && Array.isArray(portArray) && portArray.length > 0) {
-        log('info', `Found ${portArray.length} ports`, { ports: portArray })
-        for (const port of portArray) {
-          // Include all ports except empty/unused ports (devType 10 is "empty")
-          if (port.devType !== 10) {
-            const hasDimming = port.supportDim === 1
-            if (hasDimming) supportsDimming = true
+      // Extract ports from deviceInfo.ports
+      const ports = deviceInfo.ports as any[]
+      if (ports && Array.isArray(ports)) {
+        log('info', `Found ${ports.length} ports for ${controllerId}`)
 
-            devices.push({
-              port: port.portId,
-              name: port.portName || `Port ${port.portId}`,
-              type: this.mapDeviceType(port.portType),
-              supportsDimming: hasDimming,
-              minLevel: 0,
-              maxLevel: 10,
-              currentLevel: port.surplus,
-              isOn: port.onOff === 1
-            })
-            log('info', `Added device: port=${port.portId}, name=${port.portName}, type=${this.mapDeviceType(port.portType)}`)
-          }
-        }
-      } else {
-        log('warn', `No portData found - checking for devModeSettingList or other structures`)
+        for (const port of ports) {
+          // Port data structure from API:
+          // port: number, portName: string, speak: number (0-10), online: number, curMode: number, loadType: number
+          const portNum = port.port as number
+          const portName = (port.portName as string) || `Port ${portNum}`
+          const isOnline = port.online === 1
+          const powerLevel = port.speak as number || 0
+          const loadType = port.loadType as number || 0
 
-        // Check if devModeSettingList contains device/port info
-        if (dataAny['devModeSettingList'] && Array.isArray(dataAny['devModeSettingList'])) {
-          const modeList = dataAny['devModeSettingList'] as unknown[]
-          log('info', `Found devModeSettingList with ${modeList.length} entries`, {
-            sample: modeList.length > 0 ? JSON.stringify(modeList[0]).substring(0, 500) : 'empty'
-          })
-        }
+          // Map loadType to device type
+          // loadType: 0=fan, 2=humidifier, 6=fan, 128=light/heater
+          let deviceType: DeviceType = 'outlet'
+          if (loadType === 0 || loadType === 6) deviceType = 'fan'
+          else if (loadType === 2) deviceType = 'humidifier'
+          else if (loadType === 128) deviceType = 'light'
 
-        // For UIS devices (inline fans, LED bars, etc.) that don't have ports
-        const devType = (dataAny['devType'] as number) || 0
-        const isUISDevice = devType >= 11 && devType <= 15 || devType === 18
-
-        if (isUISDevice) {
-          log('info', `Device ${controllerId} is a UIS device (devType ${devType})`)
-
-          const deviceOnOff = (dataAny['onOff'] as number) ?? (dataAny['devOnOff'] as number) ?? 0
-          const deviceLevel = (dataAny['speak'] as number) ?? (dataAny['devSpeak'] as number) ?? (dataAny['surplus'] as number) ?? 0
-          const hasDimming = (dataAny['supportDim'] as number) === 1 || devType === 13
-
-          if (hasDimming) supportsDimming = true
+          // All ports support dimming (0-10 scale)
+          supportsDimming = true
 
           devices.push({
-            port: 0,
-            name: (dataAny['devName'] as string) || this.mapDeviceTypeToModel(devType),
-            type: this.mapDeviceType(devType <= 12 || devType === 14 || devType === 15 ? 1 : 2),
-            supportsDimming: hasDimming,
+            port: portNum,
+            name: portName,
+            type: deviceType,
+            supportsDimming: true,
             minLevel: 0,
             maxLevel: 10,
-            currentLevel: deviceLevel,
-            isOn: deviceOnOff === 1
+            currentLevel: powerLevel,
+            isOn: powerLevel > 0 && isOnline
           })
+
+          log('info', `Added device: port=${portNum}, name=${portName}, type=${deviceType}, level=${powerLevel}, online=${isOnline}`)
         }
       }
 
       log('info', `Capabilities loaded for ${controllerId}`, {
         sensorCount: sensors.length,
         deviceCount: devices.length,
-        supportsDimming,
-        devices: devices.map(d => ({ port: d.port, name: d.name, type: d.type }))
+        devices: devices.map(d => ({ port: d.port, name: d.name, type: d.type, level: d.currentLevel }))
       })
 
       return {
@@ -1368,9 +1235,8 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       }
 
     } catch (err) {
-      log('error', `Exception getting device capabilities for ${controllerId}`, {
-        error: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined
+      log('error', `Exception getting capabilities for ${controllerId}`, {
+        error: err instanceof Error ? err.message : String(err)
       })
       return this.emptyCapabilities()
     }
