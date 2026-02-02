@@ -1171,17 +1171,40 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       }
 
       // Find our specific device
-      const device = result.data.data?.find(d => d.devId === controllerId)
+      const allDevices = result.data.data || []
+      log('info', `devInfoListAll returned ${allDevices.length} devices`, {
+        deviceIds: allDevices.map((d: any) => d.devId),
+        lookingFor: controllerId
+      })
+
+      const device = allDevices.find((d: any) => d.devId === controllerId)
       if (!device) {
-        log('error', `Device ${controllerId} not found in devInfoListAll`)
+        log('error', `Device ${controllerId} not found in devInfoListAll`, {
+          availableIds: allDevices.map((d: any) => d.devId)
+        })
         return this.emptyCapabilities()
       }
 
+      log('info', `Found device ${controllerId}`, {
+        devName: device.devName,
+        hasDeviceInfo: !!(device as any).deviceInfo,
+        deviceKeys: Object.keys(device)
+      })
+
       const deviceInfo = (device as any).deviceInfo
       if (!deviceInfo) {
-        log('error', `No deviceInfo for device ${controllerId}`)
+        log('error', `No deviceInfo for device ${controllerId}`, {
+          deviceKeys: Object.keys(device),
+          rawDevice: JSON.stringify(device).slice(0, 500)
+        })
         return this.emptyCapabilities()
       }
+
+      log('info', `deviceInfo for ${controllerId}`, {
+        hasPortsArray: Array.isArray(deviceInfo.ports),
+        portsLength: deviceInfo.ports?.length,
+        deviceInfoKeys: Object.keys(deviceInfo)
+      })
 
       // Add built-in sensors (all Controller 69s have temp/humidity/VPD)
       sensors.push(

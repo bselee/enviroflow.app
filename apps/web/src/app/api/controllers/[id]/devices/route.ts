@@ -286,9 +286,18 @@ export async function GET(
       )
 
       console.log('[Devices GET] Using device ID:', controller.controller_id, 'for controller:', controller.name)
+      console.log('[Devices GET] Calling adapter.connect with credentials type:', brand)
 
       // Connect to get device capabilities
       const connectionResult = await adapter.connect(adapterCredentials)
+
+      console.log('[Devices GET] Connection result:', {
+        success: connectionResult.success,
+        controllerId: connectionResult.controllerId,
+        error: connectionResult.error,
+        hasMetadata: !!connectionResult.metadata,
+        hasCapabilities: !!connectionResult.metadata?.capabilities
+      })
 
       if (!connectionResult.success) {
         // Return empty list if offline
