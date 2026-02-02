@@ -19,6 +19,8 @@ interface LiveSensorDashboardProps {
   refreshInterval?: number;
   /** Additional CSS classes */
   className?: string;
+  /** Optional list of registered controller names to filter by (shows only these) */
+  registeredControllerNames?: string[];
 }
 
 // =============================================================================
@@ -228,6 +230,7 @@ function SensorCard({ sensor }: { sensor: LiveSensor }) {
 export function LiveSensorDashboard({
   refreshInterval = 30,
   className,
+  registeredControllerNames,
 }: LiveSensorDashboardProps) {
   const [data, setData] = useState<LiveSensorResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -440,9 +443,20 @@ export function LiveSensorDashboard({
       {/* Sensor Cards Grid */}
       {!loading && !error && data && data.sensors.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {data.sensors.map((sensor) => (
-            <SensorCard key={sensor.id} sensor={sensor} />
-          ))}
+          {data.sensors
+            .filter((sensor) => {
+              // If no filter provided, show all sensors
+              if (!registeredControllerNames || registeredControllerNames.length === 0) {
+                return true;
+              }
+              // Only show sensors whose name matches a registered controller
+              return registeredControllerNames.some(
+                (name) => name.toLowerCase().trim() === sensor.name.toLowerCase().trim()
+              );
+            })
+            .map((sensor) => (
+              <SensorCard key={sensor.id} sensor={sensor} />
+            ))}
         </div>
       )}
     </div>
