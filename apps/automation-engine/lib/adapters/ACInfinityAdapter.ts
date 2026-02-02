@@ -1060,7 +1060,7 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
   }
 
   /**
-   * Get current controller status
+   * Get current controller status using devInfoListAll endpoint
    */
   async getStatus(controllerId: string): Promise<ControllerStatus> {
     const stored = tokenStore.get(controllerId)
@@ -1073,9 +1073,9 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
     }
 
     try {
-      const result = await adapterFetch<ACDeviceSettingResponse>(
+      const result = await adapterFetch<ACDeviceListResponse>(
         ADAPTER_NAME,
-        `${API_BASE}/api/dev/getdevModeSettingList`,
+        `${API_BASE}/api/user/devInfoListAll`,
         {
           method: 'POST',
           headers: {
@@ -1084,13 +1084,22 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
             'User-Agent': USER_AGENT,
             'token': stored.token,
           },
-          body: new URLSearchParams({ devId: controllerId, port: '1' }).toString()
+          body: new URLSearchParams({ userId: stored.token }).toString()
         },
         { maxRetries: 1, timeoutMs: 5000 }
       )
 
+      if (!result.success || result.data?.code !== 200) {
+        return {
+          status: 'offline',
+          lastSeen: new Date()
+        }
+      }
+
+      // Check if our device exists in the list
+      const device = result.data.data?.find(d => d.devId === controllerId)
       return {
-        status: result.success && result.data?.code === 200 ? 'online' : 'offline',
+        status: device ? 'online' : 'offline',
         lastSeen: new Date()
       }
 
