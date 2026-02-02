@@ -103,7 +103,7 @@ export interface IntelligentTimelineProps {
 // Constants
 // =============================================================================
 
-const CHART_HEIGHT = 200;
+const CHART_HEIGHT = 280;
 const ANIMATION_DURATION = 600;
 
 const DEFAULT_OPTIMAL_RANGES: OptimalRanges = {
@@ -681,7 +681,7 @@ export function IntelligentTimeline({
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={sortedData}
-                margin={{ top: 5, right: 5, left: -20, bottom: 5 }}
+                margin={{ top: 5, right: 45, left: -10, bottom: 5 }}
               >
                 <XAxis
                   dataKey="timestamp"
@@ -692,32 +692,45 @@ export function IntelligentTimeline({
                   interval="preserveStartEnd"
                   minTickGap={60}
                 />
+                {/* Left Y-axis for Humidity (0-100%) */}
                 <YAxis
-                  yAxisId="left"
+                  yAxisId="humidity"
                   domain={[0, 100]}
-                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                  tick={{ fontSize: 10, fill: METRIC_COLORS.humidity.stroke }}
                   tickLine={false}
                   axisLine={false}
-                  width={30}
-                  tickFormatter={(value: number) => Math.round(value).toString()}
+                  width={35}
+                  tickFormatter={(value: number) => `${Math.round(value)}%`}
                 />
+                {/* Center Y-axis for Temperature (10-40°C range) */}
                 <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  domain={[0, 2]}
-                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                  yAxisId="temp"
+                  domain={[10, 40]}
+                  tick={{ fontSize: 10, fill: METRIC_COLORS.temperature.stroke }}
                   tickLine={false}
                   axisLine={false}
-                  width={30}
-                  tickFormatter={(value: number) => value.toFixed(1)}
+                  width={35}
+                  orientation="right"
+                  tickFormatter={(value: number) => `${Math.round(value)}°`}
+                />
+                {/* Right Y-axis for VPD (0-2.5 kPa) */}
+                <YAxis
+                  yAxisId="vpd"
+                  orientation="right"
+                  domain={[0, 2.5]}
+                  tick={{ fontSize: 10, fill: METRIC_COLORS.vpd.stroke }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={40}
+                  tickFormatter={(value: number) => `${value.toFixed(1)}`}
                 />
                 <Tooltip content={<CustomTooltip />} />
                 <Line
-                  yAxisId="left"
+                  yAxisId="temp"
                   type="monotone"
                   dataKey="temperature"
                   stroke={METRIC_COLORS.temperature.stroke}
-                  strokeWidth={1.5}
+                  strokeWidth={2}
                   dot={false}
                   activeDot={{ r: 4, strokeWidth: 0, fill: METRIC_COLORS.temperature.stroke }}
                   connectNulls={true}
@@ -725,11 +738,11 @@ export function IntelligentTimeline({
                   animationDuration={ANIMATION_DURATION}
                 />
                 <Line
-                  yAxisId="left"
+                  yAxisId="humidity"
                   type="monotone"
                   dataKey="humidity"
                   stroke={METRIC_COLORS.humidity.stroke}
-                  strokeWidth={1.5}
+                  strokeWidth={2}
                   dot={false}
                   activeDot={{ r: 4, strokeWidth: 0, fill: METRIC_COLORS.humidity.stroke }}
                   connectNulls={true}
@@ -737,11 +750,11 @@ export function IntelligentTimeline({
                   animationDuration={ANIMATION_DURATION}
                 />
                 <Line
-                  yAxisId="right"
+                  yAxisId="vpd"
                   type="monotone"
                   dataKey="vpd"
                   stroke={METRIC_COLORS.vpd.stroke}
-                  strokeWidth={1.5}
+                  strokeWidth={2}
                   dot={false}
                   activeDot={{ r: 4, strokeWidth: 0, fill: METRIC_COLORS.vpd.stroke }}
                   connectNulls={true}
@@ -755,30 +768,30 @@ export function IntelligentTimeline({
                     stroke="hsl(var(--warning))"
                     strokeWidth={2}
                     strokeDasharray="4 2"
-                    yAxisId="left"
+                    yAxisId="humidity"
                   />
                 ))}
               </LineChart>
             </ResponsiveContainer>
           </div>
 
-          {/* Legend */}
-          <div className="flex items-center justify-center gap-6 text-xs text-muted-foreground">
-            <div className="flex items-center gap-1.5">
-              <div className="w-4 h-0.5 rounded-full" style={{ backgroundColor: METRIC_COLORS.temperature.stroke }} />
-              <span>Temperature</span>
-            </div>
-            <div className="flex items-center gap-1.5">
+          {/* Legend - Color coded to match axes */}
+          <div className="flex items-center justify-center gap-4 text-xs flex-wrap">
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-blue-500/10">
               <div className="w-4 h-0.5 rounded-full" style={{ backgroundColor: METRIC_COLORS.humidity.stroke }} />
-              <span>Humidity</span>
+              <span style={{ color: METRIC_COLORS.humidity.stroke }}>Humidity %</span>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-red-500/10">
+              <div className="w-4 h-0.5 rounded-full" style={{ backgroundColor: METRIC_COLORS.temperature.stroke }} />
+              <span style={{ color: METRIC_COLORS.temperature.stroke }}>Temp °C</span>
+            </div>
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10">
               <div className="w-4 h-0.5 rounded-full" style={{ backgroundColor: METRIC_COLORS.vpd.stroke }} />
-              <span>VPD</span>
+              <span style={{ color: METRIC_COLORS.vpd.stroke }}>VPD kPa</span>
             </div>
             {sortedData.length > 1 && (
-              <span className="text-muted-foreground/50">
-                ({sortedData.length} readings)
+              <span className="text-muted-foreground/50 text-[10px]">
+                {sortedData.length} data points
               </span>
             )}
           </div>
