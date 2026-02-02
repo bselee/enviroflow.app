@@ -115,19 +115,18 @@ export async function GET(request: NextRequest) {
     console.warn('[CRON-DEBUG] Headers received:', JSON.stringify(allHeaders))
     console.warn('[CRON-DEBUG] CRON_SECRET env:', cronSecret ? `${cronSecret.substring(0, 4)}...(${cronSecret.length} chars)` : 'NOT SET')
 
-    // TEMPORARY: Allow unauthenticated access for debugging
-    // TODO: Remove after testing
-    const isVercelCron = request.headers.get('x-vercel-cron') === '1'
+    // Check authorization - accept either:
+    // 1. Authorization: Bearer ${CRON_SECRET} (Vercel cron standard)
+    // 2. Manual trigger from localhost/development
     const authMatches = authHeader === `Bearer ${cronSecret}`
 
-    if (!authMatches && !isVercelCron) {
-      // Log but DON'T block - temporarily allow for testing
-      log('warn', 'Auth check - allowing for debug', {
+    if (!authMatches) {
+      log('warn', 'Unauthorized cron request', {
         hasAuthHeader: !!authHeader,
-        isVercelCron,
-        authMatches
+        authHeaderLength: authHeader?.length || 0,
+        expectedLength: `Bearer ${cronSecret}`.length
       })
-      // TEMPORARILY DISABLED: return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const supabase = getSupabase()

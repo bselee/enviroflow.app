@@ -129,7 +129,7 @@ function convertVPD(rawVPD: number | undefined): number | null {
 
 /**
  * Extract sensor data from AC Infinity device object.
- * Checks both device-level properties and sensorInfo array.
+ * Checks both device-level properties and deviceInfo object.
  */
 function extractSensorData(device: ACInfinityDevice): {
   temperature: number | null
@@ -140,18 +140,30 @@ function extractSensorData(device: ACInfinityDevice): {
   let humidity: number | null = null
   let vpd: number | null = null
 
-  // Try device-level properties first
-  if (device.temperature !== undefined) {
+  // Data is nested in deviceInfo object
+  const info = device.deviceInfo
+
+  // Try deviceInfo properties first (this is where AC Infinity puts the data)
+  if (info?.temperature !== undefined) {
+    temperature = convertTemperature(info.temperature)
+  } else if (info?.temperatureF !== undefined) {
+    // temperatureF is already in Fahrenheit * 100
+    temperature = info.temperatureF / 100
+  } else if (device.temperature !== undefined) {
     temperature = convertTemperature(device.temperature)
   } else if (device.temp !== undefined) {
     temperature = convertTemperature(device.temp)
   }
 
-  if (device.humidity !== undefined) {
+  if (info?.humidity !== undefined) {
+    humidity = convertHumidity(info.humidity)
+  } else if (device.humidity !== undefined) {
     humidity = convertHumidity(device.humidity)
   }
 
-  if (device.vpd !== undefined) {
+  if (info?.vpdnums !== undefined) {
+    vpd = info.vpdnums / 100  // VPD is stored as vpdnums
+  } else if (device.vpd !== undefined) {
     vpd = convertVPD(device.vpd)
   }
 
@@ -184,16 +196,18 @@ function extractSensorData(device: ACInfinityDevice): {
  * Note: AC Infinity uses 0-10 scale for speed, convert to 0-100 percentage
  */
 function extractPorts(device: ACInfinityDevice): LivePort[] {
-  if (!device.portInfo || !Array.isArray(device.portInfo)) {
+  // Ports are in deviceInfo.ports, not device.portInfo
+  const ports = device.deviceInfo?.ports || device.portInfo
+  if (!ports || !Array.isArray(ports)) {
     return []
   }
 
-  return device.portInfo
-    .map((port) => ({
-      portId: port.portId,
-      name: port.portName || `Port ${port.portId}`,
+  return ports
+    .map((port: ACInfinityPort) => ({
+      portId: port.port || port.portId,
+      name: port.portName || `Port ${port.port || port.portId}`,
       speed: (port.speak ?? 0) * 10, // Convert 0-10 scale to 0-100 percentage
-      isOn: (port.surplus ?? 0) > 0,
+      isOn: port.loadState === 1 || (port.surplus ?? 0) > 0 || port.online === 1,
     }))
     .filter((port) => port.portId > 0) // Only include valid ports
 }
@@ -361,7 +375,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const sensors: LiveSensor[] = []
     const now = new Date().toISOString()
 
-    for (const device of apiResponse.data) {
+    console.log('[Live Sensors] API response code:', apiResponse.code, 'devices:', apiResponse.data?.length || 0)
+
+    for (const device of apiResponse.data || []) {
+      console.log('[Live Sensors] Processing device:', device.devName, 'devId:', device.devId, 'raw temp:', device.deviceInfo?.temperature, 'raw humidity:', device.deviceInfo?.humidity)
       const { temperature, humidity, vpd: rawVPD } = extractSensorData(device)
 
       // Skip devices without sensor data
