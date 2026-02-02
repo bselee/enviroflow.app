@@ -7,25 +7,18 @@
  * - Current temperature, humidity, and VPD values
  * - Connected devices (fans, lights, outlets) with current state
  *
- * Fetches LIVE data directly from AC Infinity API via /api/controllers/[id]/sensors
- * NO Supabase dependency - Supabase is only for historical charts.
+ * Uses database-backed sensor readings via useSensorReadings hook with Supabase Realtime.
+ * This avoids rate limiting issues by reading from cached data populated by the cron job.
  *
- * Inspired by AC Infinity's elegant data visualization.
+ * In compact mode (controllers list page), realtime subscriptions are disabled to reduce
+ * connection overhead. Instead, the component uses periodic polling (30s interval).
  */
 
-import { useState, useEffect, useCallback } from "react";
-import { Thermometer, Droplets, Gauge, Activity, Fan, Lightbulb, Power, Zap, RefreshCw } from "lucide-react";
+import { useMemo, useEffect, useCallback } from "react";
+import { Thermometer, Droplets, Gauge, Activity, Fan, Lightbulb, Power, Zap, Database } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDeviceControl, type DeviceState } from "@/hooks/use-device-control";
-import { createClient } from "@/lib/supabase";
-
-// Live sensor data from API
-interface LiveSensorData {
-  temperature: number | null;
-  humidity: number | null;
-  vpd: number | null;
-  timestamp: string | null;
-}
+import { useSensorReadings } from "@/hooks/use-sensor-readings";
 
 interface ControllerSensorPreviewProps {
   controllerId: string;
@@ -76,17 +69,15 @@ function DeviceStatusBadge({ device }: { device: DeviceState }) {
 }
 
 /**
- * Single sensor value display (simplified - no trends)
+ * Single sensor value display
  */
 function SensorValue({
   icon: Icon,
-  label,
   value,
   unit,
   color,
 }: {
   icon: React.ComponentType<{ className?: string }>;
-  label: string;
   value: number | null;
   unit: string;
   color: string;
@@ -111,131 +102,104 @@ function SensorValue({
   );
 }
 
+/**
+ * Format relative time for display
+ */
+function formatRelativeTime(timestamp: string | null): string {
+  if (!timestamp) return "No data";
+  const now = new Date();
+  const then = new Date(timestamp);
+  const diffMs = now.getTime() - then.getTime();
+  const diffMinutes = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMinutes / 60);
+
+  if (diffMinutes < 1) return "Just now";
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return then.toLocaleDateString();
+}
+
 export function ControllerSensorPreview({
   controllerId,
   className,
   compact = false,
   showDevices = true
 }: ControllerSensorPreviewProps) {
-  // Live sensor data state - fetched directly from AC Infinity API
-  const [sensorData, setSensorData] = useState<LiveSensorData>({
-    temperature: null,
-    humidity: null,
-    vpd: null,
-    timestamp: null,
+  // Use database-backed sensor readings
+  // In compact mode (controllers list), disable realtime to reduce connection overhead
+  // and use periodic polling instead
+  const {
+    isLoading: sensorsLoading,
+    error: sensorsError,
+    connectionStatus,
+    getLatestForController,
+    isStale,
+    refetch,
+  } = useSensorReadings({
+    controllerIds: [controllerId],
+    timeRangeHours: 1, // Only need recent data for preview
+    limit: 10, // Small limit for preview
+    enableRealtime: !compact, // Disable realtime for compact mode (controllers page)
   });
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Fetch connected devices
-  const { devices, isLoading: devicesLoading, error: devicesError } = useDeviceControl(controllerId);
-
-  // Debug log for devices
+  // In compact mode, use periodic polling instead of realtime subscriptions
+  // This reduces connection overhead when displaying multiple controller cards
   useEffect(() => {
-    console.log('[ControllerSensorPreview] Devices state:', {
-      controllerId,
-      deviceCount: devices.length,
-      devices: devices.map(d => ({ port: d.port, name: d.name, type: d.deviceType, isOn: d.isOn })),
-      devicesLoading,
-      devicesError,
-    });
-  }, [devices, devicesLoading, devicesError, controllerId]);
+    if (!compact) return;
 
-  /**
-   * Fetch live sensor data directly from AC Infinity API
-   * NO Supabase dependency - this is the direct API approach
-   */
-  const fetchLiveSensors = useCallback(async () => {
-    setIsRefreshing(true);
-    setError(null);
+    // Initial fetch is already handled by the hook
+    // Set up 30-second polling interval for compact mode
+    const interval = setInterval(() => {
+      refetch();
+    }, 30000);
 
-    try {
-      // Get auth token for the request
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
+    return () => clearInterval(interval);
+  }, [compact, refetch]);
 
-      const response = await fetch(`/api/controllers/${controllerId}/sensors?store=false`, {
-        headers: {
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-        },
-      });
+  // Fetch connected devices (still uses API for device capabilities)
+  const { devices, isLoading: devicesLoading } = useDeviceControl(controllerId);
 
-      const data = await response.json();
+  // Get latest aggregated sensor data
+  const latestData = useMemo(() => {
+    return getLatestForController(controllerId);
+  }, [getLatestForController, controllerId]);
 
-      if (response.ok && data.success && data.readings) {
-        // Extract sensor values from readings array
-        const tempReading = data.readings.find((r: { type: string }) => r.type === 'temperature');
-        const humidityReading = data.readings.find((r: { type: string }) => r.type === 'humidity');
-        const vpdReading = data.readings.find((r: { type: string }) => r.type === 'vpd');
+  // Extract sensor values
+  const sensorData = useMemo(() => ({
+    temperature: latestData.temperature?.value ?? null,
+    humidity: latestData.humidity?.value ?? null,
+    vpd: latestData.vpd?.value ?? null,
+    timestamp: latestData.temperature?.timestamp || latestData.humidity?.timestamp || null,
+  }), [latestData]);
 
-        setSensorData({
-          temperature: tempReading?.value ?? null,
-          humidity: humidityReading?.value ?? null,
-          vpd: vpdReading?.value ?? null,
-          timestamp: data.timestamp,
-        });
-
-        console.log('[ControllerSensorPreview] Live data fetched:', {
-          controllerId,
-          temp: tempReading?.value,
-          humidity: humidityReading?.value,
-          vpd: vpdReading?.value,
-        });
-      } else {
-        setError(data.error || 'Failed to fetch sensor data');
-        console.warn('[ControllerSensorPreview] API error:', data.error || data);
-      }
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Network error';
-      setError(errorMsg);
-      console.error('[ControllerSensorPreview] Fetch error:', err);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, [controllerId]);
-
-  // Fetch on mount
-  useEffect(() => {
-    fetchLiveSensors();
-  }, [fetchLiveSensors]);
+  // Check if data is stale (older than 10 minutes)
+  const dataIsStale = isStale(controllerId, 10);
 
   // Check if we have any data
   const hasData = sensorData.temperature !== null || sensorData.humidity !== null || sensorData.vpd !== null;
-
-  // Debug log
-  console.log('[ControllerSensorPreview] Render:', {
-    controllerId,
-    hasData,
-    temp: sensorData.temperature,
-    humidity: sensorData.humidity,
-    vpd: sensorData.vpd,
-    error,
-  });
-
-  // Check if we have any device data
   const hasDevices = devices.length > 0;
 
-  if (isLoading && devicesLoading) {
+  // Loading state
+  if (sensorsLoading && devicesLoading) {
     return (
       <div className={cn("animate-pulse bg-muted rounded-md h-16", className)} />
     );
   }
 
-  if (error && !hasData && !hasDevices) {
+  // Error state (only show if no data at all)
+  if (sensorsError && !hasData && !hasDevices) {
     return (
       <div className={cn(
         "flex items-center justify-center text-destructive/80 text-xs py-3 border rounded-md border-dashed border-destructive/30",
         className
       )}>
         <Activity className="w-3.5 h-3.5 mr-1.5 opacity-50" />
-        {error}
+        {sensorsError}
       </div>
     );
   }
 
+  // No data state
   if (!hasData && !hasDevices) {
     return (
       <div className={cn(
@@ -257,7 +221,6 @@ export function ControllerSensorPreview({
           {sensorData.temperature !== null && (
             <SensorValue
               icon={Thermometer}
-              label="Temp"
               value={sensorData.temperature}
               unit="°F"
               color="text-red-500"
@@ -266,7 +229,6 @@ export function ControllerSensorPreview({
           {sensorData.humidity !== null && (
             <SensorValue
               icon={Droplets}
-              label="Humidity"
               value={sensorData.humidity}
               unit="%"
               color="text-blue-500"
@@ -275,7 +237,6 @@ export function ControllerSensorPreview({
           {sensorData.vpd !== null && (
             <SensorValue
               icon={Gauge}
-              label="VPD"
               value={sensorData.vpd}
               unit="kPa"
               color="text-green-500"
@@ -294,10 +255,10 @@ export function ControllerSensorPreview({
     );
   }
 
-  // Full view - live data without sparklines (no historical data dependency)
+  // Full view - database-backed data with realtime updates
   return (
     <div className={cn("space-y-3", className)}>
-      {/* Live sensor values */}
+      {/* Sensor values */}
       <div className="grid grid-cols-3 gap-3">
         {/* Temperature */}
         <div className="space-y-1">
@@ -388,23 +349,29 @@ export function ControllerSensorPreview({
         </div>
       )}
 
-      {/* Status indicator */}
+      {/* Status indicator - shows realtime connection status */}
       <div className="flex items-center justify-between text-xs text-muted-foreground pt-2">
         <div className="flex items-center gap-1">
           <div className={cn(
             "w-1.5 h-1.5 rounded-full",
-            hasData ? "bg-green-500" : error ? "bg-red-500" : "bg-yellow-500"
+            connectionStatus === 'connected' ? "bg-green-500" :
+            connectionStatus === 'polling' ? "bg-yellow-500" :
+            connectionStatus === 'error' ? "bg-red-500" : "bg-blue-500"
           )} />
-          <span>{hasData ? "Live" : error ? "Error" : "Loading"}</span>
+          <Database className="w-3 h-3 opacity-50" />
+          <span>
+            {dataIsStale ? "Stale" :
+             connectionStatus === 'connected' ? "Live" :
+             connectionStatus === 'polling' ? "Polling" :
+             connectionStatus === 'connecting' ? "Connecting" :
+             "Offline"}
+          </span>
         </div>
-        <button
-          onClick={() => fetchLiveSensors()}
-          disabled={isRefreshing}
-          className="flex items-center gap-1 hover:text-foreground transition-colors"
-        >
-          <RefreshCw className={cn("w-3 h-3", isRefreshing && "animate-spin")} />
-          <span>Refresh</span>
-        </button>
+        {sensorData.timestamp && (
+          <span className="text-[10px]">
+            {formatRelativeTime(sensorData.timestamp)}
+          </span>
+        )}
       </div>
     </div>
   );
