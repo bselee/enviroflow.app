@@ -301,9 +301,10 @@ export async function GET(
       )
     }
 
-    // Rate limiting: 10 requests per minute per user
+    // Rate limiting: 30 requests per minute per user
+    // Allows ~10 requests per controller with 3 controllers
     const rateLimitResult = checkRateLimit(userId, {
-      maxRequests: 10,
+      maxRequests: 30,
       windowMs: 60 * 1000, // 1 minute
       keyPrefix: 'sensor-read'
     })

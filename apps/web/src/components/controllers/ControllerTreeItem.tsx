@@ -185,11 +185,20 @@ export function ControllerTreeItem({
           vpd: vpdReading?.value ?? null,
         });
         hasFetchedOnceRef.current = true;
+      } else if (response.status === 429) {
+        // Rate limited - keep existing data, don't show error if we already have data
+        if (!hasFetchedOnceRef.current) {
+          setSensorError("Rate limited - please wait");
+        }
+        // Don't clear existing sensor data on rate limit
       } else {
         setSensorError(data.error || "Failed to fetch sensors");
       }
     } catch (err) {
-      setSensorError(err instanceof Error ? err.message : "Network error");
+      // Network error - keep existing data if we have it
+      if (!hasFetchedOnceRef.current) {
+        setSensorError(err instanceof Error ? err.message : "Network error");
+      }
     } finally {
       setIsLoadingSensors(false);
       isFetchingRef.current = false;
@@ -203,8 +212,8 @@ export function ControllerTreeItem({
       return;
     }
 
-    // Stagger initial fetch: 1500ms delay per controller index (increased from 800ms)
-    const delay = index * 1500;
+    // Stagger initial fetch: 2500ms delay per controller index to avoid rate limits
+    const delay = index * 2500;
     const timeoutId = setTimeout(() => {
       fetchSensors();
     }, delay);
