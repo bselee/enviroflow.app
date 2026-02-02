@@ -134,21 +134,23 @@ export function DeviceTreeItem({ device, onControl, disabled }: DeviceTreeItemPr
   return (
     <div
       className={cn(
-        "flex items-center gap-3 py-2 px-3 rounded-lg transition-colors",
-        localIsOn ? "bg-success/5" : "bg-muted/30",
-        "hover:bg-muted/50"
+        "flex items-center gap-3 py-3 px-4 rounded-lg transition-all",
+        localIsOn 
+          ? "bg-gradient-to-r from-success/10 to-success/5 border border-success/20" 
+          : "bg-muted/30 border border-transparent",
+        "hover:shadow-sm"
       )}
     >
       {/* Device Icon */}
       <div
         className={cn(
-          "w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0",
-          localIsOn ? "bg-success/10" : "bg-muted"
+          "w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors",
+          localIsOn ? "bg-success/20" : "bg-muted"
         )}
       >
         <Icon
           className={cn(
-            "w-4 h-4",
+            "w-4 h-4 transition-colors",
             localIsOn ? "text-success" : "text-muted-foreground"
           )}
         />
@@ -157,36 +159,48 @@ export function DeviceTreeItem({ device, onControl, disabled }: DeviceTreeItemPr
       {/* Device Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate">{device.name}</span>
-          <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 flex-shrink-0">
+          <span className={cn(
+            "text-sm font-medium truncate",
+            localIsOn ? "text-foreground" : "text-muted-foreground"
+          )}>
+            {device.name}
+          </span>
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 flex-shrink-0 bg-muted/50">
             Port {device.port}
           </Badge>
         </div>
 
-        {/* Power Level Bar */}
+        {/* Power Level Bar - Thicker and more visible */}
         {device.supportsDimming && (
-          <div className="mt-1.5 flex items-center gap-2">
-            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+          <div className="mt-2 flex items-center gap-2">
+            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
               <div
                 className={cn(
                   "h-full rounded-full transition-all duration-300",
-                  localIsOn ? "bg-success" : "bg-muted-foreground/30"
+                  localIsOn ? "bg-gradient-to-r from-success to-green-400" : "bg-muted-foreground/20"
                 )}
                 style={{ width: `${powerBarWidth}%` }}
               />
             </div>
-            <span className="text-[10px] text-muted-foreground w-8 text-right tabular-nums">
-              {localLevel}%
-            </span>
           </div>
         )}
       </div>
 
-      {/* Controls */}
-      <div className="flex items-center gap-2 flex-shrink-0">
-        {/* Dimmer Slider (only when expanded/dimmable) */}
+      {/* Speed Display */}
+      {device.supportsDimming && (
+        <div className={cn(
+          "text-sm font-bold tabular-nums w-12 text-right",
+          localIsOn ? "text-success" : "text-muted-foreground"
+        )}>
+          {localLevel}%
+        </div>
+      )}
+
+      {/* Controls - Single slider when on, toggle always visible */}
+      <div className="flex items-center gap-3 flex-shrink-0">
+        {/* Dimmer Slider (when on and dimmable) */}
         {device.supportsDimming && localIsOn && (
-          <div className="w-20 hidden sm:block">
+          <div className="w-24 hidden sm:block">
             <Slider
               value={[localLevel]}
               onValueChange={handleLevelChange}
@@ -195,7 +209,7 @@ export function DeviceTreeItem({ device, onControl, disabled }: DeviceTreeItemPr
               max={device.maxLevel}
               step={10}
               disabled={disabled || isUpdating}
-              className="h-4"
+              className="h-5"
             />
           </div>
         )}

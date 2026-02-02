@@ -260,25 +260,31 @@ export function ControllerTreeItem({
           </p>
         </div>
 
-        {/* Inline Sensor Readings (collapsed view) */}
-        {!isExpanded && hasSensorData && (
-          <div className="hidden md:flex items-center gap-4 text-sm flex-shrink-0">
-            {sensorData.temperature !== null && (
-              <div className="flex items-center gap-1">
+        {/* Inline Sensor Readings - Show live data from Direct API, fallback to database */}
+        {!isExpanded && (liveSensor || hasSensorData) && (
+          <div className="hidden md:flex items-center gap-3 text-sm flex-shrink-0">
+            {(liveSensor?.temperature ?? sensorData.temperature) !== null && (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-500/10">
                 <Thermometer className="w-3.5 h-3.5 text-red-500" />
-                <span className="tabular-nums">{sensorData.temperature.toFixed(1)}°F</span>
+                <span className="tabular-nums font-medium text-red-600 dark:text-red-400">
+                  {(liveSensor?.temperature ?? sensorData.temperature)?.toFixed(1)}°C
+                </span>
               </div>
             )}
-            {sensorData.humidity !== null && (
-              <div className="flex items-center gap-1">
+            {(liveSensor?.humidity ?? sensorData.humidity) !== null && (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-500/10">
                 <Droplets className="w-3.5 h-3.5 text-blue-500" />
-                <span className="tabular-nums">{sensorData.humidity.toFixed(1)}%</span>
+                <span className="tabular-nums font-medium text-blue-600 dark:text-blue-400">
+                  {(liveSensor?.humidity ?? sensorData.humidity)?.toFixed(1)}%
+                </span>
               </div>
             )}
-            {sensorData.vpd !== null && (
-              <div className="flex items-center gap-1">
+            {(liveSensor?.vpd ?? sensorData.vpd) !== null && (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-green-500/10">
                 <Gauge className="w-3.5 h-3.5 text-green-500" />
-                <span className="tabular-nums">{sensorData.vpd.toFixed(2)} kPa</span>
+                <span className="tabular-nums font-medium text-green-600 dark:text-green-400">
+                  {(liveSensor?.vpd ?? sensorData.vpd)?.toFixed(2)}
+                </span>
               </div>
             )}
           </div>
@@ -334,44 +340,47 @@ export function ControllerTreeItem({
 
       {/* Expanded Content */}
       <CollapsibleContent>
-        <div className="bg-muted/20 px-4 py-3">
-          {/* Sensor Readings (expanded view) */}
-          {isLoadingSensors && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4 pb-3 border-b border-border/50">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Loading sensor data...</span>
-            </div>
-          )}
-          {sensorError && !hasSensorData && (
-            <div className="mb-4 pb-3 border-b border-border/50">
-              <p className="text-sm text-destructive">{sensorError}</p>
-            </div>
-          )}
-          {hasSensorData && (
-            <div className="flex items-center gap-6 text-sm mb-4 pb-3 border-b border-border/50">
-              {sensorData.temperature !== null && (
-                <div className="flex items-center gap-1.5">
-                  <Thermometer className="w-4 h-4 text-red-500" />
-                  <span className="font-medium tabular-nums">
-                    {sensorData.temperature.toFixed(1)}°F
-                  </span>
+        <div className="bg-muted/10 px-4 py-4">
+          {/* Live Sensor Data Section */}
+          {(liveSensor || hasSensorData) && (
+            <div className="flex flex-wrap items-center gap-4 mb-4 pb-3 border-b border-border/50">
+              {(liveSensor?.temperature ?? sensorData.temperature) !== null && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10">
+                  <Thermometer className="w-5 h-5 text-red-500" />
+                  <div className="text-right">
+                    <span className="text-lg font-bold tabular-nums text-red-600 dark:text-red-400">
+                      {(liveSensor?.temperature ?? sensorData.temperature)?.toFixed(1)}°C
+                    </span>
+                    <p className="text-[10px] text-muted-foreground">Temperature</p>
+                  </div>
                 </div>
               )}
-              {sensorData.humidity !== null && (
-                <div className="flex items-center gap-1.5">
-                  <Droplets className="w-4 h-4 text-blue-500" />
-                  <span className="font-medium tabular-nums">
-                    {sensorData.humidity.toFixed(1)}%
-                  </span>
+              {(liveSensor?.humidity ?? sensorData.humidity) !== null && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10">
+                  <Droplets className="w-5 h-5 text-blue-500" />
+                  <div className="text-right">
+                    <span className="text-lg font-bold tabular-nums text-blue-600 dark:text-blue-400">
+                      {(liveSensor?.humidity ?? sensorData.humidity)?.toFixed(1)}%
+                    </span>
+                    <p className="text-[10px] text-muted-foreground">Humidity</p>
+                  </div>
                 </div>
               )}
-              {sensorData.vpd !== null && (
-                <div className="flex items-center gap-1.5">
-                  <Gauge className="w-4 h-4 text-green-500" />
-                  <span className="font-medium tabular-nums">
-                    {sensorData.vpd.toFixed(2)} kPa
-                  </span>
+              {(liveSensor?.vpd ?? sensorData.vpd) !== null && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-500/10">
+                  <Gauge className="w-5 h-5 text-green-500" />
+                  <div className="text-right">
+                    <span className="text-lg font-bold tabular-nums text-green-600 dark:text-green-400">
+                      {(liveSensor?.vpd ?? sensorData.vpd)?.toFixed(2)}
+                    </span>
+                    <p className="text-[10px] text-muted-foreground">VPD (kPa)</p>
+                  </div>
                 </div>
+              )}
+              {liveSensor && (
+                <Badge variant="outline" className="text-[10px] text-green-600 border-green-600/30">
+                  ● Live
+                </Badge>
               )}
             </div>
           )}
@@ -392,10 +401,10 @@ export function ControllerTreeItem({
             </div>
           )}
 
-          {/* Devices Section */}
-          <div className="space-y-1">
-            <div className="text-xs font-medium text-muted-foreground mb-2">
-              Devices {hasLivePorts && <span className="text-green-500">(Live)</span>}
+          {/* Devices/Ports Section */}
+          <div className="space-y-2">
+            <div className="text-xs font-semibold text-foreground mb-3">
+              Ports {hasLivePorts && <Badge variant="outline" className="text-[10px] text-green-600 border-green-600/30 ml-1">Live</Badge>}
             </div>
 
             {isLoadingDevices && !hasLivePorts ? (
@@ -428,11 +437,15 @@ export function ControllerTreeItem({
             )}
           </div>
 
-          {/* Footer Info */}
-          <div className="mt-4 pt-3 border-t border-border/50 text-xs text-muted-foreground">
+          {/* Footer Info - Cleaner display */}
+          <div className="mt-4 pt-3 border-t border-border/50 text-[10px] text-muted-foreground/70">
             <div className="flex justify-between items-center">
-              <span>ID: {controller.controller_id}</span>
-              <span>Last seen: {formatRelativeTime(controller.last_seen)}</span>
+              <span className="font-mono">ID: {controller.controller_id.slice(0, 8)}...</span>
+              {liveSensor ? (
+                <span className="text-green-600">Live • Updated {formatRelativeTime(liveSensor.lastUpdate)}</span>
+              ) : (
+                <span>Last seen: {formatRelativeTime(controller.last_seen)}</span>
+              )}
             </div>
           </div>
         </div>
