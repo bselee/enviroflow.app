@@ -46,24 +46,43 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Controller not found', dbError }, { status: 404 })
     }
 
-    // Decrypt credentials
-    let credentials: { email?: string; password?: string }
+    // Decrypt credentials - show debug info
+    let credentials: Record<string, unknown>
     try {
-      credentials = decryptCredentials(controller.credentials_encrypted) as { email?: string; password?: string }
+      const raw = controller.credentials_encrypted
+      credentials = decryptCredentials(raw) as Record<string, unknown>
+
+      // If empty, return debug info
+      if (!credentials || Object.keys(credentials).length === 0) {
+        return NextResponse.json({
+          error: 'Decrypted to empty object',
+          rawType: typeof raw,
+          rawLength: typeof raw === 'string' ? raw.length : null,
+          rawPreview: typeof raw === 'string' ? raw.substring(0, 50) + '...' : JSON.stringify(raw).substring(0, 50),
+        }, { status: 400 })
+      }
     } catch (err) {
       return NextResponse.json({
         error: 'Failed to decrypt credentials',
         message: err instanceof Error ? err.message : String(err),
         credentialsField: typeof controller.credentials_encrypted,
+        rawPreview: typeof controller.credentials_encrypted === 'string'
+          ? controller.credentials_encrypted.substring(0, 50) + '...'
+          : 'not a string',
       }, { status: 400 })
     }
 
-    if (!credentials || !credentials.email || !credentials.password) {
+    // Check for email/password - they might be nested or have different names
+    const email = (credentials.email || credentials.Email || credentials.appEmail) as string | undefined
+    const password = (credentials.password || credentials.Password || credentials.appPassword) as string | undefined
+
+    if (!email || !password) {
       return NextResponse.json({
-        error: 'Invalid credentials structure',
-        hasEmail: !!credentials?.email,
-        hasPassword: !!credentials?.password,
-        credentialsKeys: credentials ? Object.keys(credentials) : [],
+        error: 'Missing email or password in credentials',
+        credentialsKeys: Object.keys(credentials),
+        hasEmail: !!email,
+        hasPassword: !!password,
+        // Show keys but not values for security
       }, { status: 400 })
     }
 
@@ -76,8 +95,8 @@ export async function GET(request: NextRequest) {
         'User-Agent': USER_AGENT,
       },
       body: new URLSearchParams({
-        appEmail: credentials.email,
-        appPasswordl: credentials.password,
+        appEmail: email,
+        appPasswordl: password,
       }).toString(),
     })
 
