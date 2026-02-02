@@ -1305,11 +1305,10 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
         log('info', `Raw portData for ${controllerId}:`, data.portData)
         for (const port of data.portData) {
           log('info', `Processing port ${port.portId}: devType=${port.devType}, portType=${port.portType}, name=${port.portName}`)
-          // devType 10 = sensor probe, portType 10 = sensor port
-          // Only include controllable devices (fans, lights, outlets), not sensors
-          // Sensors are ports WITH devType 10 or portType 10 - these are sensor probes, not controllable devices
-          const isSensorPort = port.devType === 10 || port.portType === 10
-          if (!isSensorPort) {
+          // devType 10 = sensor probe (not a controllable device)
+          // Only filter on devType, NOT portType - portType indicates the type of output (fan, light, etc)
+          // The original working code only checked devType !== 10
+          if (port.devType !== 10) {
             const hasDimming = port.supportDim === 1
             if (hasDimming) supportsDimming = true
 

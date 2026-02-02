@@ -298,14 +298,14 @@ export async function GET(
       })),
     })
 
-    // Filter out sensor ports (devType 10 or portType 10 are sensors, not controllable devices)
+    // Filter out sensor probes (devType 10 = sensor probe, not a controllable device)
+    // Only filter on devType, NOT portType - portType indicates output type (fan, light, etc)
     // Handle both number and string types (database may have stored as string)
     const controllablePorts = (cachedPorts || []).filter((port: CachedPort) => {
       const devType = typeof port.dev_type === 'string' ? parseInt(port.dev_type, 10) : port.dev_type
-      const portType = typeof port.port_type === 'string' ? parseInt(port.port_type, 10) : port.port_type
-      const isSensorPort = devType === 10 || portType === 10
-      console.log(`[Devices GET] Port ${port.port_number}: devType=${devType}, portType=${portType}, isSensor=${isSensorPort}`)
-      return !isSensorPort
+      const isSensorProbe = devType === 10
+      console.log(`[Devices GET] Port ${port.port_number}: devType=${devType}, isSensor=${isSensorProbe}`)
+      return !isSensorProbe
     })
 
     console.log('[Devices GET] After filtering:', {
