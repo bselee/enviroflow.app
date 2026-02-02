@@ -14,9 +14,18 @@ import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { checkRateLimit, createRateLimitHeaders } from '@/lib/rate-limit'
 import { safeError } from '@/lib/sanitize-log'
+import {
+  decryptCredentials as decryptCredentialsAES,
+  EncryptionError,
+} from '@/lib/server-encryption'
 
 import {
+  getAdapter,
   type ControllerBrand,
+  type ACInfinityCredentials,
+  type InkbirdCredentials,
+  type CSVUploadCredentials,
+  type DeviceCapability,
 } from '@enviroflow/automation-engine/adapters'
 
 // ============================================
@@ -95,6 +104,66 @@ async function getUserId(request: NextRequest, client: SupabaseClient): Promise<
   }
 
   return null
+}
+
+// ============================================
+// Credential Decryption Wrapper
+// ============================================
+
+function decryptCredentials(encrypted: string | Record<string, unknown>): {
+  success: boolean
+  credentials: Record<string, unknown>
+  error?: string
+} {
+  try {
+    const credentials = decryptCredentialsAES(encrypted)
+    return { success: true, credentials }
+  } catch (error) {
+    if (error instanceof EncryptionError) {
+      return {
+        success: false,
+        credentials: {},
+        error: 'Failed to decrypt stored credentials.',
+      }
+    }
+    return {
+      success: false,
+      credentials: {},
+      error: 'Unexpected error decrypting credentials.',
+    }
+  }
+}
+
+// ============================================
+// Credential Builder (for live API fallback)
+// ============================================
+
+function buildAdapterCredentials(
+  brand: ControllerBrand,
+  credentials: { email?: string; password?: string },
+  deviceId?: string
+): ACInfinityCredentials | InkbirdCredentials | CSVUploadCredentials {
+  switch (brand) {
+    case 'ac_infinity':
+      return {
+        type: 'ac_infinity',
+        email: credentials.email || '',
+        password: credentials.password || '',
+        deviceId: deviceId,
+      } satisfies ACInfinityCredentials
+    case 'inkbird':
+      return {
+        type: 'inkbird',
+        email: credentials.email || '',
+        password: credentials.password || '',
+      } satisfies InkbirdCredentials
+    case 'csv_upload':
+      return {
+        type: 'csv_upload',
+      } satisfies CSVUploadCredentials
+    default:
+      throw new Error(`Unsupported brand: ${brand}`)
+  }
 }
 
 // ============================================
@@ -215,15 +284,7 @@ export async function GET(
 
     if (portsError) {
       safeError('[Devices GET] Error fetching cached ports:', portsError)
-      return NextResponse.json(
-        {
-          success: false,
-          controller_id: id,
-          ports: [],
-          error: 'Failed to retrieve cached device information.',
-        },
-        { status: 500 }
-      )
+      // Continue to fallback instead of returning error
     }
 
     // Filter out sensor ports (devType 10 or portType 10 are sensors, not controllable devices)
@@ -232,48 +293,151 @@ export async function GET(
       return !isSensorPort
     })
 
-    // Map cached ports to device port info
-    const ports: DevicePortInfo[] = controllablePorts.map((port: CachedPort) => ({
-      port: port.port_number,
-      deviceType: mapDeviceType(port.device_type, port.port_type),
-      name: port.port_name || `Port ${port.port_number}`,
-      isOn: port.is_on || false,
-      // power_level is 0-10 in DB, convert to 0-100 for display
-      level: port.power_level !== null ? port.power_level * 10 : (port.surplus !== null ? port.surplus * 10 : 0),
-      supportsDimming: port.supports_dimming || false,
-      minLevel: 0,
-      maxLevel: 100,
-    }))
+    // If we have cached data, return it
+    if (controllablePorts.length > 0) {
+      // Map cached ports to device port info
+      const ports: DevicePortInfo[] = controllablePorts.map((port: CachedPort) => ({
+        port: port.port_number,
+        deviceType: mapDeviceType(port.device_type, port.port_type),
+        name: port.port_name || `Port ${port.port_number}`,
+        isOn: port.is_on || false,
+        // power_level is 0-10 in DB, convert to 0-100 for display
+        level: port.power_level !== null ? port.power_level * 10 : (port.surplus !== null ? port.surplus * 10 : 0),
+        supportsDimming: port.supports_dimming || false,
+        minLevel: 0,
+        maxLevel: 100,
+      }))
 
-    // Get the most recent update timestamp
-    const lastUpdated = cachedPorts && cachedPorts.length > 0
-      ? cachedPorts.reduce((latest: string | null, port: CachedPort) => {
-          if (!latest || (port.updated_at && port.updated_at > latest)) {
-            return port.updated_at
-          }
-          return latest
-        }, null)
-      : controller.last_seen
+      // Get the most recent update timestamp
+      const lastUpdated = cachedPorts.reduce((latest: string | null, port: CachedPort) => {
+        if (!latest || (port.updated_at && port.updated_at > latest)) {
+          return port.updated_at
+        }
+        return latest
+      }, null)
 
-    console.log('[Devices GET] Returning cached data:', {
-      controllerId: id,
-      portCount: ports.length,
-      lastUpdated,
-    })
+      console.log('[Devices GET] Returning cached data:', {
+        controllerId: id,
+        portCount: ports.length,
+        lastUpdated,
+      })
 
-    return NextResponse.json({
-      success: true,
-      controller_id: id,
-      controller_name: controller.name,
-      brand: controller.brand,
-      ports,
-      port_count: ports.length,
-      cached: true,
-      lastUpdated,
-      timestamp: new Date().toISOString(),
-    }, {
-      headers: createRateLimitHeaders(rateLimitResult)
-    })
+      return NextResponse.json({
+        success: true,
+        controller_id: id,
+        controller_name: controller.name,
+        brand: controller.brand,
+        ports,
+        port_count: ports.length,
+        cached: true,
+        lastUpdated,
+        timestamp: new Date().toISOString(),
+      }, {
+        headers: createRateLimitHeaders(rateLimitResult)
+      })
+    }
+
+    // FALLBACK: No cached data - fetch from live API
+    // This happens when cron job hasn't run yet for this controller
+    console.log('[Devices GET] No cached data, falling back to live API for:', controller.name)
+
+    try {
+      const adapter = getAdapter(brand)
+
+      // Decrypt stored credentials
+      const decryptResult = decryptCredentials(controller.credentials)
+      if (!decryptResult.success) {
+        return NextResponse.json({
+          success: true,
+          controller_id: id,
+          ports: [],
+          cached: false,
+          message: 'Waiting for data - cron job will populate device information shortly.',
+        }, {
+          headers: createRateLimitHeaders(rateLimitResult)
+        })
+      }
+
+      const storedCredentials = decryptResult.credentials
+      const adapterCredentials = buildAdapterCredentials(
+        brand,
+        {
+          email: storedCredentials.email as string,
+          password: storedCredentials.password as string,
+        },
+        controller.controller_id
+      )
+
+      // Connect to get device capabilities
+      const connectionResult = await adapter.connect(adapterCredentials)
+
+      if (!connectionResult.success) {
+        return NextResponse.json({
+          success: true,
+          controller_id: id,
+          ports: [],
+          cached: false,
+          status: 'offline',
+          message: 'Controller is offline. Unable to retrieve device information.',
+        }, {
+          headers: createRateLimitHeaders(rateLimitResult)
+        })
+      }
+
+      // Get device capabilities from metadata
+      const capabilities = connectionResult.metadata.capabilities
+      const devices = capabilities.devices || []
+
+      // Disconnect after getting capabilities
+      const controllerId = connectionResult.controllerId || id
+      try {
+        await adapter.disconnect(controllerId)
+      } catch {
+        // Ignore disconnect errors
+      }
+
+      // Map device capabilities to port info
+      const ports: DevicePortInfo[] = devices.map((device: DeviceCapability) => ({
+        port: device.port,
+        deviceType: device.type,
+        name: device.name || `Port ${device.port}`,
+        isOn: device.isOn || false,
+        level: device.currentLevel ? Math.round(device.currentLevel * 10) : 0,
+        supportsDimming: device.supportsDimming,
+        minLevel: device.minLevel ? device.minLevel * 10 : 0,
+        maxLevel: device.maxLevel ? device.maxLevel * 10 : 100,
+      }))
+
+      console.log('[Devices GET] Returning live API data:', {
+        controllerId: id,
+        portCount: ports.length,
+      })
+
+      return NextResponse.json({
+        success: true,
+        controller_id: id,
+        controller_name: controller.name,
+        brand: controller.brand,
+        ports,
+        port_count: ports.length,
+        cached: false,
+        timestamp: new Date().toISOString(),
+      }, {
+        headers: createRateLimitHeaders(rateLimitResult)
+      })
+
+    } catch (adapterError) {
+      safeError('[Devices GET] Fallback adapter error:', adapterError)
+      return NextResponse.json({
+        success: true,
+        controller_id: id,
+        ports: [],
+        cached: false,
+        message: 'Device data pending - will be available after cron job runs.',
+      }, {
+        headers: createRateLimitHeaders(rateLimitResult)
+      })
+    }
   } catch (error) {
     safeError('[Devices GET] Unexpected error:', error)
     return NextResponse.json(
