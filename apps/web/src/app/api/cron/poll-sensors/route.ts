@@ -111,8 +111,9 @@ export async function GET(request: NextRequest) {
         allHeaders[key] = value.substring(0, 50)
       }
     })
-    log('info', 'CRON REQUEST HEADERS', allHeaders)
-    log('info', 'CRON_SECRET configured', { length: cronSecret.length, prefix: cronSecret.substring(0, 4) })
+    // Use console.warn directly to ensure visibility in Vercel logs
+    console.warn('[CRON-DEBUG] Headers received:', JSON.stringify(allHeaders))
+    console.warn('[CRON-DEBUG] CRON_SECRET env:', cronSecret ? `${cronSecret.substring(0, 4)}...(${cronSecret.length} chars)` : 'NOT SET')
 
     if (authHeader !== `Bearer ${cronSecret}`) {
       log('warn', 'Unauthorized - header mismatch', {
