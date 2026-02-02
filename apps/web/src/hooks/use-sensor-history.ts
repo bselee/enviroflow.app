@@ -144,20 +144,28 @@ export function useSensorHistory(
     }
   }, [days, controllerIds, sensorType])
 
-  // Initial fetch
-  useEffect(() => {
-    if (enabled && !fetchedRef.current) {
-      fetchedRef.current = true
-      fetchHistory()
-    }
-  }, [enabled, fetchHistory])
+  // Track previous values to detect changes
+  const prevDaysRef = useRef(days)
+  const prevEnabledRef = useRef(enabled)
 
-  // Refetch when options change
+  // Initial fetch and refetch when options change
   useEffect(() => {
-    if (enabled && fetchedRef.current) {
+    if (!enabled) {
+      return
+    }
+
+    // Fetch if: first time, or days changed, or just became enabled
+    const shouldFetch = !fetchedRef.current || 
+                        prevDaysRef.current !== days ||
+                        (!prevEnabledRef.current && enabled)
+
+    if (shouldFetch) {
+      fetchedRef.current = true
+      prevDaysRef.current = days
+      prevEnabledRef.current = enabled
       fetchHistory()
     }
-  }, [days, controllerIds?.join(','), sensorType, enabled, fetchHistory])
+  }, [days, enabled, fetchHistory])
 
   return {
     data,
