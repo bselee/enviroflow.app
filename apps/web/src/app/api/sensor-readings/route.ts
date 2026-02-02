@@ -126,6 +126,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const { data, error: fetchError } = await query
 
+    // Debug logging
+    console.log('[SensorReadings API] Query result:', {
+      userId,
+      controllerIds,
+      timeRange: { from: startTime.toISOString(), to: endTime.toISOString() },
+      rowCount: data?.length || 0,
+      error: fetchError?.message
+    })
+
     if (fetchError) {
       console.error('[SensorReadings API] Query failed:', fetchError)
       return NextResponse.json(

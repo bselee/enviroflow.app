@@ -32,6 +32,19 @@ npm run lint             # ESLint
 
 ## Architecture
 
+> **📖 See `docs/ARCHITECTURE.md` for the complete, authoritative architecture guide.**
+
+### Data Flow Pattern
+
+**Live Sensor Data**: Direct API Polling (like Home Assistant)
+- Browser → Next.js API Route → AC Infinity Cloud API → Response
+- Poll every 10-30 seconds using `setInterval` + `fetch`
+- NO Supabase Realtime subscriptions for sensors
+
+**Configuration Data**: Supabase Storage Only
+- Rooms, controller credentials, historical readings
+- Standard CRUD operations, NOT real-time subscriptions
+
 ### Monorepo Structure
 
 Turborepo monorepo with two main applications:
@@ -87,8 +100,12 @@ Two client patterns exist:
 Hooks in `apps/web/src/hooks/` follow this pattern:
 - Return `{ data, loading, error, ...mutations }` state
 - Use `isMounted` ref to prevent state updates after unmount
-- Set up Supabase Realtime subscriptions for live updates
+- **LIVE SENSOR DATA**: Use Direct API Polling (see `docs/ARCHITECTURE.md`)
+- **CONFIGURATION DATA**: Use Supabase for storage only (rooms, credentials, history)
 - CRUD operations return `{ success: boolean, data?, error? }`
+
+> **⚠️ IMPORTANT: See `docs/ARCHITECTURE.md` for the authoritative data flow pattern.**
+> Sensor data MUST use Direct API Polling (like Home Assistant), NOT Supabase Realtime.
 
 ### Credential Encryption
 

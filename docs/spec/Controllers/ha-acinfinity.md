@@ -1,3 +1,18 @@
+# ⚠️ DEPRECATED - DO NOT USE THIS DOCUMENT
+
+> **This document contains outdated architecture patterns that caused conflicts.**
+> 
+> **See `/docs/ARCHITECTURE.md` for the authoritative architecture guide.**
+> 
+> The pattern below suggesting "Supabase Realtime" for sensor data is INCORRECT.
+> Use Direct API Polling as documented in ARCHITECTURE.md.
+
+---
+
+*Below is archived content - kept for reference only*
+
+---
+
 Perfect! Now I have the full context. The Home Assistant community shows **exactly how to solve your EnviroFlow problem**. Let me give you the concrete solution:
 
 ## **Why Home Assistant Works (and EnviroFlow Doesn't)**

@@ -1,3 +1,17 @@
+# ⚠️ DEPRECATED - DO NOT USE THIS DOCUMENT
+
+> **This document is now superseded by `/docs/ARCHITECTURE.md`.**
+> 
+> **See `/docs/ARCHITECTURE.md` for the authoritative architecture guide.**
+> 
+> The patterns below were a draft that has been refined and consolidated.
+
+---
+
+*Below is archived content - kept for reference only*
+
+---
+
 # EnviroFlow: Direct API + Optional 90-Day History (Multi-User Version)
 ## Auto-Token Management from Stored Credentials - Dashboard Independent from Supabase
 
