@@ -58,8 +58,8 @@ interface CachedPort {
   surplus: number | null
   supports_dimming: boolean
   updated_at: string
-  dev_type: number | null
-  port_type: number | null
+  dev_type: number | string | null // May be stored as string in DB
+  port_type: number | string | null // May be stored as string in DB
 }
 
 // ============================================
@@ -288,8 +288,11 @@ export async function GET(
     }
 
     // Filter out sensor ports (devType 10 or portType 10 are sensors, not controllable devices)
+    // Handle both number and string types (database may have stored as string)
     const controllablePorts = (cachedPorts || []).filter((port: CachedPort) => {
-      const isSensorPort = port.dev_type === 10 || port.port_type === 10
+      const devType = typeof port.dev_type === 'string' ? parseInt(port.dev_type, 10) : port.dev_type
+      const portType = typeof port.port_type === 'string' ? parseInt(port.port_type, 10) : port.port_type
+      const isSensorPort = devType === 10 || portType === 10
       return !isSensorPort
     })
 

@@ -1021,17 +1021,16 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
           port: port.portId,
           portName: port.portName,
           portType: port.portType,
-          deviceType: port.devType,
-          
+          devType: port.devType, // Keep as number for filtering
+          deviceType: this.mapDeviceType(port.portType), // Map to string type
+
           isConnected: port.onOff !== undefined,
           isOn: port.onOff === 1,
           isOnline: true,
-          
+
           powerLevel: port.speak || 0,
-          
-          loadType: 'unknown',
-          devType: port.devType ? String(port.devType) : 'unknown',
-          
+          loadType: port.loadType || 0,
+
           surplus: port.surplus,
           speak: port.speak,
           externalPort: port.externalPort,
