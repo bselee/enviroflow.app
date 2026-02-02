@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { Plus } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { IntelligentTimeline, type TimeSeriesData } from "@/components/dashboard/IntelligentTimeline";
@@ -14,6 +14,7 @@ import { SettingsSheet } from "@/components/settings";
 import { OnboardingTour } from "@/components/OnboardingTour";
 import { useDashboardData } from "@/hooks/use-dashboard-data";
 import { useLiveSensors } from "@/hooks/use-live-sensors";
+import { useSensorHistory, type AggregatedReading } from "@/hooks/use-sensor-history";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
@@ -81,26 +82,82 @@ export default function DashboardPage(): JSX.Element {
     history: liveHistory,
   } = useLiveSensors({ refreshInterval: 15, maxHistoryPoints: 200 });
 
+  // Timeline state
+  const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
+
+  // Determine if we need historical data from Supabase
+  const needsHistory = ['7d', '30d', '60d'].includes(timeRange);
+  const historyDays = timeRange === '60d' ? 60 : timeRange === '30d' ? 30 : 10;
+
+  // Historical sensor data from Supabase (only fetches when needed)
+  const {
+    data: historicalData,
+    loading: historyLoading,
+  } = useSensorHistory({
+    days: historyDays as 10 | 30 | 60,
+    enabled: needsHistory,
+  });
+
   // User preferences for dashboard settings
   const { preferences, getRoomPreferences } = useUserPreferences();
 
   // Dialog state for adding new rooms
   const [isAddRoomOpen, setIsAddRoomOpen] = useState(false);
 
-  // Timeline state
-  const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
+  /**
+   * Convert historical data from Supabase to timeline format.
+   * Groups by timestamp and combines temperature, humidity, vpd.
+   */
+  const transformedHistoricalData = useMemo((): TimeSeriesData[] => {
+    if (!historicalData || historicalData.length === 0) return [];
+
+    // Group by bucket_start timestamp
+    const byTimestamp = new Map<string, TimeSeriesData>();
+
+    for (const reading of historicalData) {
+      const timestamp = reading.bucket_start;
+      
+      if (!byTimestamp.has(timestamp)) {
+        byTimestamp.set(timestamp, {
+          timestamp,
+          controllerId: reading.controller_id,
+        });
+      }
+
+      const point = byTimestamp.get(timestamp)!;
+      
+      // Map sensor_type to property
+      switch (reading.sensor_type) {
+        case 'temperature':
+          point.temperature = reading.avg_value;
+          break;
+        case 'humidity':
+          point.humidity = reading.avg_value;
+          break;
+        case 'vpd':
+          point.vpd = reading.avg_value;
+          break;
+      }
+    }
+
+    // Convert to array and sort by timestamp
+    const result = Array.from(byTimestamp.values());
+    result.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    return result;
+  }, [historicalData]);
 
   /**
-   * Generate timeline data from live sensors when database data is empty.
-   * Uses accumulated history from live polling for immediate visualization.
+   * Generate timeline data from the appropriate source.
+   * - Short ranges (1h-24h): Use live polling data
+   * - Long ranges (7d-60d): Use Supabase historical data
    */
   const effectiveTimelineData = useMemo((): TimeSeriesData[] => {
-    // If we have database timeline data, use it
-    if (timelineData.length > 0) {
-      return timelineData;
+    // For long ranges, use historical data from Supabase
+    if (needsHistory && transformedHistoricalData.length > 0) {
+      return transformedHistoricalData;
     }
     
-    // Otherwise, use accumulated live history
+    // For short ranges, use accumulated live history
     if (liveHistory.length > 0) {
       return liveHistory.map(point => ({
         timestamp: point.timestamp,
@@ -108,6 +165,11 @@ export default function DashboardPage(): JSX.Element {
         humidity: point.humidity,
         vpd: point.vpd,
       }));
+    }
+    
+    // If we have database timeline data from dashboard hook, use it
+    if (timelineData.length > 0) {
+      return timelineData;
     }
     
     // Fallback: create a single point from current averages
@@ -122,7 +184,7 @@ export default function DashboardPage(): JSX.Element {
     }
     
     return [];
-  }, [timelineData, liveHistory, liveSensors, liveAverages]);
+  }, [needsHistory, transformedHistoricalData, liveHistory, timelineData, liveSensors, liveAverages]);
 
   /**
    * Transform rooms into the format expected by SettingsSheet.
@@ -228,7 +290,7 @@ export default function DashboardPage(): JSX.Element {
                   timeRange={timeRange}
                   onTimeRangeChange={handleTimeRangeChange}
                   optimalRanges={optimalRanges}
-                  isLoading={false}
+                  isLoading={needsHistory && historyLoading}
                 />
               )}
             </div>
