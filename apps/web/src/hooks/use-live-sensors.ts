@@ -14,6 +14,16 @@ export interface UseLiveSensorsOptions {
   autoRefresh?: boolean;
   /** Whether to fetch data on mount (default: true) */
   fetchOnMount?: boolean;
+  /** Max number of historical points to keep (default: 100) */
+  maxHistoryPoints?: number;
+}
+
+/** A single historical data point */
+export interface HistoryPoint {
+  timestamp: string;
+  temperature: number;
+  humidity: number;
+  vpd: number;
 }
 
 export interface UseLiveSensorsResult {
@@ -39,6 +49,8 @@ export interface UseLiveSensorsResult {
     humidity: number | null;
     vpd: number | null;
   };
+  /** Historical data points accumulated over time */
+  history: HistoryPoint[];
 }
 
 // =============================================================================
@@ -64,6 +76,7 @@ export function useLiveSensors(options: UseLiveSensorsOptions = {}): UseLiveSens
     refreshInterval = 15,
     autoRefresh = true,
     fetchOnMount = true,
+    maxHistoryPoints = 100,
   } = options;
 
   const [data, setData] = useState<LiveSensorResponse | null>(null);
@@ -71,6 +84,7 @@ export function useLiveSensors(options: UseLiveSensorsOptions = {}): UseLiveSens
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [history, setHistory] = useState<HistoryPoint[]>([]);
 
   const isMountedRef = useRef(true);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -100,7 +114,30 @@ export function useLiveSensors(options: UseLiveSensorsOptions = {}): UseLiveSens
 
       if (!isMountedRef.current) return;
 
-      setData(result);
+      setData(result)
+
+      // Add to history if we have valid sensor data
+      if (result.sensors && result.sensors.length > 0) {
+        const avgTemp = result.sensors.reduce((sum, s) => sum + (s.temperature ?? 0), 0) / result.sensors.length;
+        const avgHum = result.sensors.reduce((sum, s) => sum + (s.humidity ?? 0), 0) / result.sensors.length;
+        const avgVpd = result.sensors.reduce((sum, s) => sum + (s.vpd ?? 0), 0) / result.sensors.length;
+
+        const newPoint: HistoryPoint = {
+          timestamp: new Date().toISOString(),
+          temperature: avgTemp,
+          humidity: avgHum,
+          vpd: avgVpd,
+        };
+
+        setHistory((prev) => {
+          const updated = [...prev, newPoint];
+          // Keep only the last maxHistoryPoints
+          if (updated.length > maxHistoryPoints) {
+            return updated.slice(-maxHistoryPoints);
+          }
+          return updated;
+        });
+      };
       setLastUpdate(new Date());
       setError(null);
     } catch (err) {
@@ -186,5 +223,6 @@ export function useLiveSensors(options: UseLiveSensorsOptions = {}): UseLiveSens
     responseTimeMs: data?.responseTimeMs ?? null,
     refresh,
     averages,
+    history,
   };
 }

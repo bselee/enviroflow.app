@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { Plus } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { IntelligentTimeline } from "@/components/dashboard/IntelligentTimeline";
+import { IntelligentTimeline, type TimeSeriesData } from "@/components/dashboard/IntelligentTimeline";
 import { ConnectCTA } from "@/components/dashboard/DemoMode";
 import { LiveSensorDashboard } from "@/components/LiveSensorDashboard";
 import { Button } from "@/components/ui/button";
@@ -27,7 +27,7 @@ import type { RoomOption } from "@/components/settings";
 /**
  * Default time range for the timeline chart.
  */
-const DEFAULT_TIME_RANGE: TimeRange = "24h";
+const DEFAULT_TIME_RANGE: TimeRange = "1d";
 
 // =============================================================================
 // Loading Skeletons
@@ -75,8 +75,11 @@ export default function DashboardPage(): JSX.Element {
 
   // Live sensor data from Direct API (bypasses Supabase)
   const {
+    sensors: liveSensors,
+    averages: liveAverages,
     loading: liveSensorsLoading,
-  } = useLiveSensors({ refreshInterval: 15 });
+    history: liveHistory,
+  } = useLiveSensors({ refreshInterval: 15, maxHistoryPoints: 200 });
 
   // User preferences for dashboard settings
   const { preferences, getRoomPreferences } = useUserPreferences();
@@ -86,6 +89,40 @@ export default function DashboardPage(): JSX.Element {
 
   // Timeline state
   const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
+
+  /**
+   * Generate timeline data from live sensors when database data is empty.
+   * Uses accumulated history from live polling for immediate visualization.
+   */
+  const effectiveTimelineData = useMemo((): TimeSeriesData[] => {
+    // If we have database timeline data, use it
+    if (timelineData.length > 0) {
+      return timelineData;
+    }
+    
+    // Otherwise, use accumulated live history
+    if (liveHistory.length > 0) {
+      return liveHistory.map(point => ({
+        timestamp: point.timestamp,
+        temperature: point.temperature,
+        humidity: point.humidity,
+        vpd: point.vpd,
+      }));
+    }
+    
+    // Fallback: create a single point from current averages
+    if (liveSensors.length > 0 && liveAverages.temperature !== null) {
+      const now = new Date().toISOString();
+      return [{
+        timestamp: now,
+        temperature: liveAverages.temperature,
+        humidity: liveAverages.humidity ?? undefined,
+        vpd: liveAverages.vpd ?? undefined,
+      }];
+    }
+    
+    return [];
+  }, [timelineData, liveHistory, liveSensors, liveAverages]);
 
   /**
    * Transform rooms into the format expected by SettingsSheet.
@@ -185,7 +222,8 @@ export default function DashboardPage(): JSX.Element {
                 <TimelineSkeleton />
               ) : (
                 <IntelligentTimeline
-                  data={timelineData}
+                  data={effectiveTimelineData}
+                  liveSensors={liveSensors}
                   focusMetric={preferences.primaryMetric === "co2" ? "vpd" : preferences.primaryMetric}
                   timeRange={timeRange}
                   onTimeRangeChange={handleTimeRangeChange}

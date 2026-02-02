@@ -42,7 +42,7 @@ import { DeviceTreeItem } from "./DeviceTreeItem";
 import { useDeviceControl } from "@/hooks/use-device-control";
 import { useSensorReadings } from "@/hooks/use-sensor-readings";
 import { cn } from "@/lib/utils";
-import type { ControllerWithRoom } from "@/types";
+import type { ControllerWithRoom, LiveSensor } from "@/types";
 
 // ============================================
 // Types
@@ -57,6 +57,8 @@ interface ControllerTreeItemProps {
   onRefresh: () => void;
   /** Index for staggering initial data fetch to avoid rate limits */
   index?: number;
+  /** Live sensor data from Direct API (includes ports) */
+  liveSensor?: LiveSensor;
 }
 
 interface LiveSensorData {
@@ -97,6 +99,7 @@ export function ControllerTreeItem({
   onAssignRoom,
   onRefresh,
   index = 0,
+  liveSensor,
 }: ControllerTreeItemProps) {
   // Use the sensor readings hook - reads from database, gets realtime updates
   // No API calls to AC Infinity - data is populated by cron job
@@ -120,21 +123,39 @@ export function ControllerTreeItem({
     vpd: latestSensors.vpd?.value ?? null,
   };
 
+  // Get live ports from Direct API (much faster than adapter fetch)
+  const livePorts = liveSensor?.ports || [];
+  const hasLivePorts = livePorts.length > 0;
+
   // Track if user has explicitly expanded this controller (vs restored from localStorage)
   const [userExpanded, setUserExpanded] = useState(false);
   const hasLoadedDevices = useRef(false);
 
-  // Only load devices after user explicitly expands, not from localStorage restore
-  // This prevents all previously-expanded controllers from fetching at once on page load
-  const shouldFetchDevices = isExpanded && (userExpanded || hasLoadedDevices.current);
+  // Fetch from adapter API when expanded AND we don't have live ports
+  // Simplified logic: always fetch if expanded and no live ports available
+  const shouldFetchDevices = isExpanded && !hasLivePorts;
 
   const {
-    devices,
+    devices: adapterDevices,
     isLoading: isLoadingDevices,
     error: devicesError,
     controlDevice,
     refreshDevices,
   } = useDeviceControl(shouldFetchDevices ? controller.id : "");
+
+  // Use live ports if available, otherwise fall back to adapter devices
+  const devices = hasLivePorts 
+    ? livePorts.map(port => ({
+        port: port.portId,
+        deviceType: 'device',
+        name: port.name,
+        isOn: port.isOn,
+        level: port.speed, // Already 0-100
+        supportsDimming: true,
+        minLevel: 0,
+        maxLevel: 100,
+      }))
+    : adapterDevices;
 
   // Track when devices have been loaded for this session
   useEffect(() => {
@@ -143,7 +164,7 @@ export function ControllerTreeItem({
     }
   }, [isExpanded, devices.length]);
 
-  const isOnline = controller.status === "online";
+  const isOnline = liveSensor?.online ?? (controller.status === "online");
   const lastSeenDate = controller.last_seen ? new Date(controller.last_seen) : null;
   const offlineForLong = lastSeenDate
     ? Date.now() - lastSeenDate.getTime() > 24 * 60 * 60 * 1000
@@ -156,7 +177,7 @@ export function ControllerTreeItem({
   const handleRefresh = async () => {
     // Refetch sensor data from database
     await refetchSensors();
-    if (isExpanded) {
+    if (isExpanded && !hasLivePorts) {
       await refreshDevices();
     }
     onRefresh();
@@ -374,15 +395,15 @@ export function ControllerTreeItem({
           {/* Devices Section */}
           <div className="space-y-1">
             <div className="text-xs font-medium text-muted-foreground mb-2">
-              Devices
+              Devices {hasLivePorts && <span className="text-green-500">(Live)</span>}
             </div>
 
-            {isLoadingDevices ? (
+            {isLoadingDevices && !hasLivePorts ? (
               <div className="flex items-center justify-center py-6">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 <span className="ml-2 text-sm text-muted-foreground">Loading devices from {controller.brand.replace("_", " ")}...</span>
               </div>
-            ) : devicesError ? (
+            ) : devicesError && !hasLivePorts ? (
               <div className="text-center py-4">
                 <p className="text-sm text-destructive mb-1">{devicesError}</p>
                 <p className="text-xs text-muted-foreground">

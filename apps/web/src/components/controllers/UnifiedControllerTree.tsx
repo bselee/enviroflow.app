@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { ControllerTreeItem } from "./ControllerTreeItem";
-import type { ControllerWithRoom } from "@/types";
+import type { ControllerWithRoom, LiveSensor } from "@/types";
 
 // ============================================
 // Types
@@ -21,6 +21,8 @@ interface UnifiedControllerTreeProps {
   onRefresh: () => void;
   onDelete: (id: string) => void;
   onAssignRoom: (controller: ControllerWithRoom) => void;
+  /** Live sensor data from Direct API (bypasses database) */
+  liveSensors?: LiveSensor[];
 }
 
 // Storage key for persisted expand state
@@ -35,9 +37,34 @@ export function UnifiedControllerTree({
   onRefresh,
   onDelete,
   onAssignRoom,
+  liveSensors,
 }: UnifiedControllerTreeProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [isInitialized, setIsInitialized] = useState(false);
+
+  // Create maps for looking up LiveSensor by ID or name
+  const liveSensorById = new Map<string, LiveSensor>();
+  const liveSensorByName = new Map<string, LiveSensor>();
+  if (liveSensors) {
+    for (const sensor of liveSensors) {
+      liveSensorById.set(sensor.id, sensor);
+      // Also index by name (lowercased) as fallback
+      liveSensorByName.set(sensor.name.toLowerCase().trim(), sensor);
+    }
+  }
+
+  // Helper to find matching live sensor for a controller
+  const findLiveSensor = (controller: ControllerWithRoom): LiveSensor | undefined => {
+    // Try exact ID match first
+    const byId = liveSensorById.get(controller.controller_id);
+    if (byId) return byId;
+    
+    // Fall back to name match
+    const byName = liveSensorByName.get(controller.name.toLowerCase().trim());
+    if (byName) return byName;
+    
+    return undefined;
+  };
 
   // Load persisted expand state from localStorage
   useEffect(() => {
@@ -94,6 +121,7 @@ export function UnifiedControllerTree({
           onAssignRoom={onAssignRoom}
           onRefresh={onRefresh}
           index={index}
+          liveSensor={findLiveSensor(controller)}
         />
       ))}
     </div>

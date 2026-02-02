@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useControllers } from "@/hooks/use-controllers";
+import { useLiveSensors } from "@/hooks/use-live-sensors";
 import { createClient } from "@/lib/supabase";
 import { useRooms } from "@/hooks/use-rooms";
 import { AddControllerDialog } from "@/components/controllers/AddControllerDialog";
@@ -74,6 +75,13 @@ export default function ControllersPage() {
     fetchRooms,
   } = useControllers();
   const { createRoom } = useRooms();
+  
+  // Fetch live sensor data from Direct API for real-time readings and port status
+  const { sensors: liveSensors, refresh: refreshLiveSensors } = useLiveSensors({
+    refreshInterval: 15,
+    autoRefresh: true,
+  });
+  
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [controllerToDelete, setControllerToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -165,9 +173,10 @@ export default function ControllersPage() {
             ) : controllers.length > 0 ? (
               <UnifiedControllerTree
                 controllers={controllers}
-                onRefresh={refresh}
+                onRefresh={() => { refresh(); refreshLiveSensors(); }}
                 onDelete={setControllerToDelete}
                 onAssignRoom={setControllerToAssign}
+                liveSensors={liveSensors}
               />
             ) : (
               <div className="text-center py-16">
