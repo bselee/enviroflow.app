@@ -660,12 +660,15 @@ export function useDashboardData(
       // This provides a fallback when polling is failing but old data exists
       let finalSensorReadings = sensorsResult.data || [];
 
-      // Debug logging
+      // Debug logging - check auth state
+      const { data: authData } = await supabase.auth.getSession();
       console.log('[useDashboardData] Sensor readings query result:', {
         count: finalSensorReadings.length,
         error: sensorsResult.error?.message,
         startTime: startTime.toISOString(),
         sampleReading: finalSensorReadings[0],
+        isAuthenticated: !!authData?.session,
+        userId: authData?.session?.user?.id?.substring(0, 8) + '...',
       });
 
       if (finalSensorReadings.length === 0) {

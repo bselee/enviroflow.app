@@ -18,6 +18,7 @@ import { AddRoomDialog } from "@/components/dashboard/AddRoomDialog";
 import { SettingsSheet } from "@/components/settings";
 import { OnboardingTour } from "@/components/OnboardingTour";
 import { useDashboardData } from "@/hooks/use-dashboard-data";
+import { useLiveSensors } from "@/hooks/use-live-sensors";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
@@ -128,6 +129,13 @@ export default function DashboardPage(): JSX.Element {
     isTransitioningFromDemo,
   } = useDashboardData();
 
+  // Live sensor data from Direct API (bypasses Supabase)
+  const {
+    sensors: liveSensors,
+    averages: liveAverages,
+    loading: liveSensorsLoading,
+  } = useLiveSensors({ refreshInterval: 15 });
+
   // User preferences for dashboard settings
   const { preferences, getRoomPreferences } = useUserPreferences();
 
@@ -136,6 +144,33 @@ export default function DashboardPage(): JSX.Element {
 
   // Timeline state
   const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
+
+  /**
+   * Merge environment snapshot with live sensor data.
+   * Uses live sensor data when Supabase data is unavailable or in demo mode.
+   */
+  const mergedEnvironmentSnapshot = useMemo(() => {
+    // If we have real Supabase data with actual values, use it
+    const hasSupabaseData = environmentSnapshot.vpd !== null && !isDemoMode;
+    
+    if (hasSupabaseData) {
+      return environmentSnapshot;
+    }
+
+    // Otherwise, use live sensor data
+    if (liveAverages.vpd !== null) {
+      return {
+        ...environmentSnapshot,
+        vpd: liveAverages.vpd,
+        temperature: liveAverages.temperature,
+        humidity: liveAverages.humidity,
+        isConnected: liveSensors.length > 0,
+      };
+    }
+
+    // Fall back to original snapshot (demo data or null)
+    return environmentSnapshot;
+  }, [environmentSnapshot, liveAverages, liveSensors.length, isDemoMode]);
 
   /**
    * Transform rooms into the format expected by SettingsSheet.
@@ -151,10 +186,10 @@ export default function DashboardPage(): JSX.Element {
    * Get current environment values for settings preview.
    */
   const currentValues = useMemo(() => ({
-    vpd: environmentSnapshot.vpd ?? undefined,
-    temperature: environmentSnapshot.temperature ?? undefined,
-    humidity: environmentSnapshot.humidity ?? undefined,
-  }), [environmentSnapshot]);
+    vpd: mergedEnvironmentSnapshot.vpd ?? undefined,
+    temperature: mergedEnvironmentSnapshot.temperature ?? undefined,
+    humidity: mergedEnvironmentSnapshot.humidity ?? undefined,
+  }), [mergedEnvironmentSnapshot]);
 
   /**
    * Get optimal ranges from user preferences or use defaults.
@@ -262,36 +297,36 @@ export default function DashboardPage(): JSX.Element {
               isTransitioningFromDemo && "opacity-50"
             )}
           >
-            {isLoading ? (
+            {isLoading && liveSensorsLoading ? (
               <EnvironmentSnapshotSkeleton />
             ) : (
               <EnvironmentSnapshot
-                vpd={environmentSnapshot.vpd}
-                temperature={environmentSnapshot.temperature}
-                humidity={environmentSnapshot.humidity}
+                vpd={mergedEnvironmentSnapshot.vpd}
+                temperature={mergedEnvironmentSnapshot.temperature}
+                humidity={mergedEnvironmentSnapshot.humidity}
                 temperatureUnit={preferences.temperatureUnit}
-                isConnected={environmentSnapshot.isConnected}
+                isConnected={mergedEnvironmentSnapshot.isConnected}
                 trends={{
-                  temperature: environmentSnapshot.trends.temperature
+                  temperature: mergedEnvironmentSnapshot.trends?.temperature
                     ? {
-                        delta: environmentSnapshot.trends.temperature.delta,
-                        period: environmentSnapshot.trends.temperature.period,
+                        delta: mergedEnvironmentSnapshot.trends.temperature.delta,
+                        period: mergedEnvironmentSnapshot.trends.temperature.period,
                       }
                     : undefined,
-                  humidity: environmentSnapshot.trends.humidity
+                  humidity: mergedEnvironmentSnapshot.trends?.humidity
                     ? {
-                        delta: environmentSnapshot.trends.humidity.delta,
-                        period: environmentSnapshot.trends.humidity.period,
+                        delta: mergedEnvironmentSnapshot.trends.humidity.delta,
+                        period: mergedEnvironmentSnapshot.trends.humidity.period,
                       }
                     : undefined,
-                  vpd: environmentSnapshot.trends.vpd
+                  vpd: mergedEnvironmentSnapshot.trends?.vpd
                     ? {
-                        delta: environmentSnapshot.trends.vpd.delta,
-                        period: environmentSnapshot.trends.vpd.period,
+                        delta: mergedEnvironmentSnapshot.trends.vpd.delta,
+                        period: mergedEnvironmentSnapshot.trends.vpd.period,
                       }
                     : undefined,
                 }}
-                historicalData={environmentSnapshot.historicalVpd}
+                historicalData={mergedEnvironmentSnapshot.historicalVpd}
                 isLoading={false}
               />
             )}
