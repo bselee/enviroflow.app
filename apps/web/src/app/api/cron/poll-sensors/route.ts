@@ -101,17 +101,23 @@ export async function GET(request: NextRequest) {
 
     const authHeader = request.headers.get('authorization')
 
-    // Debug: Log what we're receiving vs expecting
-    log('info', 'Auth check', {
-      hasAuthHeader: !!authHeader,
-      authHeaderPrefix: authHeader?.substring(0, 20),
-      expectedPrefix: `Bearer ${cronSecret.substring(0, 8)}...`,
-      headersReceived: Array.from(request.headers.keys()).join(', ')
+    // Debug: Log ALL headers to see what Vercel is sending
+    const allHeaders: Record<string, string> = {}
+    request.headers.forEach((value, key) => {
+      // Mask sensitive values
+      if (key.toLowerCase().includes('auth') || key.toLowerCase().includes('secret')) {
+        allHeaders[key] = value ? `${value.substring(0, 10)}...(${value.length} chars)` : 'null'
+      } else {
+        allHeaders[key] = value.substring(0, 50)
+      }
     })
+    log('info', 'CRON REQUEST HEADERS', allHeaders)
+    log('info', 'CRON_SECRET configured', { length: cronSecret.length, prefix: cronSecret.substring(0, 4) })
 
     if (authHeader !== `Bearer ${cronSecret}`) {
-      log('warn', 'Unauthorized cron request', {
-        receivedLength: authHeader?.length,
+      log('warn', 'Unauthorized - header mismatch', {
+        hasAuthHeader: !!authHeader,
+        authHeaderLength: authHeader?.length || 0,
         expectedLength: `Bearer ${cronSecret}`.length
       })
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
