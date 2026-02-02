@@ -362,9 +362,12 @@ export function useSensorReadings(options: SensorReadingsOptionsExtended = {}): 
   }, [readings]);
 
   // Initial fetch on mount or when options change
+  // Note: We use a stable string dependency instead of fetchReadings directly
+  // because fetchReadings changes when controllerIds array reference changes
   useEffect(() => {
     fetchReadings();
-  }, [fetchReadings]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controllerIds.join(','), sensorTypes?.join(','), limit, timeRangeHours, dateRange?.from?.toISOString(), dateRange?.to?.toISOString()]);
 
   /**
    * Start fallback polling when WebSocket fails.
