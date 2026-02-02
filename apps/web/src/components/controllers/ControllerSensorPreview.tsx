@@ -144,6 +144,8 @@ export function ControllerSensorPreview({
 
   // In compact mode, use periodic polling instead of realtime subscriptions
   // This reduces connection overhead when displaying multiple controller cards
+  // Note: We intentionally exclude `refetch` from deps to avoid infinite loops
+  // since `refetch` changes when controllerIds array changes
   useEffect(() => {
     if (!compact) return;
 
@@ -154,7 +156,8 @@ export function ControllerSensorPreview({
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [compact, refetch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compact]);
 
   // Fetch connected devices (still uses API for device capabilities)
   const { devices, isLoading: devicesLoading } = useDeviceControl(controllerId);
