@@ -40,7 +40,7 @@ import {
 } from "@/components/ui/collapsible";
 import { DeviceTreeItem } from "./DeviceTreeItem";
 import { useDeviceControl } from "@/hooks/use-device-control";
-import { createClient } from "@/lib/supabase";
+import { useSensorReadings } from "@/hooks/use-sensor-readings";
 import { cn } from "@/lib/utils";
 import type { ControllerWithRoom } from "@/types";
 
@@ -98,23 +98,31 @@ export function ControllerTreeItem({
   onRefresh,
   index = 0,
 }: ControllerTreeItemProps) {
-  const [sensorData, setSensorData] = useState<LiveSensorData>({
-    temperature: null,
-    humidity: null,
-    vpd: null,
+  // Use the sensor readings hook - reads from database, gets realtime updates
+  // No API calls to AC Infinity - data is populated by cron job
+  const {
+    isLoading: isLoadingSensors,
+    error: sensorError,
+    getLatestForController,
+    refetch: refetchSensors,
+  } = useSensorReadings({
+    controllerIds: [controller.id],
+    timeRangeHours: 1, // Only need recent data
+    limit: 10,
+    enableRealtime: true, // Get live updates when cron stores new readings
   });
-  const [isLoadingSensors, setIsLoadingSensors] = useState(false);
-  const [sensorError, setSensorError] = useState<string | null>(null);
+
+  // Get the latest sensor values from the database
+  const latestSensors = getLatestForController(controller.id);
+  const sensorData: LiveSensorData = {
+    temperature: latestSensors.temperature?.value ?? null,
+    humidity: latestSensors.humidity?.value ?? null,
+    vpd: latestSensors.vpd?.value ?? null,
+  };
 
   // Track if user has explicitly expanded this controller (vs restored from localStorage)
   const [userExpanded, setUserExpanded] = useState(false);
   const hasLoadedDevices = useRef(false);
-
-  // Prevent duplicate/rapid fetches
-  const isFetchingRef = useRef(false);
-  const lastFetchTimeRef = useRef(0);
-  const hasFetchedOnceRef = useRef(false);
-  const MIN_FETCH_INTERVAL = 30000; // 30 seconds minimum between fetches
 
   // Only load devices after user explicitly expands, not from localStorage restore
   // This prevents all previously-expanded controllers from fetching at once on page load
@@ -141,89 +149,13 @@ export function ControllerTreeItem({
     ? Date.now() - lastSeenDate.getTime() > 24 * 60 * 60 * 1000
     : false;
 
-  // Fetch sensor data with deduplication
-  const fetchSensors = useCallback(async (force = false) => {
-    // Prevent concurrent fetches
-    if (isFetchingRef.current) {
-      return;
-    }
-
-    // Enforce minimum interval between fetches (unless forced by user)
-    const now = Date.now();
-    if (!force && lastFetchTimeRef.current > 0 && now - lastFetchTimeRef.current < MIN_FETCH_INTERVAL) {
-      return;
-    }
-
-    isFetchingRef.current = true;
-    lastFetchTimeRef.current = now;
-    setIsLoadingSensors(true);
-    setSensorError(null);
-
-    try {
-      const supabase = createClient();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-
-      const response = await fetch(`/api/controllers/${controller.id}/sensors?store=false`, {
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.success && data.readings) {
-        const tempReading = data.readings.find((r: { type: string }) => r.type === "temperature");
-        const humidityReading = data.readings.find((r: { type: string }) => r.type === "humidity");
-        const vpdReading = data.readings.find((r: { type: string }) => r.type === "vpd");
-
-        setSensorData({
-          temperature: tempReading?.value ?? null,
-          humidity: humidityReading?.value ?? null,
-          vpd: vpdReading?.value ?? null,
-        });
-        hasFetchedOnceRef.current = true;
-      } else if (response.status === 429) {
-        // Rate limited - keep existing data, don't show error if we already have data
-        if (!hasFetchedOnceRef.current) {
-          setSensorError("Rate limited - please wait");
-        }
-        // Don't clear existing sensor data on rate limit
-      } else {
-        setSensorError(data.error || "Failed to fetch sensors");
-      }
-    } catch (err) {
-      // Network error - keep existing data if we have it
-      if (!hasFetchedOnceRef.current) {
-        setSensorError(err instanceof Error ? err.message : "Network error");
-      }
-    } finally {
-      setIsLoadingSensors(false);
-      isFetchingRef.current = false;
-    }
-  }, [controller.id]);
-
-  // Fetch sensors ONCE on mount with staggered delay to avoid rate limits
-  useEffect(() => {
-    // Only fetch if we haven't fetched yet
-    if (hasFetchedOnceRef.current) {
-      return;
-    }
-
-    // Stagger initial fetch: 2500ms delay per controller index to avoid rate limits
-    const delay = index * 2500;
-    const timeoutId = setTimeout(() => {
-      fetchSensors();
-    }, delay);
-
-    return () => clearTimeout(timeoutId);
-  }, [fetchSensors, index]);
+  // No need for manual fetch - useSensorReadings handles it
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _index = index; // Keep prop for interface compatibility but no longer used for staggering
 
   const handleRefresh = async () => {
-    // Force refresh bypasses the rate limit check
-    await fetchSensors(true);
+    // Refetch sensor data from database
+    await refetchSensors();
     if (isExpanded) {
       await refreshDevices();
     }
