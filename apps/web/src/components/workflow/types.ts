@@ -434,6 +434,126 @@ export const MODE_LABELS: Record<DeviceModeType, string> = {
 };
 
 // ============================================================================
+// Delay Node Types
+// ============================================================================
+
+/** Time unit for delay duration */
+export type DelayTimeUnit = "seconds" | "minutes" | "hours";
+
+/** Configuration for delay nodes */
+export interface DelayNodeConfig {
+  /** Duration value */
+  duration: number;
+  /** Time unit for the duration */
+  unit: DelayTimeUnit;
+}
+
+/** Data payload for DelayNode */
+export interface DelayNodeData {
+  label: string;
+  config: DelayNodeConfig;
+}
+
+/** Labels for delay time units */
+export const DELAY_TIME_UNIT_LABELS: Record<DelayTimeUnit, string> = {
+  seconds: "Seconds",
+  minutes: "Minutes",
+  hours: "Hours",
+};
+
+// ============================================================================
+// Variable Node Types
+// ============================================================================
+
+/** Variable scope - workflow-local or global (cross-workflow) */
+export type VariableScope = "workflow" | "global";
+
+/** Variable operation types */
+export type VariableOperation = "set" | "get" | "increment" | "decrement";
+
+/** Variable value types */
+export type VariableValueType = "number" | "string" | "boolean";
+
+/** Configuration for variable nodes */
+export interface VariableNodeConfig {
+  /** Variable name */
+  name: string;
+  /** Variable scope */
+  scope: VariableScope;
+  /** Operation to perform */
+  operation: VariableOperation;
+  /** Value type */
+  valueType: VariableValueType;
+  /** Value for set operations */
+  value?: string | number | boolean;
+  /** Amount for increment/decrement */
+  amount?: number;
+}
+
+/** Data payload for VariableNode */
+export interface VariableNodeData {
+  label: string;
+  config: VariableNodeConfig;
+  /** Current variable value (read-only, populated at runtime) */
+  currentValue?: string | number | boolean;
+}
+
+/** Labels for variable scopes */
+export const VARIABLE_SCOPE_LABELS: Record<VariableScope, string> = {
+  workflow: "Workflow",
+  global: "Global",
+};
+
+/** Labels for variable operations */
+export const VARIABLE_OPERATION_LABELS: Record<VariableOperation, string> = {
+  set: "Set",
+  get: "Get",
+  increment: "Increment",
+  decrement: "Decrement",
+};
+
+/** Labels for variable value types */
+export const VARIABLE_VALUE_TYPE_LABELS: Record<VariableValueType, string> = {
+  number: "Number",
+  string: "Text",
+  boolean: "Boolean",
+};
+
+// ============================================================================
+// Debounce Node Types
+// ============================================================================
+
+/** Configuration for debounce nodes (prevents rapid triggering) */
+export interface DebounceNodeConfig {
+  /** Minimum time between triggers in seconds */
+  cooldownSeconds: number;
+  /** Whether to execute on the leading edge (first trigger) */
+  executeOnLead: boolean;
+  /** Whether to execute on the trailing edge (after cooldown) */
+  executeOnTrail: boolean;
+}
+
+/** Data payload for DebounceNode */
+export interface DebounceNodeData {
+  label: string;
+  config: DebounceNodeConfig;
+  /** Last execution timestamp (runtime) */
+  lastExecutedAt?: string;
+}
+
+// ============================================================================
+// Enhanced Sensor Threshold with Hysteresis
+// ============================================================================
+
+/** Extended sensor threshold config with hysteresis support */
+export interface SensorThresholdTriggerConfigWithHysteresis extends SensorThresholdTriggerConfig {
+  /** Enable hysteresis band to prevent rapid cycling */
+  hysteresisEnabled?: boolean;
+  /** Re-arm threshold - sensor must return past this value before re-triggering */
+  reArmThreshold?: number;
+}
+
+// ============================================================================
 // Workflow Node Types
 // ============================================================================
 
@@ -447,7 +567,10 @@ export type WorkflowNodeType =
   | "notification"
   | "mode"
   | "verified_action"
-  | "port_condition";
+  | "port_condition"
+  | "delay"
+  | "variable"
+  | "debounce";
 
 /** Union of all node data types */
 export type WorkflowNodeData =
@@ -459,7 +582,10 @@ export type WorkflowNodeData =
   | NotificationNodeData
   | ModeNodeData
   | VerifiedActionNodeData
-  | PortConditionNodeData;
+  | PortConditionNodeData
+  | DelayNodeData
+  | VariableNodeData
+  | DebounceNodeData;
 
 /** Extended Node type with workflow-specific data */
 export interface WorkflowNode {

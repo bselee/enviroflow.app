@@ -141,6 +141,29 @@ When no user is authenticated, the app can show demo data. Demo data utilities a
 
 Tables with realtime enabled: `ai_insights`, `automation_actions`, `controllers`, `sensor_readings`
 
+### User Preferences
+
+User preferences are stored in Supabase `auth.users.user_metadata.dashboard_preferences`:
+- **Caching:** Also stored in `localStorage` under `enviroflow_user_preferences`
+- **Sync:** Debounced (1s) sync to server on changes
+- **Hook:** `useUserPreferences()` handles fetch, update, and sync
+- **Per-room settings:** Optimal ranges, warning tolerances, alert thresholds
+
+Key preferences: `temperatureUnit` (F/C), `viewMode`, `primaryMetric`, `timelineMetrics`, `roomSettings`
+
+### Workflow Builder
+
+Visual workflow builder using `@xyflow/react`. Node types in `components/workflow/nodes/`:
+- `TriggerNode` - Schedule or event-based triggers
+- `SensorNode` - Sensor reading conditions
+- `ConditionNode` - Logical conditions (and/or)
+- `PortConditionNode` - Device port state conditions
+- `ActionNode` - Device control actions
+- `VerifiedActionNode` - Actions with verification
+- `DimmerNode` - Dimmer/lighting schedule actions
+- `ModeNode` - Device mode changes
+- `NotificationNode` - Push/email notifications
+
 ### Testing
 
 **Unit tests** (Jest) in `apps/web/src/**/__tests__/*.test.ts`:
@@ -154,27 +177,20 @@ Tables with realtime enabled: `ai_insights`, `automation_actions`, `controllers`
 
 ## API Routes
 
-| Route | Methods | Purpose |
-|-------|---------|---------|
-| `/api/controllers` | GET, POST | List/add controllers |
-| `/api/controllers/[id]` | GET, PUT, DELETE | Controller CRUD |
-| `/api/controllers/[id]/sensors` | GET | Live sensor readings |
-| `/api/controllers/[id]/devices/[port]/control` | POST | Device control commands |
-| `/api/controllers/[id]/ports/[port]/mode` | PUT | Set device mode |
-| `/api/controllers/brands` | GET | Supported brands list |
-| `/api/controllers/discover` | POST | Discover devices via cloud API |
-| `/api/sensors/live` | GET | Live sensor data (Direct API Polling) |
-| `/api/sensors/history` | GET | Historical sensor readings |
-| `/api/rooms` | GET, POST | Room management |
-| `/api/rooms/[id]` | GET, PUT, DELETE | Room CRUD |
-| `/api/workflows` | GET, POST | Workflow management |
-| `/api/workflows/[id]` | GET, PUT, DELETE | Workflow CRUD |
-| `/api/schedules` | GET, POST | Schedule management |
-| `/api/alerts` | GET, POST | Alert management |
-| `/api/analyze` | POST | AI analysis via Grok |
-| `/api/export` | GET | Export data (CSV/JSON) |
-| `/api/cron/workflows` | GET | Execute active workflows |
-| `/api/cron/poll-sensors` | GET | Poll and store sensor readings |
+API routes are in `apps/web/src/app/api/`. Key patterns:
+
+| Pattern | Purpose |
+|---------|---------|
+| `/api/controllers/**` | Controller CRUD, sensors, devices, modes, discovery |
+| `/api/sensors/live` | Live sensor data (Direct API Polling - primary pattern) |
+| `/api/sensors/history` | Historical sensor readings from Supabase |
+| `/api/rooms/**` | Room CRUD operations |
+| `/api/workflows/**` | Workflow CRUD and execution |
+| `/api/schedules/**` | Dimmer schedules and recommendations |
+| `/api/alerts/**` | Alert management (acknowledge, resolve, snooze) |
+| `/api/cron/**` | Vercel cron jobs (poll-sensors, workflows, check-alerts) |
+| `/api/analyze` | AI analysis via Grok |
+| `/api/export` | Export data (CSV/JSON) |
 
 ## Environment Variables
 
@@ -186,13 +202,6 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
 XAI_API_KEY=xai-...  # AI analysis (GROK_API_KEY also supported)
 NEXT_PUBLIC_APP_URL=https://enviroflow.app
-
-# AC Infinity Direct Access (for live sensor data)
-# Option A: Credentials (recommended)
-AC_INFINITY_EMAIL=your-email@example.com
-AC_INFINITY_PASSWORD=your-password
-# Option B: Manual token (for testing)
-AC_INFINITY_TOKEN=...
 
 # REQUIRED: 32-byte encryption key (64 hex chars)
 # Generate: openssl rand -hex 32

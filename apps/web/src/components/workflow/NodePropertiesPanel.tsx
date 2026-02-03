@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { X, Play, Thermometer, GitBranch, Clock, MousePointer, AlertCircle } from "lucide-react";
+import { X, Play, Thermometer, GitBranch, Clock, MousePointer, AlertCircle, Timer, Variable, Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Switch } from "@/components/ui/switch";
 import type {
   WorkflowNode,
   TriggerNodeData,
@@ -24,6 +25,13 @@ import type {
   SensorType,
   ComparisonOperator,
   LogicType,
+  DelayNodeData,
+  DelayTimeUnit,
+  VariableNodeData,
+  VariableScope,
+  VariableOperation,
+  VariableValueType,
+  DebounceNodeData,
 } from "./types";
 import { useControllerCapabilities } from "@/hooks/use-controller-capabilities";
 
@@ -694,6 +702,275 @@ function ConditionProperties({
 }
 
 /**
+ * DelayProperties - Configuration panel for delay nodes
+ */
+function DelayProperties({
+  node,
+  onUpdate,
+}: {
+  node: WorkflowNode;
+  onUpdate: NodePropertiesPanelProps["onUpdate"];
+}) {
+  const data = node.data as DelayNodeData;
+
+  const updateConfig = (field: string, value: number | string) => {
+    onUpdate(node.id, {
+      config: { ...data.config, [field]: value },
+    } as Partial<DelayNodeData>);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Duration */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Duration</Label>
+        <div className="flex gap-2">
+          <Input
+            type="number"
+            min={1}
+            value={data.config.duration ?? 30}
+            onChange={(e) => updateConfig("duration", parseInt(e.target.value, 10) || 1)}
+            className="flex-1"
+          />
+          <Select
+            value={data.config.unit ?? "seconds"}
+            onValueChange={(v) => updateConfig("unit", v as DelayTimeUnit)}
+          >
+            <SelectTrigger className="w-28">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="seconds">Seconds</SelectItem>
+              <SelectItem value="minutes">Minutes</SelectItem>
+              <SelectItem value="hours">Hours</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="rounded-md border border-dashed p-3">
+        <p className="text-xs text-muted-foreground">
+          Workflow execution pauses at this node and resumes after the specified duration.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * VariableProperties - Configuration panel for variable nodes
+ */
+function VariableProperties({
+  node,
+  onUpdate,
+}: {
+  node: WorkflowNode;
+  onUpdate: NodePropertiesPanelProps["onUpdate"];
+}) {
+  const data = node.data as VariableNodeData;
+
+  const updateConfig = (field: string, value: string | number | boolean) => {
+    onUpdate(node.id, {
+      config: { ...data.config, [field]: value },
+    } as Partial<VariableNodeData>);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Variable Name */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Variable Name</Label>
+        <Input
+          value={data.config.name ?? ""}
+          onChange={(e) => updateConfig("name", e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))}
+          placeholder="myVariable"
+          className="font-mono"
+        />
+        <p className="text-xs text-muted-foreground">
+          Use letters, numbers, and underscores only
+        </p>
+      </div>
+
+      {/* Scope */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Scope</Label>
+        <Select
+          value={data.config.scope ?? "workflow"}
+          onValueChange={(v) => updateConfig("scope", v as VariableScope)}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="workflow">Workflow (local)</SelectItem>
+            <SelectItem value="global">Global (shared)</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          {data.config.scope === "global" 
+            ? "Value persists across all workflow executions" 
+            : "Value only exists during this workflow execution"}
+        </p>
+      </div>
+
+      {/* Operation */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Operation</Label>
+        <Select
+          value={data.config.operation ?? "set"}
+          onValueChange={(v) => updateConfig("operation", v as VariableOperation)}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="set">Set value</SelectItem>
+            <SelectItem value="get">Get value</SelectItem>
+            <SelectItem value="increment">Increment (+)</SelectItem>
+            <SelectItem value="decrement">Decrement (-)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Value Type */}
+      {(data.config.operation === "set" || data.config.operation === "get") && (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Value Type</Label>
+          <Select
+            value={data.config.valueType ?? "number"}
+            onValueChange={(v) => updateConfig("valueType", v as VariableValueType)}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="number">Number</SelectItem>
+              <SelectItem value="string">Text</SelectItem>
+              <SelectItem value="boolean">Boolean</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {/* Value (for set operation) */}
+      {data.config.operation === "set" && (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Value</Label>
+          {data.config.valueType === "boolean" ? (
+            <Select
+              value={String(data.config.value ?? false)}
+              onValueChange={(v) => updateConfig("value", v === "true")}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="true">True</SelectItem>
+                <SelectItem value="false">False</SelectItem>
+              </SelectContent>
+            </Select>
+          ) : data.config.valueType === "number" ? (
+            <Input
+              type="number"
+              value={data.config.value as number ?? 0}
+              onChange={(e) => updateConfig("value", parseFloat(e.target.value) || 0)}
+            />
+          ) : (
+            <Input
+              value={data.config.value as string ?? ""}
+              onChange={(e) => updateConfig("value", e.target.value)}
+              placeholder="Enter text value..."
+            />
+          )}
+        </div>
+      )}
+
+      {/* Amount (for increment/decrement) */}
+      {(data.config.operation === "increment" || data.config.operation === "decrement") && (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Amount</Label>
+          <Input
+            type="number"
+            value={data.config.amount ?? 1}
+            onChange={(e) => updateConfig("amount", parseFloat(e.target.value) || 1)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * DebounceProperties - Configuration panel for debounce nodes
+ */
+function DebounceProperties({
+  node,
+  onUpdate,
+}: {
+  node: WorkflowNode;
+  onUpdate: NodePropertiesPanelProps["onUpdate"];
+}) {
+  const data = node.data as DebounceNodeData;
+
+  const updateConfig = (field: string, value: number | boolean) => {
+    onUpdate(node.id, {
+      config: { ...data.config, [field]: value },
+    } as Partial<DebounceNodeData>);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Cooldown Duration */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Cooldown (seconds)</Label>
+        <Input
+          type="number"
+          min={1}
+          value={data.config.cooldownSeconds ?? 60}
+          onChange={(e) => updateConfig("cooldownSeconds", parseInt(e.target.value, 10) || 1)}
+        />
+        <p className="text-xs text-muted-foreground">
+          Minimum time between workflow executions
+        </p>
+      </div>
+
+      {/* Execution Mode */}
+      <div className="space-y-3">
+        <Label className="text-sm font-medium">Execution Mode</Label>
+        
+        <div className="flex items-center justify-between rounded-md border p-3">
+          <div>
+            <Label className="text-sm">Execute on first trigger</Label>
+            <p className="text-xs text-muted-foreground">Run immediately when triggered</p>
+          </div>
+          <Switch
+            checked={data.config.executeOnLead ?? true}
+            onCheckedChange={(v) => updateConfig("executeOnLead", v)}
+          />
+        </div>
+
+        <div className="flex items-center justify-between rounded-md border p-3">
+          <div>
+            <Label className="text-sm">Execute after cooldown</Label>
+            <p className="text-xs text-muted-foreground">Run again when cooldown ends</p>
+          </div>
+          <Switch
+            checked={data.config.executeOnTrail ?? false}
+            onCheckedChange={(v) => updateConfig("executeOnTrail", v)}
+          />
+        </div>
+      </div>
+
+      <div className="rounded-md border border-dashed p-3">
+        <p className="text-xs text-muted-foreground">
+          Prevents rapid triggering from sensor fluctuations or repeated events.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Main NodePropertiesPanel component
  */
 export function NodePropertiesPanel({
@@ -724,6 +1001,21 @@ export function NodePropertiesPanel({
       title = "Condition";
       icon = <GitBranch className="h-4 w-4" />;
       colorClass = "border-amber-500";
+      break;
+    case "delay":
+      title = "Delay";
+      icon = <Timer className="h-4 w-4" />;
+      colorClass = "border-amber-500";
+      break;
+    case "variable":
+      title = "Variable";
+      icon = <Variable className="h-4 w-4" />;
+      colorClass = "border-violet-500";
+      break;
+    case "debounce":
+      title = "Debounce";
+      icon = <Filter className="h-4 w-4" />;
+      colorClass = "border-slate-500";
       break;
   }
 
@@ -764,6 +1056,15 @@ export function NodePropertiesPanel({
         )}
         {nodeType === "condition" && (
           <ConditionProperties node={node} onUpdate={onUpdate} />
+        )}
+        {nodeType === "delay" && (
+          <DelayProperties node={node} onUpdate={onUpdate} />
+        )}
+        {nodeType === "variable" && (
+          <VariableProperties node={node} onUpdate={onUpdate} />
+        )}
+        {nodeType === "debounce" && (
+          <DebounceProperties node={node} onUpdate={onUpdate} />
         )}
       </div>
     </div>

@@ -1,5 +1,46 @@
 # EnviroFlow Project Status
 
+## Visual Automation Implementation (Feb 2026)
+
+### ✅ Completed - New Workflow Nodes
+1. **DelayNode** - Pause workflow execution for specified duration
+   - File: `/apps/web/src/components/workflow/nodes/DelayNode.tsx`
+   - Config: duration (number), unit (seconds/minutes/hours)
+   - Visual: Amber border, Timer icon
+
+2. **VariableNode** - Store/retrieve values during workflow
+   - File: `/apps/web/src/components/workflow/nodes/VariableNode.tsx`
+   - Config: name, scope (workflow/global), operation (set/get/increment/decrement), valueType, value
+   - Visual: Violet border, Variable icon
+
+3. **DebounceNode** - Prevent rapid triggering with cooldown
+   - File: `/apps/web/src/components/workflow/nodes/DebounceNode.tsx`
+   - Config: cooldownSeconds, executeOnLead, executeOnTrail
+   - Visual: Slate border, Filter icon
+
+### ✅ Type Definitions Added (types.ts)
+- DelayTimeUnit, DelayNodeConfig, DelayNodeData
+- VariableScope, VariableOperation, VariableValueType, VariableNodeConfig, VariableNodeData
+- DebounceNodeConfig, DebounceNodeData
+- SensorThresholdTriggerConfigWithHysteresis (hysteresis support)
+
+### ✅ Integration Complete
+- NodePalette.tsx: Added "Flow Control" category with new nodes
+- WorkflowBuilder.tsx: Registered new node types in nodeTypes
+- NodePropertiesPanel.tsx: Added config panels for Delay, Variable, Debounce
+- index.ts: Exported new components and types
+
+### Pending - Next Steps
+1. Update workflow execution engine (cron/workflows/route.ts) to handle:
+   - Delay state machine with resume_after timestamps
+   - Variable storage/retrieval (workflow_variables table)
+   - Debounce cooldown tracking
+2. Add hysteresis UI to sensor trigger properties
+3. Create workflow_variables Supabase table
+4. Add device tree hierarchy to NodePalette
+
+---
+
 ## Light/Dark Mode Inconsistency Analysis (Feb 2026)
 
 ### Issues Found:

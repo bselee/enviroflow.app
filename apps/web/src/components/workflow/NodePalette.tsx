@@ -14,6 +14,9 @@ import {
   GripVertical,
   Cog,
   CheckCircle2,
+  Timer,
+  Variable,
+  Filter,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -305,6 +308,78 @@ const PALETTE_CATEGORIES: PaletteCategoryConfig[] = [
             port: 1,
             portName: "",
             condition: "is_on",
+          },
+        },
+      },
+    ],
+  },
+  {
+    id: "flow-control",
+    label: "Flow Control",
+    nodes: [
+      {
+        type: "delay",
+        label: "Delay",
+        description: "Pause workflow execution for a specified duration",
+        icon: Timer,
+        iconBgClass: "bg-amber-500",
+        iconClass: "text-white",
+        defaultData: {
+          label: "Delay",
+          config: {
+            duration: 30,
+            unit: "seconds",
+          },
+        },
+      },
+      {
+        type: "variable",
+        label: "Set Variable",
+        description: "Store a value for use later in the workflow",
+        icon: Variable,
+        iconBgClass: "bg-violet-500",
+        iconClass: "text-white",
+        defaultData: {
+          label: "Set Variable",
+          config: {
+            name: "myVar",
+            scope: "workflow",
+            operation: "set",
+            valueType: "number",
+            value: 0,
+          },
+        },
+      },
+      {
+        type: "variable",
+        label: "Get Variable",
+        description: "Retrieve a previously stored value",
+        icon: Variable,
+        iconBgClass: "bg-violet-500",
+        iconClass: "text-white",
+        defaultData: {
+          label: "Get Variable",
+          config: {
+            name: "myVar",
+            scope: "workflow",
+            operation: "get",
+            valueType: "number",
+          },
+        },
+      },
+      {
+        type: "debounce",
+        label: "Debounce",
+        description: "Prevent rapid triggering with a cooldown period",
+        icon: Filter,
+        iconBgClass: "bg-slate-500",
+        iconClass: "text-white",
+        defaultData: {
+          label: "Debounce",
+          config: {
+            cooldownSeconds: 60,
+            executeOnLead: true,
+            executeOnTrail: false,
           },
         },
       },

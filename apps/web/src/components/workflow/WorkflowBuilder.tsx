@@ -43,6 +43,9 @@ import { ActionNode } from "./nodes/ActionNode";
 import { DimmerNode } from "./nodes/DimmerNode";
 import { NotificationNode } from "./nodes/NotificationNode";
 import { ModeNode } from "./nodes/ModeNode";
+import { DelayNode } from "./nodes/DelayNode";
+import { VariableNode } from "./nodes/VariableNode";
+import { DebounceNode } from "./nodes/DebounceNode";
 import type {
   WorkflowNode,
   WorkflowEdge,
@@ -55,6 +58,9 @@ import type {
   DimmerNodeData,
   NotificationNodeData,
   ModeNodeData,
+  DelayNodeData,
+  VariableNodeData,
+  DebounceNodeData,
 } from "./types";
 
 /**
@@ -82,6 +88,9 @@ const nodeTypes: NodeTypes = {
   dimmer: DimmerNode,
   notification: NotificationNode,
   mode: ModeNode,
+  delay: DelayNode,
+  variable: VariableNode,
+  debounce: DebounceNode,
 };
 
 /** Node palette items for drag and drop */
@@ -157,7 +166,7 @@ interface WorkflowBuilderProps {
 }
 
 /** Union type for all node data types */
-type AllNodeData = TriggerNodeData | SensorNodeData | ConditionNodeData | ActionNodeData | DimmerNodeData | NotificationNodeData | ModeNodeData;
+type AllNodeData = TriggerNodeData | SensorNodeData | ConditionNodeData | ActionNodeData | DimmerNodeData | NotificationNodeData | ModeNodeData | DelayNodeData | VariableNodeData | DebounceNodeData;
 
 /**
  * Creates default node data based on node type
@@ -213,6 +222,34 @@ function createDefaultNodeData(type: string, label: string): AllNodeData {
           priority: 1,
         },
       } as ModeNodeData;
+    case "delay":
+      return {
+        label,
+        config: {
+          duration: 30,
+          unit: "seconds",
+        },
+      } as DelayNodeData;
+    case "variable":
+      return {
+        label,
+        config: {
+          name: "myVar",
+          scope: "workflow",
+          operation: "set",
+          valueType: "number",
+          value: 0,
+        },
+      } as VariableNodeData;
+    case "debounce":
+      return {
+        label,
+        config: {
+          cooldownSeconds: 60,
+          executeOnLead: true,
+          executeOnTrail: false,
+        },
+      } as DebounceNodeData;
     case "verified_action":
       return {
         label,

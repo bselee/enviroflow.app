@@ -19,6 +19,9 @@ export { ActionNode } from "./nodes/ActionNode";
 export { DimmerNode } from "./nodes/DimmerNode";
 export { NotificationNode } from "./nodes/NotificationNode";
 export { ModeNode } from "./nodes/ModeNode";
+export { DelayNode } from "./nodes/DelayNode";
+export { VariableNode } from "./nodes/VariableNode";
+export { DebounceNode } from "./nodes/DebounceNode";
 
 // Palette component
 export { NodePalette } from "./NodePalette";
@@ -68,6 +71,21 @@ export type {
   TimerModeConfig,
   CycleModeConfig,
   ScheduleModeConfig,
+  // Delay types
+  DelayTimeUnit,
+  DelayNodeConfig,
+  DelayNodeData,
+  // Variable types
+  VariableScope,
+  VariableOperation,
+  VariableValueType,
+  VariableNodeConfig,
+  VariableNodeData,
+  // Debounce types
+  DebounceNodeConfig,
+  DebounceNodeData,
+  // Hysteresis types
+  SensorThresholdTriggerConfigWithHysteresis,
   // Workflow types
   WorkflowNodeType,
   WorkflowNodeData,
@@ -91,4 +109,8 @@ export {
   NOTIFICATION_CHANNEL_LABELS,
   MESSAGE_VARIABLES,
   MODE_LABELS,
+  DELAY_TIME_UNIT_LABELS,
+  VARIABLE_SCOPE_LABELS,
+  VARIABLE_OPERATION_LABELS,
+  VARIABLE_VALUE_TYPE_LABELS,
 } from "./types";
