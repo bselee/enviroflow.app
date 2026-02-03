@@ -1,16 +1,11 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { Plus } from "lucide-react";
-import { PageHeader } from "@/components/layout/PageHeader";
 import { IntelligentTimeline, type TimeSeriesData } from "@/components/dashboard/IntelligentTimeline";
 import { ConnectCTA } from "@/components/dashboard/DemoMode";
 import { LiveSensorDashboard } from "@/components/LiveSensorDashboard";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { AddRoomDialog } from "@/components/dashboard/AddRoomDialog";
-import { SettingsSheet } from "@/components/settings";
 import { OnboardingTour } from "@/components/OnboardingTour";
 import { useDashboardData } from "@/hooks/use-dashboard-data";
 import { useLiveSensors } from "@/hooks/use-live-sensors";
@@ -19,7 +14,6 @@ import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import type { TimeRange } from "@/components/dashboard/IntelligentTimeline";
-import type { RoomOption } from "@/components/settings";
 
 // =============================================================================
 // Constants
@@ -101,9 +95,6 @@ export default function DashboardPage(): JSX.Element {
 
   // User preferences for dashboard settings
   const { preferences, getRoomPreferences } = useUserPreferences();
-
-  // Dialog state for adding new rooms
-  const [isAddRoomOpen, setIsAddRoomOpen] = useState(false);
 
   /**
    * Convert historical data from Supabase to timeline format.
@@ -188,16 +179,6 @@ export default function DashboardPage(): JSX.Element {
   }, [needsHistory, transformedHistoricalData, liveHistory, timelineData, liveSensors, liveAverages]);
 
   /**
-   * Transform rooms into the format expected by SettingsSheet.
-   */
-  const roomOptions: RoomOption[] = useMemo(() => {
-    return rooms.map((room) => ({
-      id: room.id,
-      name: room.name,
-    }));
-  }, [rooms]);
-
-  /**
    * Get optimal ranges from user preferences or use defaults.
    */
   const optimalRanges = useMemo(() => {
@@ -224,42 +205,12 @@ export default function DashboardPage(): JSX.Element {
     setTimeRange(range);
   }, []);
 
-  /**
-   * Handles room creation success - refresh data.
-   */
-  const handleRoomCreated = useCallback(() => {
-    refetch();
-  }, [refetch]);
-
   return (
     <AppLayout>
       {/* Onboarding Tour */}
       <OnboardingTour />
 
-      <div className="min-h-screen bg-env-bg">
-        {/* Page Header */}
-        <PageHeader
-          title="Dashboard"
-          description="Monitor your grow environment"
-          actions={
-            <>
-              <SettingsSheet
-                rooms={roomOptions}
-                currentValues={{}}
-              />
-              <Button onClick={() => setIsAddRoomOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Room
-              </Button>
-              <AddRoomDialog
-                open={isAddRoomOpen}
-                onOpenChange={setIsAddRoomOpen}
-                onRoomCreated={handleRoomCreated}
-              />
-            </>
-          }
-        />
-
+      <div className="min-h-screen bg-background">
         {/* Main Content - Simplified HA-Style Layout */}
         <ErrorBoundary componentName="Dashboard" showRetry>
           <div className="p-6 lg:p-8 space-y-6">
