@@ -285,7 +285,6 @@ function ChartTooltip({
   active,
   payload,
   label,
-  isDark,
   optimalRanges,
 }: {
   active?: boolean;
@@ -296,7 +295,6 @@ function ChartTooltip({
     dataKey: string;
   }>;
   label?: string;
-  isDark: boolean;
   optimalRanges?: SensorChartProps["optimalRanges"];
 }) {
   if (!active || !payload || payload.length === 0) {
@@ -304,20 +302,8 @@ function ChartTooltip({
   }
 
   return (
-    <div
-      className={cn(
-        "rounded-lg border p-3 shadow-lg",
-        isDark
-          ? "bg-gray-800/95 border-gray-700 text-white"
-          : "bg-white/95 border-gray-200 text-gray-900"
-      )}
-    >
-      <p
-        className={cn(
-          "text-xs font-medium mb-2",
-          isDark ? "text-gray-400" : "text-gray-500"
-        )}
-      >
+    <div className="rounded-lg border p-3 shadow-lg bg-white/95 dark:bg-gray-800/95 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white">
+      <p className="text-xs font-medium mb-2 text-gray-500 dark:text-gray-400">
         {label}
       </p>
       <div className="space-y-1.5">
@@ -348,7 +334,7 @@ function ChartTooltip({
                   className="w-2 h-2 rounded-full"
                   style={{ backgroundColor: entry.color }}
                 />
-                <span className={cn("text-sm", isDark ? "text-gray-300" : "text-gray-600")}>
+                <span className="text-sm text-gray-600 dark:text-gray-300">
                   {config?.label || entry.name}
                 </span>
               </div>
@@ -358,7 +344,7 @@ function ChartTooltip({
                     ? entry.value.toFixed(entry.dataKey === "vpd" ? 2 : 1)
                     : entry.value}
                   {config?.unit && (
-                    <span className={cn("ml-0.5 text-xs", isDark ? "text-gray-400" : "text-gray-500")}>
+                    <span className="ml-0.5 text-xs text-gray-500 dark:text-gray-400">
                       {config.unit}
                     </span>
                   )}
@@ -465,8 +451,7 @@ export function SensorChart({
     return (
       <div
         className={cn(
-          "flex items-center justify-center rounded-lg border",
-          isDark ? "bg-gray-800/50 border-gray-700" : "bg-gray-50 border-gray-200",
+          "flex items-center justify-center rounded-lg border bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700",
           className
         )}
         style={{ height }}
@@ -519,7 +504,6 @@ export function SensorChart({
                 active={active}
                 payload={payload as TooltipPayload}
                 label={label}
-                isDark={isDark}
                 optimalRanges={optimalRanges}
               />
             )}

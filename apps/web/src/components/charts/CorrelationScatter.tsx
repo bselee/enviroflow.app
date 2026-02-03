@@ -103,7 +103,6 @@ function ScatterTooltip({
   yLabel,
   xUnit,
   yUnit,
-  isDark,
 }: {
   active?: boolean;
   payload?: Array<{
@@ -113,7 +112,6 @@ function ScatterTooltip({
   yLabel: string;
   xUnit: string;
   yUnit: string;
-  isDark: boolean;
 }) {
   if (!active || !payload || payload.length === 0) {
     return null;
@@ -122,33 +120,28 @@ function ScatterTooltip({
   const point = payload[0].payload;
 
   return (
-    <div
-      className={cn(
-        "rounded-lg border p-3 shadow-lg",
-        isDark ? "bg-gray-800/95 border-gray-700 text-white" : "bg-white/95 border-gray-200 text-gray-900"
-      )}
-    >
+    <div className="rounded-lg border p-3 shadow-lg bg-white/95 dark:bg-gray-800/95 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white">
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-4">
-          <span className={cn("text-sm", isDark ? "text-gray-300" : "text-gray-600")}>{xLabel}</span>
+          <span className="text-sm text-gray-600 dark:text-gray-300">{xLabel}</span>
           <span className="text-sm font-semibold">
             {point.x.toFixed(1)}
-            <span className={cn("ml-0.5 text-xs", isDark ? "text-gray-400" : "text-gray-500")}>
+            <span className="ml-0.5 text-xs text-gray-500 dark:text-gray-400">
               {xUnit}
             </span>
           </span>
         </div>
         <div className="flex items-center justify-between gap-4">
-          <span className={cn("text-sm", isDark ? "text-gray-300" : "text-gray-600")}>{yLabel}</span>
+          <span className="text-sm text-gray-600 dark:text-gray-300">{yLabel}</span>
           <span className="text-sm font-semibold">
             {point.y.toFixed(1)}
-            <span className={cn("ml-0.5 text-xs", isDark ? "text-gray-400" : "text-gray-500")}>
+            <span className="ml-0.5 text-xs text-gray-500 dark:text-gray-400">
               {yUnit}
             </span>
           </span>
         </div>
-        <div className="flex items-center justify-between gap-4 pt-1 border-t border-gray-600">
-          <span className={cn("text-xs", isDark ? "text-gray-400" : "text-gray-500")}>Hour</span>
+        <div className="flex items-center justify-between gap-4 pt-1 border-t border-gray-300 dark:border-gray-600">
+          <span className="text-xs text-gray-500 dark:text-gray-400">Hour</span>
           <span className="text-xs font-medium">{point.hour}:00</span>
         </div>
       </div>
@@ -161,42 +154,31 @@ function ScatterTooltip({
  */
 function CorrelationStats({
   correlation,
-  xLabel: _xLabel,
-  yLabel: _yLabel,
-  isDark,
 }: {
   correlation: CorrelationResult;
-  xLabel: string;
-  yLabel: string;
-  isDark: boolean;
 }) {
   return (
-    <div
-      className={cn(
-        "grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-lg border",
-        isDark ? "bg-gray-800/50 border-gray-700" : "bg-gray-50 border-gray-200"
-      )}
-    >
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-lg border bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700">
       <div>
-        <div className={cn("text-xs font-medium mb-1", isDark ? "text-gray-400" : "text-gray-600")}>
+        <div className="text-xs font-medium mb-1 text-gray-600 dark:text-gray-400">
           Correlation
         </div>
         <div className="text-lg font-semibold">{formatCoefficient(correlation.coefficient)}</div>
       </div>
       <div>
-        <div className={cn("text-xs font-medium mb-1", isDark ? "text-gray-400" : "text-gray-600")}>
+        <div className="text-xs font-medium mb-1 text-gray-600 dark:text-gray-400">
           R-Squared
         </div>
         <div className="text-lg font-semibold">{formatCoefficient(correlation.rSquared)}</div>
       </div>
       <div>
-        <div className={cn("text-xs font-medium mb-1", isDark ? "text-gray-400" : "text-gray-600")}>
+        <div className="text-xs font-medium mb-1 text-gray-600 dark:text-gray-400">
           Strength
         </div>
         <div className="text-sm font-medium capitalize">{correlation.strength}</div>
       </div>
       <div>
-        <div className={cn("text-xs font-medium mb-1", isDark ? "text-gray-400" : "text-gray-600")}>
+        <div className="text-xs font-medium mb-1 text-gray-600 dark:text-gray-400">
           Direction
         </div>
         <div className="text-sm font-medium capitalize">{correlation.direction}</div>
@@ -366,10 +348,7 @@ export function CorrelationScatter({
     return (
       <div className={cn("space-y-4", className)}>
         <div
-          className={cn(
-            "flex flex-col items-center justify-center rounded-lg border p-8",
-            isDark ? "bg-gray-800/50 border-gray-700" : "bg-gray-50 border-gray-200"
-          )}
+          className="flex flex-col items-center justify-center rounded-lg border p-8 bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700"
           style={{ height }}
         >
           <Info className="h-8 w-8 text-muted-foreground mb-3" />
@@ -389,8 +368,7 @@ export function CorrelationScatter({
     return (
       <div
         className={cn(
-          "flex items-center justify-center rounded-lg border",
-          isDark ? "bg-gray-800/50 border-gray-700" : "bg-gray-50 border-gray-200",
+          "flex items-center justify-center rounded-lg border bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700",
           className
         )}
         style={{ height }}
@@ -425,14 +403,11 @@ export function CorrelationScatter({
       </div>
 
       {/* Statistics */}
-      <CorrelationStats correlation={correlation} xLabel={xLabel} yLabel={yLabel} isDark={isDark} />
+      <CorrelationStats correlation={correlation} />
 
       {/* Scatter plot */}
       <div
-        className={cn(
-          "border rounded-lg p-4",
-          isDark ? "bg-gray-800/50 border-gray-700" : "bg-gray-50 border-gray-200"
-        )}
+        className="border rounded-lg p-4 bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700"
         style={{ height }}
       >
         <ResponsiveContainer width="100%" height="100%">
@@ -477,7 +452,6 @@ export function CorrelationScatter({
                   yLabel={yLabel}
                   xUnit={xUnit}
                   yUnit={yUnit}
-                  isDark={isDark}
                 />
               )}
             />
@@ -517,19 +491,19 @@ export function CorrelationScatter({
       <div className="flex items-center justify-center gap-4 text-xs">
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getHourColor(0) }} />
-          <span className={cn(isDark ? "text-gray-400" : "text-gray-600")}>Midnight</span>
+          <span className="text-gray-600 dark:text-gray-400">Midnight</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getHourColor(6) }} />
-          <span className={cn(isDark ? "text-gray-400" : "text-gray-600")}>Dawn</span>
+          <span className="text-gray-600 dark:text-gray-400">Dawn</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getHourColor(12) }} />
-          <span className={cn(isDark ? "text-gray-400" : "text-gray-600")}>Noon</span>
+          <span className="text-gray-600 dark:text-gray-400">Noon</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getHourColor(18) }} />
-          <span className={cn(isDark ? "text-gray-400" : "text-gray-600")}>Evening</span>
+          <span className="text-gray-600 dark:text-gray-400">Evening</span>
         </div>
       </div>
 

@@ -2,7 +2,6 @@
 
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { useTheme } from "@/components/providers/ThemeProvider";
 import {
   Tooltip,
   TooltipContent,
@@ -333,9 +332,6 @@ export function SensorMetricCard({
   onClick,
   className,
 }: SensorMetricCardProps) {
-  const { theme } = useTheme();
-  const isDark = theme === "dark";
-
   const config = SENSOR_CONFIGS[sensorType];
   const styles = SIZE_STYLES[size];
   const Icon = config.icon;
@@ -369,16 +365,8 @@ export function SensorMetricCard({
         <TooltipTrigger asChild>
           <div
             className={cn(
-              "rounded-lg border transition-all",
-              isDark
-                ? "bg-gray-800/50 border-gray-700"
-                : "bg-white border-gray-200",
-              isClickable && [
-                "cursor-pointer",
-                isDark
-                  ? "hover:bg-gray-800 hover:border-gray-600"
-                  : "hover:bg-gray-50 hover:border-gray-300",
-              ],
+              "rounded-lg border transition-all bg-white dark:bg-gray-800/50 border-gray-200 dark:border-gray-700",
+              isClickable && "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600",
               isStale && "opacity-60",
               styles.container,
               className
@@ -405,9 +393,7 @@ export function SensorMetricCard({
                   styles.iconContainer,
                   statusResult
                     ? `${statusResult.bgClass}/20`
-                    : isDark
-                    ? "bg-gray-700"
-                    : "bg-gray-100"
+                    : "bg-gray-100 dark:bg-gray-700"
                 )}
               >
                 <Icon
@@ -419,9 +405,8 @@ export function SensorMetricCard({
               </div>
               <span
                 className={cn(
-                  "font-medium",
-                  styles.label,
-                  isDark ? "text-gray-300" : "text-gray-600"
+                  "font-medium text-gray-600 dark:text-gray-300",
+                  styles.label
                 )}
               >
                 {effectiveLabel}
@@ -437,8 +422,7 @@ export function SensorMetricCard({
                 className={cn(
                   "font-bold tabular-nums",
                   styles.value,
-                  statusResult?.textClass ||
-                    (isDark ? "text-white" : "text-gray-900")
+                  statusResult?.textClass || "text-gray-900 dark:text-white"
                 )}
               >
                 {formattedValue}
@@ -446,8 +430,8 @@ export function SensorMetricCard({
               {effectiveUnit && (
                 <span
                   className={cn(
-                    styles.unit,
-                    isDark ? "text-gray-400" : "text-gray-500"
+                    "text-gray-500 dark:text-gray-400",
+                    styles.unit
                   )}
                 >
                   {effectiveUnit}

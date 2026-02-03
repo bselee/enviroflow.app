@@ -189,8 +189,7 @@ function HeatmapGrid({
               <div
                 key={hour}
                 className={cn(
-                  "text-xs text-center py-1 font-medium",
-                  isDark ? "text-gray-400" : "text-gray-600",
+                  "text-xs text-center py-1 font-medium text-gray-600 dark:text-gray-400",
                   hour % 3 !== 0 && "hidden sm:block"
                 )}
               >
@@ -201,12 +200,7 @@ function HeatmapGrid({
             {/* Heatmap rows */}
             {DAYS.map((day, dayIndex) => (
               <div key={day} className="contents">
-                <div
-                  className={cn(
-                    "sticky left-0 bg-background z-10 text-xs font-medium py-2 pr-2 text-right",
-                    isDark ? "text-gray-400" : "text-gray-600"
-                  )}
-                >
+                <div className="sticky left-0 bg-background z-10 text-xs font-medium py-2 pr-2 text-right text-gray-600 dark:text-gray-400">
                   {day}
                 </div>
 
@@ -216,36 +210,29 @@ function HeatmapGrid({
                   return (
                     <div
                       key={hour}
-                      className={cn(
-                        "relative aspect-square border group cursor-pointer transition-transform hover:scale-105 hover:z-20",
-                        isDark ? "border-gray-700" : "border-gray-200"
-                      )}
+                      className="relative aspect-square border group cursor-pointer transition-transform hover:scale-105 hover:z-20 border-gray-200 dark:border-gray-700"
                       style={{
                         backgroundColor: cell
                           ? getHeatmapColor(cell.value, min, max)
-                          : isDark
-                          ? "#374151"
-                          : "#f3f4f6",
+                          : undefined,
                       }}
+                      data-empty={!cell ? "true" : undefined}
                       title={
                         cell
                           ? `${day} ${formatHour(hour)}: ${cell.value.toFixed(1)}${unit} (${cell.count} readings)`
                           : `${day} ${formatHour(hour)}: No data`
                       }
                     >
+                      {/* Empty cell background via CSS */}
+                      {!cell && <div className="absolute inset-0 bg-gray-100 dark:bg-gray-700" />}
                       {/* Tooltip on hover */}
                       {cell && (
-                        <div
-                          className={cn(
-                            "absolute top-full left-1/2 -translate-x-1/2 mt-1 px-2 py-1 rounded shadow-lg text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-30",
-                            isDark ? "bg-gray-800 text-white" : "bg-white text-gray-900 border"
-                          )}
-                        >
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 px-2 py-1 rounded shadow-lg text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-30 bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700">
                           <div className="font-semibold">
                             {cell.value.toFixed(1)}
                             {unit}
                           </div>
-                          <div className={cn("text-xs", isDark ? "text-gray-400" : "text-gray-500")}>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
                             {cell.count} readings
                           </div>
                         </div>
@@ -264,7 +251,7 @@ function HeatmapGrid({
 
       {/* Color legend */}
       <div className="flex items-center justify-center gap-2 text-xs">
-        <span className={cn("font-medium", isDark ? "text-gray-400" : "text-gray-600")}>
+        <span className="font-medium text-gray-600 dark:text-gray-400">
           {min.toFixed(1)}
           {unit}
         </span>
@@ -280,7 +267,7 @@ function HeatmapGrid({
             );
           })}
         </div>
-        <span className={cn("font-medium", isDark ? "text-gray-400" : "text-gray-600")}>
+        <span className="font-medium text-gray-600 dark:text-gray-400">
           {max.toFixed(1)}
           {unit}
         </span>
@@ -314,11 +301,9 @@ function HeatmapGrid({
 function HeatmapTable({
   cells,
   unit,
-  isDark,
 }: {
   cells: HeatmapCell[];
   unit: string;
-  isDark: boolean;
 }) {
   // Sort cells by day and hour
   const sortedCells = useMemo(() => {
@@ -332,7 +317,7 @@ function HeatmapTable({
     <div className="overflow-auto max-h-96">
       <table className="w-full text-sm">
         <thead>
-          <tr className={cn("border-b", isDark ? "border-gray-700" : "border-gray-200")}>
+          <tr className="border-b border-gray-200 dark:border-gray-700">
             <th className="text-left py-2 px-3 font-medium">Day</th>
             <th className="text-left py-2 px-3 font-medium">Hour</th>
             <th className="text-right py-2 px-3 font-medium">Average</th>
@@ -343,7 +328,7 @@ function HeatmapTable({
           {sortedCells.map((cell) => (
             <tr
               key={`${cell.day}-${cell.hour}`}
-              className={cn("border-b", isDark ? "border-gray-800" : "border-gray-100")}
+              className="border-b border-gray-100 dark:border-gray-800"
             >
               <td className="py-2 px-3">{cell.dayName}</td>
               <td className="py-2 px-3">{formatHour(cell.hour)}</td>
@@ -450,8 +435,7 @@ export function SensorHeatmap({
     return (
       <div
         className={cn(
-          "flex items-center justify-center rounded-lg border",
-          isDark ? "bg-gray-800/50 border-gray-700" : "bg-gray-50 border-gray-200",
+          "flex items-center justify-center rounded-lg border bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700",
           className
         )}
         style={{ height }}
@@ -492,16 +476,11 @@ export function SensorHeatmap({
       </div>
 
       {/* Heatmap or table */}
-      <div
-        className={cn(
-          isDark ? "bg-gray-800/50 border-gray-700" : "bg-gray-50 border-gray-200",
-          "border rounded-lg p-4"
-        )}
-      >
+      <div className="bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 border rounded-lg p-4">
         {view === "heatmap" ? (
           <HeatmapGrid cells={cells} min={min} max={max} unit={unit} isDark={isDark} onExport={handleExport} />
         ) : (
-          <HeatmapTable cells={cells} unit={unit} isDark={isDark} />
+          <HeatmapTable cells={cells} unit={unit} />
         )}
       </div>
 

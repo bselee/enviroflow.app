@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { useTheme } from "@/components/providers/ThemeProvider";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -210,9 +209,6 @@ export function RoomDetailPanel({
   onToggleExpand,
   className,
 }: RoomDetailPanelProps) {
-  const { theme } = useTheme();
-  const isDark = theme === "dark";
-
   // State for time range selector
   const [timeRange, setTimeRange] = useState<TimeRange>("6h");
 
@@ -283,25 +279,14 @@ export function RoomDetailPanel({
   return (
     <div
       className={cn(
-        "flex flex-col",
-        isDark ? "bg-gray-900" : "bg-white",
+        "flex flex-col bg-white dark:bg-gray-900",
         className
       )}
     >
       {/* Header */}
-      <div
-        className={cn(
-          "flex items-center justify-between p-4 border-b",
-          isDark ? "border-gray-800" : "border-gray-200"
-        )}
-      >
+      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center gap-3">
-          <h2
-            className={cn(
-              "text-xl font-semibold",
-              isDark ? "text-white" : "text-gray-900"
-            )}
-          >
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
             {roomSummary.room.name}
           </h2>
           <RealTimeIndicator
@@ -422,18 +407,8 @@ export function RoomDetailPanel({
         </div>
 
         {/* Full Time-Series Chart */}
-        <div
-          className={cn(
-            "rounded-lg border p-4",
-            isDark ? "bg-gray-800/50 border-gray-700" : "bg-gray-50 border-gray-200"
-          )}
-        >
-          <h3
-            className={cn(
-              "text-sm font-medium mb-4",
-              isDark ? "text-gray-200" : "text-gray-700"
-            )}
-          >
+        <div className="rounded-lg border p-4 bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700">
+          <h3 className="text-sm font-medium mb-4 text-gray-700 dark:text-gray-200">
             Sensor History
           </h3>
           <SensorChart
@@ -454,32 +429,15 @@ export function RoomDetailPanel({
 
         {/* Controller Info */}
         {roomSummary.controllers.length > 0 && (
-          <div
-            className={cn(
-              "rounded-lg border p-4",
-              isDark
-                ? "bg-gray-800/50 border-gray-700"
-                : "bg-gray-50 border-gray-200"
-            )}
-          >
-            <h3
-              className={cn(
-                "text-sm font-medium mb-3",
-                isDark ? "text-gray-200" : "text-gray-700"
-              )}
-            >
+          <div className="rounded-lg border p-4 bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700">
+            <h3 className="text-sm font-medium mb-3 text-gray-700 dark:text-gray-200">
               Connected Controllers
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {roomSummary.controllers.map((controller) => (
                 <div
                   key={controller.id}
-                  className={cn(
-                    "flex items-center gap-3 p-3 rounded-lg border",
-                    isDark
-                      ? "bg-gray-800 border-gray-700"
-                      : "bg-white border-gray-200"
-                  )}
+                  className="flex items-center gap-3 p-3 rounded-lg border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700"
                 >
                   <div
                     className={cn(
@@ -490,12 +448,7 @@ export function RoomDetailPanel({
                     )}
                   />
                   <div className="flex-1 min-w-0">
-                    <p
-                      className={cn(
-                        "text-sm font-medium truncate",
-                        isDark ? "text-white" : "text-gray-900"
-                      )}
-                    >
+                    <p className="text-sm font-medium truncate text-gray-900 dark:text-white">
                       {controller.name}
                     </p>
                     <p className="text-xs text-muted-foreground truncate">

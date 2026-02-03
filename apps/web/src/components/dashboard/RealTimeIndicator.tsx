@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { useTheme } from "@/components/providers/ThemeProvider";
 import {
   Tooltip,
   TooltipContent,
@@ -216,9 +215,6 @@ export function RealTimeIndicator({
   variant = "default",
   className,
 }: RealTimeIndicatorProps) {
-  const { theme } = useTheme();
-  const isDark = theme === "dark";
-
   // Auto-update relative time every 30 seconds
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -267,10 +263,7 @@ export function RealTimeIndicator({
     return (
       <div
         className={cn(
-          "flex items-center gap-3 px-3 py-2 rounded-lg border",
-          isDark
-            ? "bg-gray-800/50 border-gray-700"
-            : "bg-white border-gray-200",
+          "flex items-center gap-3 px-3 py-2 rounded-lg border bg-white dark:bg-gray-800/50 border-gray-200 dark:border-gray-700",
           className
         )}
       >
@@ -287,12 +280,7 @@ export function RealTimeIndicator({
         {/* Status info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span
-              className={cn(
-                "text-sm font-medium",
-                isDark ? "text-white" : "text-gray-900"
-              )}
-            >
+            <span className="text-sm font-medium text-gray-900 dark:text-white">
               {config.label}
             </span>
             {isStale && (
@@ -312,12 +300,7 @@ export function RealTimeIndicator({
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="text-right">
-                <div
-                  className={cn(
-                    "text-sm font-medium",
-                    isDark ? "text-white" : "text-gray-900"
-                  )}
-                >
+                <div className="text-sm font-medium text-gray-900 dark:text-white">
                   {relativeTime}
                 </div>
                 <div className="text-xs text-muted-foreground">Last update</div>
