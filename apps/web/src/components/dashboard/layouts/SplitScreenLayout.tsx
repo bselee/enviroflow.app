@@ -23,6 +23,8 @@ import {
   Tooltip as RechartsTooltip,
 } from "recharts";
 import { cn } from "@/lib/utils";
+import { formatTemperature } from "@/lib/temperature-utils";
+import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -364,6 +366,7 @@ function SplitRoomCard({
   isSynced: boolean;
   chartRef?: React.RefObject<HTMLDivElement>;
 }): JSX.Element {
+  const { preferences } = useUserPreferences();
   const chartColor = side === "left" ? "hsl(var(--primary))" : "hsl(var(--chart-2))";
   const timeSeriesData = getTimeSeriesForMetric(room, metric);
 
@@ -459,7 +462,7 @@ function SplitRoomCard({
                     : "text-muted-foreground"
                 )}
               >
-                {room.temperature != null ? `${room.temperature}°` : "--"}
+                {formatTemperature(room.temperature, preferences.temperatureUnit, 0)}
               </p>
             </button>
 

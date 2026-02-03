@@ -19,9 +19,11 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
+import { useUserPreferences, type TemperatureUnit } from "@/hooks/use-user-preferences";
 
 export default function SettingsPage() {
   const { user } = useAuth();
+  const { preferences, updatePreference, isSaving: isSavingPrefs } = useUserPreferences();
   const [name, setName] = useState(user?.user_metadata?.name || "");
   const [isSaving, setIsSaving] = useState(false);
 
@@ -166,7 +168,17 @@ export default function SettingsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Temperature Unit</Label>
-                  <Select defaultValue="fahrenheit">
+                  <Select 
+                    value={preferences.temperatureUnit === "F" ? "fahrenheit" : "celsius"}
+                    onValueChange={(value) => {
+                      const unit: TemperatureUnit = value === "celsius" ? "C" : "F";
+                      updatePreference("temperatureUnit", unit);
+                      toast({
+                        title: "Temperature unit updated",
+                        description: `Now displaying temperatures in ${value === "celsius" ? "Celsius (°C)" : "Fahrenheit (°F)"}`,
+                      });
+                    }}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -175,6 +187,9 @@ export default function SettingsPage() {
                       <SelectItem value="celsius">Celsius (°C)</SelectItem>
                     </SelectContent>
                   </Select>
+                  {isSavingPrefs && (
+                    <p className="text-xs text-muted-foreground">Saving...</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>Time Zone</Label>

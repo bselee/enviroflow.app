@@ -4,6 +4,8 @@ import { useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { MetricCard, MetricCardSkeleton } from "./MetricCard";
 import { cn } from "@/lib/utils";
+import { convertTemperature, getTemperatureUnitSymbol } from "@/lib/temperature-utils";
+import { useUserPreferences } from "@/hooks/use-user-preferences";
 import {
   calculateAnalytics,
   filterByDateRange,
@@ -129,6 +131,8 @@ export function AnalyticsSummaryCards({
   className,
 }: AnalyticsSummaryCardsProps) {
   const router = useRouter();
+  const { preferences } = useUserPreferences();
+  const tempUnit = preferences.temperatureUnit;
 
   // Selected period state
   const [selectedPeriod, setSelectedPeriod] = useState(defaultPeriod);
@@ -267,12 +271,12 @@ export function AnalyticsSummaryCards({
         {/* Temperature */}
         <MetricCard
           title="Avg Temperature"
-          value={analytics.temperature?.avg ?? null}
-          unit="°F"
+          value={analytics.temperature?.avg != null ? convertTemperature(analytics.temperature.avg, tempUnit) : null}
+          unit={getTemperatureUnitSymbol(tempUnit)}
           trend={analytics.temperature?.trend}
           subtitle={
             analytics.temperature
-              ? `${analytics.temperature.min}-${analytics.temperature.max}°F`
+              ? `${convertTemperature(analytics.temperature.min, tempUnit).toFixed(0)}-${convertTemperature(analytics.temperature.max, tempUnit).toFixed(0)}${getTemperatureUnitSymbol(tempUnit)}`
               : undefined
           }
           onClick={enableNavigation ? handleTemperatureClick : undefined}

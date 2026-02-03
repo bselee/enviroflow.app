@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
+import { formatTemperature } from "@/lib/temperature-utils";
+import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -192,6 +194,8 @@ function PrimaryRoomCard({
   room: RoomDisplayData;
   isLoading?: boolean;
 }): JSX.Element {
+  const { preferences } = useUserPreferences();
+
   if (isLoading) {
     return (
       <div className="bg-card rounded-xl border p-8">
@@ -348,7 +352,7 @@ function PrimaryRoomCard({
                   room.temperature != null ? "text-foreground" : "text-muted-foreground"
                 )}
               >
-                {room.temperature != null ? `${room.temperature}°F` : "--"}
+                {formatTemperature(room.temperature, preferences.temperatureUnit)}
               </p>
             </div>
 
@@ -422,6 +426,8 @@ function MiniRoomCard({
   isSelected: boolean;
   onClick: () => void;
 }): JSX.Element {
+  const { preferences } = useUserPreferences();
+
   return (
     <button
       onClick={onClick}
@@ -452,7 +458,7 @@ function MiniRoomCard({
             Temp
           </span>
           <span className={room.temperature != null ? "text-foreground font-medium" : ""}>
-            {room.temperature != null ? `${room.temperature}°F` : "--"}
+            {formatTemperature(room.temperature, preferences.temperatureUnit)}
           </span>
         </div>
 

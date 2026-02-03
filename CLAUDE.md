@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-EnviroFlow is a universal environmental automation platform for monitoring sensors, controlling devices, and automating workflows across multiple hardware controllers (AC Infinity, Inkbird, CSV Upload, and more).
+EnviroFlow is a universal environmental automation platform for monitoring sensors, controlling devices, and automating workflows across multiple hardware controllers (AC Infinity, Inkbird, Ecowitt, Govee, MQTT, CSV Upload).
 
 **Domain:** enviroflow.app
 **Supabase:** vhlnnfmuhttjpwyobklu.supabase.co
@@ -23,6 +23,19 @@ npm run build            # Build all apps
 npm run dev              # Next.js dev server on :3000
 npm run build            # Production build
 npm run lint             # ESLint
+
+# Unit Tests (Jest) - run from apps/web/
+npm run test             # Run all unit tests
+npm run test:watch       # Watch mode for TDD
+npm run test -- --testPathPattern="component-name"  # Run specific tests
+npm run test:coverage    # Generate coverage report
+
+# E2E Tests (Playwright) - run from apps/web/
+npm run test:e2e         # Run all E2E tests (starts dev server automatically)
+npm run test:e2e:chromium   # Chromium only
+npm run test:e2e:mobile     # Mobile viewport tests
+npm run test:e2e:headed     # Run with visible browser
+npm run test:e2e:debug      # Debug mode with inspector
 
 # Database migrations (run in Supabase SQL Editor)
 # https://supabase.com/dashboard/project/vhlnnfmuhttjpwyobklu/sql
@@ -80,13 +93,18 @@ interface ControllerAdapter {
 }
 ```
 
-Implemented adapters: `ACInfinityAdapter`, `InkbirdAdapter`, `CSVUploadAdapter`
+Implemented adapters: `ACInfinityAdapter`, `InkbirdAdapter`, `EcowittAdapter`, `GoveeAdapter`, `MQTTAdapter`, `CSVUploadAdapter`
 
 ## Key Patterns
 
 ### TypeScript Types
 
-All application types are centralized in `apps/web/src/types/index.ts`. Do not create separate type files.
+Application types are in `apps/web/src/types/`:
+- `index.ts` - Main types (controllers, rooms, workflows, sensors)
+- `modes.ts` - Device mode types
+- `schedules.ts` - Schedule types
+
+Add new types to the appropriate existing file rather than creating new type files.
 
 ### Supabase Client Usage
 
@@ -123,6 +141,17 @@ When no user is authenticated, the app can show demo data. Demo data utilities a
 
 Tables with realtime enabled: `ai_insights`, `automation_actions`, `controllers`, `sensor_readings`
 
+### Testing
+
+**Unit tests** (Jest) in `apps/web/src/**/__tests__/*.test.ts`:
+- Test utilities, hooks, and lib functions
+- Run specific test: `npm run test -- --testPathPattern="encryption"`
+
+**E2E tests** (Playwright) in `apps/web/e2e/*.spec.ts`:
+- Cover critical user journeys (auth, dashboard, controller setup, device control)
+- Run in Chromium and mobile viewports
+- Dev server starts automatically for local runs
+
 ## API Routes
 
 | Route | Methods | Purpose |
@@ -130,17 +159,22 @@ Tables with realtime enabled: `ai_insights`, `automation_actions`, `controllers`
 | `/api/controllers` | GET, POST | List/add controllers |
 | `/api/controllers/[id]` | GET, PUT, DELETE | Controller CRUD |
 | `/api/controllers/[id]/sensors` | GET | Live sensor readings |
+| `/api/controllers/[id]/devices/[port]/control` | POST | Device control commands |
+| `/api/controllers/[id]/ports/[port]/mode` | PUT | Set device mode |
 | `/api/controllers/brands` | GET | Supported brands list |
 | `/api/controllers/discover` | POST | Discover devices via cloud API |
-| `/api/controllers/csv-template` | GET | Download CSV template |
+| `/api/sensors/live` | GET | Live sensor data (Direct API Polling) |
+| `/api/sensors/history` | GET | Historical sensor readings |
 | `/api/rooms` | GET, POST | Room management |
 | `/api/rooms/[id]` | GET, PUT, DELETE | Room CRUD |
 | `/api/workflows` | GET, POST | Workflow management |
 | `/api/workflows/[id]` | GET, PUT, DELETE | Workflow CRUD |
+| `/api/schedules` | GET, POST | Schedule management |
+| `/api/alerts` | GET, POST | Alert management |
 | `/api/analyze` | POST | AI analysis via Grok |
 | `/api/export` | GET | Export data (CSV/JSON) |
 | `/api/cron/workflows` | GET | Execute active workflows |
-| `/api/cron/poll-sensors` | GET | Poll sensor readings |
+| `/api/cron/poll-sensors` | GET | Poll and store sensor readings |
 
 ## Environment Variables
 

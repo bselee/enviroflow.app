@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
+import { formatTemperature } from "@/lib/temperature-utils";
+import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -173,6 +175,8 @@ function CarouselChart({
  * Full-width room card for carousel display.
  */
 function CarouselRoomCard({ room }: { room: CarouselRoomData }): JSX.Element {
+  const { preferences } = useUserPreferences();
+
   return (
     <Link href={`/rooms/${room.id}`} className="block">
       <div
@@ -306,7 +310,7 @@ function CarouselRoomCard({ room }: { room: CarouselRoomData }): JSX.Element {
                     : "text-muted-foreground"
                 )}
               >
-                {room.temperature != null ? `${room.temperature}°` : "--"}
+                {formatTemperature(room.temperature, preferences.temperatureUnit, 0)}
               </p>
             </div>
 

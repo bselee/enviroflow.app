@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { calculateVPD } from "@/lib/vpd-utils";
+import { formatTemperature } from "@/lib/temperature-utils";
+import { useUserPreferences } from "@/hooks/use-user-preferences";
 import {
   Thermometer,
   Droplet,
@@ -290,6 +292,9 @@ export function RoomCardSkeleton() {
 export function RoomCard({ room, index = 0, isLoading, getPortsForController, sensorData: propSensorData, timeSeriesData: propTimeSeriesData, onlineCount: propOnlineCount, lastUpdate: propLastUpdate }: RoomCardProps) {
   const controllers = room.controllers || [];
   const controllerIds = controllers.map((c) => c.id);
+
+  // User preferences for temperature unit
+  const { preferences } = useUserPreferences();
 
   // Drag-drop state
   const {
@@ -728,7 +733,7 @@ export function RoomCard({ room, index = 0, isLoading, getPortsForController, se
               </span>
               {aggregatedData.temperature != null ? (
                 <span className="text-lg font-semibold text-foreground">
-                  {aggregatedData.temperature}°F
+                  {formatTemperature(aggregatedData.temperature, preferences.temperatureUnit)}
                 </span>
               ) : (
                 <div className="flex items-center gap-1">
