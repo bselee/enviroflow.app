@@ -75,30 +75,13 @@ export default function DashboardPage(): JSX.Element {
     isTransitioningFromDemo,
   } = useDashboardData();
 
-  // Get registered controller names for filtering LiveSensorDashboard
-  const registeredControllerNames = useMemo(() => {
-    return controllers.map((c) => c.name);
-  }, [controllers]);
-
   // Live sensor data from Direct API (bypasses Supabase)
   const {
-    sensors: allLiveSensors,
+    sensors: liveSensors,
     averages: liveAverages,
     loading: liveSensorsLoading,
     history: liveHistory,
   } = useLiveSensors({ refreshInterval: 15, maxHistoryPoints: 200 });
-
-  // Filter live sensors to only registered controllers
-  const liveSensors = useMemo(() => {
-    if (registeredControllerNames.length === 0) {
-      return allLiveSensors; // If no registered controllers yet, show all
-    }
-    return allLiveSensors.filter((sensor) =>
-      registeredControllerNames.some(
-        (name) => name.toLowerCase().trim() === sensor.name.toLowerCase().trim()
-      )
-    );
-  }, [allLiveSensors, registeredControllerNames]);
 
   // Timeline state
   const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
@@ -288,7 +271,7 @@ export default function DashboardPage(): JSX.Element {
             )}
 
             {/* Section 1: Live Sensor Dashboard - Controller cards with Temp/Humidity/VPD */}
-            <LiveSensorDashboard registeredControllerNames={registeredControllerNames} />
+            <LiveSensorDashboard />
 
             {/* Section 2: Intelligent Timeline - Sensor trend graphs */}
             <div

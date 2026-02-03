@@ -1,8 +1,8 @@
 /**
  * Temperature conversion and formatting utilities.
  * 
- * All sensor data is stored in Fahrenheit. These utilities convert
- * to Celsius when the user preference requires it.
+ * NOTE: Live sensor data from AC Infinity API is in CELSIUS.
+ * Use formatTemperatureFromCelsius() for displaying live sensor data.
  */
 
 import type { TemperatureUnit } from "@/hooks/use-user-preferences";
@@ -22,8 +22,23 @@ export function celsiusToFahrenheit(celsius: number): number {
 }
 
 /**
+ * Convert a temperature value from Celsius based on the target unit.
+ * This is used for live sensor data from AC Infinity API.
+ * 
+ * @param value - Temperature value in Celsius
+ * @param unit - Target unit to convert to
+ * @returns Converted temperature value
+ */
+export function convertTemperatureFromCelsius(value: number, unit: TemperatureUnit): number {
+  if (unit === "F") {
+    return celsiusToFahrenheit(value);
+  }
+  return value;
+}
+
+/**
  * Convert a temperature value based on the target unit.
- * Assumes input is always in Fahrenheit (our storage format).
+ * Assumes input is always in Fahrenheit (storage format for preferences).
  * 
  * @param value - Temperature value in Fahrenheit
  * @param unit - Target unit to convert to
@@ -38,8 +53,9 @@ export function convertTemperature(value: number, unit: TemperatureUnit): number
 
 /**
  * Format a temperature value for display with unit symbol.
+ * Input is expected to be in CELSIUS (from live API data).
  * 
- * @param value - Temperature value in Fahrenheit (null-safe)
+ * @param value - Temperature value in Celsius (null-safe)
  * @param unit - Target unit for display
  * @param precision - Decimal places (default: 1)
  * @returns Formatted string like "72.5°F" or "22.5°C", or "--" if null
@@ -53,15 +69,15 @@ export function formatTemperature(
     return "--";
   }
   
-  const converted = convertTemperature(value, unit);
+  const converted = convertTemperatureFromCelsius(value, unit);
   return `${converted.toFixed(precision)}°${unit}`;
 }
 
 /**
  * Format a temperature value without the unit symbol.
- * Useful when the unit is displayed separately.
+ * Input is expected to be in CELSIUS (from live API data).
  * 
- * @param value - Temperature value in Fahrenheit (null-safe)
+ * @param value - Temperature value in Celsius (null-safe)
  * @param unit - Target unit for display
  * @param precision - Decimal places (default: 1)
  * @returns Formatted number string or "--" if null
@@ -75,7 +91,7 @@ export function formatTemperatureValue(
     return "--";
   }
   
-  const converted = convertTemperature(value, unit);
+  const converted = convertTemperatureFromCelsius(value, unit);
   return converted.toFixed(precision);
 }
 

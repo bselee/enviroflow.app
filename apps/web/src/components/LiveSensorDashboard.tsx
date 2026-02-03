@@ -8,7 +8,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { LiveSensorResponse, LiveSensor, LivePort } from "@/types";
+import { useUserPreferences } from "@/hooks/use-user-preferences";
+import { formatTemperature } from "@/lib/temperature-utils";
+import type { LiveSensorResponse, LiveSensor, LivePort } from "@/types";import type { TemperatureUnit } from "@/hooks/use-user-preferences";
 
 // =============================================================================
 // Type Definitions
@@ -113,7 +115,7 @@ function PortStatus({ ports }: { ports: LivePort[] }) {
 /**
  * Sensor card component.
  */
-function SensorCard({ sensor }: { sensor: LiveSensor }) {
+function SensorCard({ sensor, tempUnit }: { sensor: LiveSensor; tempUnit: TemperatureUnit }) {
   const vpdStatus = getVPDStatus(sensor.vpd);
 
   return (
@@ -151,7 +153,7 @@ function SensorCard({ sensor }: { sensor: LiveSensor }) {
               <span>Temperature</span>
             </div>
             <div className="text-2xl font-bold tabular-nums">
-              {sensor.temperature.toFixed(1)}°C
+              {formatTemperature(sensor.temperature, tempUnit)}
             </div>
           </div>
 
@@ -232,6 +234,9 @@ export function LiveSensorDashboard({
   className,
   registeredControllerNames,
 }: LiveSensorDashboardProps) {
+  const { preferences } = useUserPreferences();
+  const tempUnit = preferences.temperatureUnit;
+  
   const [data, setData] = useState<LiveSensorResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -455,7 +460,7 @@ export function LiveSensorDashboard({
               );
             })
             .map((sensor) => (
-              <SensorCard key={sensor.id} sensor={sensor} />
+              <SensorCard key={sensor.id} sensor={sensor} tempUnit={tempUnit} />
             ))}
         </div>
       )}

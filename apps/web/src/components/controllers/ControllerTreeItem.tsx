@@ -41,6 +41,8 @@ import {
 import { DeviceTreeItem } from "./DeviceTreeItem";
 import { useDeviceControl } from "@/hooks/use-device-control";
 import { useSensorReadings } from "@/hooks/use-sensor-readings";
+import { useUserPreferences } from "@/hooks/use-user-preferences";
+import { formatTemperature } from "@/lib/temperature-utils";
 import { cn } from "@/lib/utils";
 import type { ControllerWithRoom, LiveSensor } from "@/types";
 
@@ -101,6 +103,10 @@ export function ControllerTreeItem({
   index = 0,
   liveSensor,
 }: ControllerTreeItemProps) {
+  // Get user preferences for temperature unit
+  const { preferences } = useUserPreferences();
+  const tempUnit = preferences.temperatureUnit;
+  
   // Use the sensor readings hook - reads from database, gets realtime updates
   // No API calls to AC Infinity - data is populated by cron job
   const {
@@ -267,7 +273,7 @@ export function ControllerTreeItem({
               <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-500/10">
                 <Thermometer className="w-3.5 h-3.5 text-red-500" />
                 <span className="tabular-nums font-medium text-red-600 dark:text-red-400">
-                  {(liveSensor?.temperature ?? sensorData.temperature)?.toFixed(1)}°C
+                  {formatTemperature(liveSensor?.temperature ?? sensorData.temperature, tempUnit)}
                 </span>
               </div>
             )}
@@ -349,7 +355,7 @@ export function ControllerTreeItem({
                   <Thermometer className="w-5 h-5 text-red-500" />
                   <div className="text-right">
                     <span className="text-lg font-bold tabular-nums text-red-600 dark:text-red-400">
-                      {(liveSensor?.temperature ?? sensorData.temperature)?.toFixed(1)}°C
+                      {formatTemperature(liveSensor?.temperature ?? sensorData.temperature, tempUnit)}
                     </span>
                     <p className="text-[10px] text-muted-foreground">Temperature</p>
                   </div>

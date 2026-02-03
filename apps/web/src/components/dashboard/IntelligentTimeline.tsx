@@ -14,6 +14,8 @@ import { format, parseISO, isValid, subHours } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Thermometer, Droplet, Activity, TrendingUp, TrendingDown, Power } from "lucide-react";
+import { useUserPreferences } from "@/hooks/use-user-preferences";
+import { convertTemperature, formatTemperature } from "@/lib/temperature-utils";
 import {
   Select,
   SelectContent,
@@ -280,13 +282,16 @@ interface StatCardProps {
   stats: MetricStats;
   unit: string;
   decimals?: number;
+  /** Optional transform function to apply to values before display (e.g., temp conversion) */
+  transformValue?: (val: number) => number;
 }
 
-function StatCard({ metric, stats, unit, decimals = 1 }: StatCardProps): JSX.Element {
+function StatCard({ metric, stats, unit, decimals = 1, transformValue }: StatCardProps): JSX.Element {
   const config = METRIC_COLORS[metric];
   const formatValue = (val: number | null): string => {
     if (val === null) return "—";
-    return val.toFixed(decimals);
+    const transformed = transformValue ? transformValue(val) : val;
+    return transformed.toFixed(decimals);
   };
 
   return (
@@ -369,9 +374,10 @@ interface CustomTooltipProps {
     color: string;
   }>;
   label?: string;
+  tempUnit?: "C" | "F";
 }
 
-function CustomTooltip({ active, payload, label }: CustomTooltipProps): JSX.Element | null {
+function CustomTooltip({ active, payload, label, tempUnit = "C" }: CustomTooltipProps): JSX.Element | null {
   if (!active || !payload || payload.length === 0 || !label) {
     return null;
   }
@@ -394,7 +400,7 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps): JSX.Elem
               <span style={{ color: METRIC_COLORS.temperature.stroke }}>Temperature</span>
             </span>
             <span className="text-sm font-bold" style={{ color: METRIC_COLORS.temperature.stroke }}>
-              {tempPayload.value.toFixed(1)}°C
+              {formatTemperature(tempPayload.value, tempUnit)}
             </span>
           </div>
         )}
@@ -503,6 +509,10 @@ export function IntelligentTimeline({
   isLoading = false,
   className,
 }: IntelligentTimelineProps): JSX.Element {
+  // Get user preferences for temperature unit
+  const { preferences } = useUserPreferences();
+  const tempUnit = preferences.temperatureUnit;
+  
   const [internalTimeRange, setInternalTimeRange] = useState<TimeRange>("24h");
   const [internalControllerId, setInternalControllerId] = useState<string | null>(null);
 
@@ -661,8 +671,14 @@ export function IntelligentTimeline({
 
       {/* Stat Cards Row */}
       <div className="grid grid-cols-3 gap-4">
-        <StatCard metric="temperature" stats={tempStats} unit="°C" decimals={2} />
-        <StatCard metric="humidity" stats={humStats} unit="%" decimals={2} />
+        <StatCard 
+          metric="temperature" 
+          stats={tempStats} 
+          unit={`°${tempUnit}`} 
+          decimals={1} 
+          transformValue={(val) => convertTemperature(val, tempUnit)}
+        />
+        <StatCard metric="humidity" stats={humStats} unit="%" decimals={1} />
         <StatCard metric="vpd" stats={vpdStats} unit=" kPa" decimals={2} />
       </div>
 
@@ -724,7 +740,7 @@ export function IntelligentTimeline({
                   width={40}
                   tickFormatter={(value: number) => `${value.toFixed(1)}`}
                 />
-                <Tooltip content={<CustomTooltip />} />
+                <Tooltip content={<CustomTooltip tempUnit={tempUnit} />} />
                 <Line
                   yAxisId="temp"
                   type="monotone"
@@ -783,7 +799,7 @@ export function IntelligentTimeline({
             </div>
             <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-red-500/10">
               <div className="w-4 h-0.5 rounded-full" style={{ backgroundColor: METRIC_COLORS.temperature.stroke }} />
-              <span style={{ color: METRIC_COLORS.temperature.stroke }}>Temp °C</span>
+              <span style={{ color: METRIC_COLORS.temperature.stroke }}>Temp °{tempUnit}</span>
             </div>
             <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10">
               <div className="w-4 h-0.5 rounded-full" style={{ backgroundColor: METRIC_COLORS.vpd.stroke }} />
