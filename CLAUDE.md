@@ -187,6 +187,13 @@ SUPABASE_SERVICE_ROLE_KEY=eyJ...
 XAI_API_KEY=xai-...  # AI analysis (GROK_API_KEY also supported)
 NEXT_PUBLIC_APP_URL=https://enviroflow.app
 
+# AC Infinity Direct Access (for live sensor data)
+# Option A: Credentials (recommended)
+AC_INFINITY_EMAIL=your-email@example.com
+AC_INFINITY_PASSWORD=your-password
+# Option B: Manual token (for testing)
+AC_INFINITY_TOKEN=...
+
 # REQUIRED: 32-byte encryption key (64 hex chars)
 # Generate: openssl rand -hex 32
 ENCRYPTION_KEY=<64-character-hex-string>

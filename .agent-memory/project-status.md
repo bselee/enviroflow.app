@@ -1,5 +1,28 @@
 # EnviroFlow Project Status
 
+## Light/Dark Mode Inconsistency Analysis (Feb 2026)
+
+### Issues Found:
+
+1. **Landing page header** (`/apps/web/src/app/page.tsx:9`)
+   - Hardcoded `bg-white` - doesn't respect dark mode
+   
+2. **Login page** (`/apps/web/src/app/login/page.tsx`)
+   - Lines 48, 146, 155, 162: Hardcoded `bg-gray-50` without dark mode variant
+   
+3. **TwoFactorDialog QR code** (`/apps/web/src/components/settings/TwoFactorDialog.tsx:439`)
+   - Hardcoded `bg-white` for QR code container (intentional for visibility)
+   
+4. **Several chart components** need conditional dark styling
+
+### Files with Good Dark Mode Support:
+- `PageHeader.tsx` - Uses `bg-background` ✅
+- `AppLayout.tsx` - Uses `bg-background` ✅
+- `globals.css` - Has proper dark mode CSS variables ✅
+- Tailwind config - Proper `darkMode: ["class"]` setup ✅
+
+---
+
 ## Last Updated: February 3, 2026 (UI/UX Fixes)
 
 ## Current State
