@@ -59,14 +59,14 @@
 
     --radius: 0.5rem;
 
-    /* Sidebar - Dark Theme */
-    --sidebar-background: 220 13% 10%;
-    --sidebar-foreground: 220 14% 96%;
+    /* Sidebar - Light Theme */
+    --sidebar-background: 220 14% 96%;
+    --sidebar-foreground: 220 13% 10%;
     --sidebar-primary: 199 89% 48%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 13% 18%;
-    --sidebar-accent-foreground: 220 14% 96%;
-    --sidebar-border: 220 13% 18%;
+    --sidebar-accent: 220 13% 91%;
+    --sidebar-accent-foreground: 220 13% 10%;
+    --sidebar-border: 220 13% 91%;
     --sidebar-ring: 199 89% 48%;
 
     /* Gray Scale */
