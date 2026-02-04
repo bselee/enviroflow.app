@@ -84,6 +84,17 @@ const ecowittCredentialsSchema = z.object({
   applicationKey: z.string().optional(),
 });
 
+// MQTT credentials schema
+const mqttCredentialsSchema = z.object({
+  brokerUrl: z.string().min(1, "Broker URL is required").refine(
+    (url) => /^(mqtt|mqtts|ws|wss):\/\/.+/.test(url),
+    "Must start with mqtt://, mqtts://, ws://, or wss://"
+  ),
+  username: z.string().optional(),
+  password: z.string().optional(),
+  topicPrefix: z.string().optional(),
+});
+
 const controllerNameSchema = z.object({
   name: z.string().min(1, "Controller name is required").max(50, "Name too long"),
   roomId: z.string().optional(),
@@ -91,6 +102,7 @@ const controllerNameSchema = z.object({
 
 type CredentialsFormData = z.infer<typeof credentialsSchema>;
 type EcowittCredentialsFormData = z.infer<typeof ecowittCredentialsSchema>;
+type MQTTCredentialsFormData = z.infer<typeof mqttCredentialsSchema>;
 type ControllerNameFormData = z.infer<typeof controllerNameSchema>;
 
 /**
@@ -189,6 +201,7 @@ export function AddControllerDialog({
   const [selectedBrand, setSelectedBrand] = useState<Brand | null>(null);
   const [credentials, setCredentials] = useState<CredentialsFormData | null>(null);
   const [ecowittCredentials, setEcowittCredentials] = useState<EcowittCredentialsFormData | null>(null);
+  const [mqttCredentials, setMqttCredentials] = useState<MQTTCredentialsFormData | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
 
   // Discovery state - for adding devices discovered through network scan
@@ -245,6 +258,17 @@ export function AddControllerDialog({
     },
   });
 
+  // MQTT credentials form
+  const mqttForm = useForm<MQTTCredentialsFormData>({
+    resolver: zodResolver(mqttCredentialsSchema),
+    defaultValues: {
+      brokerUrl: '',
+      username: '',
+      password: '',
+      topicPrefix: '',
+    },
+  });
+
   // Name form
   const nameForm = useForm<ControllerNameFormData>({
     resolver: zodResolver(controllerNameSchema),
@@ -263,6 +287,7 @@ export function AddControllerDialog({
     setSelectedBrand(null);
     setCredentials(null);
     setEcowittCredentials(null);
+    setMqttCredentials(null);
     setCsvFile(null);
     setDiscoveredDevice(null);
     setDiscoveryCredentials(null);
@@ -283,8 +308,9 @@ export function AddControllerDialog({
     setAddedControllerId(null);
     credentialsForm.reset();
     ecowittForm.reset();
+    mqttForm.reset();
     nameForm.reset();
-  }, [credentialsForm, ecowittForm, nameForm]);
+  }, [credentialsForm, ecowittForm, mqttForm, nameForm]);
 
   /**
    * Handle dialog close
@@ -453,6 +479,17 @@ export function AddControllerDialog({
   );
 
   /**
+   * Handle MQTT credentials submit
+   */
+  const handleMqttCredentialsSubmit = useCallback(
+    (data: MQTTCredentialsFormData) => {
+      setMqttCredentials(data);
+      setStep(3);
+    },
+    []
+  );
+
+  /**
    * Handle CSV file selection
    */
   const handleCsvSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -494,6 +531,8 @@ export function AddControllerDialog({
         effectiveCredentials = discoveryCredentials;
       } else if (selectedBrand.id === 'ecowitt' && ecowittCredentials) {
         effectiveCredentials = ecowittCredentials;
+      } else if (selectedBrand.id === 'mqtt' && mqttCredentials) {
+        effectiveCredentials = mqttCredentials;
       } else {
         effectiveCredentials = credentials || undefined;
       }
@@ -556,8 +595,10 @@ export function AddControllerDialog({
             setCredentials(null);
             setDiscoveryCredentials(null);
             setEcowittCredentials(null);
+            setMqttCredentials(null);
             credentialsForm.reset();
             ecowittForm.reset();
+            mqttForm.reset();
 
             // Success - update status after credentials are cleared
             setConnectionProgress(100);
@@ -617,7 +658,7 @@ export function AddControllerDialog({
         setIsConnecting(false);
       }
     },
-    [selectedBrand, credentials, discoveryCredentials, ecowittCredentials, addMode, discoveredDevice, onAdd, handleOpenChange, onCreateRoom, rooms.length, credentialsForm, ecowittForm]
+    [selectedBrand, credentials, discoveryCredentials, ecowittCredentials, mqttCredentials, addMode, discoveredDevice, onAdd, handleOpenChange, onCreateRoom, rooms.length, credentialsForm, ecowittForm, mqttForm]
   );
 
   /**
@@ -628,8 +669,10 @@ export function AddControllerDialog({
     setCredentials(null);
     setDiscoveryCredentials(null);
     setEcowittCredentials(null);
+    setMqttCredentials(null);
     credentialsForm.reset();
     ecowittForm.reset();
+    mqttForm.reset();
 
     setConnectionStatus("idle");
     setConnectionError(null);
@@ -637,7 +680,7 @@ export function AddControllerDialog({
     setShowPassword(false);
     // Re-submit the form
     nameForm.handleSubmit(handleConnect)();
-  }, [nameForm, handleConnect, credentialsForm, ecowittForm]);
+  }, [nameForm, handleConnect, credentialsForm, ecowittForm, mqttForm]);
 
   /**
    * Render step content
@@ -1008,6 +1051,107 @@ export function AddControllerDialog({
                     </div>
                   </>
                 )}
+              </div>
+
+              <DialogFooter className="gap-2">
+                <Button type="button" variant="outline" onClick={() => setStep(1)}>
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Back
+                </Button>
+                <Button type="submit">
+                  Continue
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </DialogFooter>
+            </form>
+          );
+        }
+
+        // MQTT broker credentials form
+        if (selectedBrand?.id === "mqtt") {
+          return (
+            <form onSubmit={mqttForm.handleSubmit(handleMqttCredentialsSubmit)} className="space-y-4">
+              <DialogDescription>
+                Configure your MQTT broker connection. EnviroFlow will subscribe to sensor topics and discover available sensors.
+              </DialogDescription>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="brokerUrl">Broker URL</Label>
+                  <Input
+                    id="brokerUrl"
+                    type="text"
+                    placeholder="mqtt://192.168.1.100:1883"
+                    {...mqttForm.register("brokerUrl")}
+                  />
+                  {mqttForm.formState.errors.brokerUrl && (
+                    <p className="text-sm text-destructive">
+                      {mqttForm.formState.errors.brokerUrl.message}
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Supports: mqtt:// (1883), mqtts:// (8883), ws:// (8083), wss:// (9001)
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="username">Username (optional)</Label>
+                  <Input
+                    id="username"
+                    type="text"
+                    placeholder="mqtt_user"
+                    {...mqttForm.register("username")}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="mqttPassword">Password (optional)</Label>
+                  <div className="relative">
+                    <Input
+                      id="mqttPassword"
+                      type={showPassword ? "text" : "password"}
+                      placeholder="••••••••"
+                      {...mqttForm.register("password")}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                      onClick={() => setShowPassword(!showPassword)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="topicPrefix">Topic Prefix (optional)</Label>
+                  <Input
+                    id="topicPrefix"
+                    type="text"
+                    placeholder="home/sensors"
+                    {...mqttForm.register("topicPrefix")}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty to subscribe to all topics, or specify a prefix (e.g., &quot;zigbee2mqtt&quot;)
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border bg-muted/50 p-3 text-sm">
+                <p className="font-medium mb-1">Works with:</p>
+                <ul className="text-xs text-muted-foreground space-y-0.5">
+                  <li>• Zigbee2MQTT, ESPHome, Tasmota</li>
+                  <li>• Home Assistant MQTT integration</li>
+                  <li>• Mosquitto, EMQX, HiveMQ brokers</li>
+                  <li>• Any MQTT-compatible sensors</li>
+                </ul>
               </div>
 
               <DialogFooter className="gap-2">

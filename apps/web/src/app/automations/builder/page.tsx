@@ -40,11 +40,12 @@ export default function WorkflowBuilderPage() {
     data: Partial<WorkflowNode["data"]>;
   } | null>(null);
 
-  // Transform controllers to match NodePropertiesPanel format
+  // Transform controllers to match NodePropertiesPanel format (includes brand for MQTT filtering)
   const controllerOptions = React.useMemo(() => {
     return controllers.map((c) => ({
       id: c.id,
-      name: c.name || c.device_id || 'Unknown Controller',
+      name: c.name || c.controller_id || 'Unknown Controller',
+      brand: c.brand,
     }));
   }, [controllers]);
 

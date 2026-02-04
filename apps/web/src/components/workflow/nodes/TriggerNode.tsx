@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Handle, Position } from "@xyflow/react";
-import { Play, Clock, Thermometer, MousePointer, X } from "lucide-react";
+import { Play, Clock, Thermometer, MousePointer, X, Radio } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TriggerNodeData, TriggerType } from "../types";
 
@@ -14,6 +14,7 @@ import type { TriggerNodeData, TriggerType } from "../types";
  * - Schedule: Cron expression or simple time picker
  * - Sensor Threshold: When a sensor reading crosses a threshold
  * - Manual: User-initiated trigger
+ * - MQTT: When a message on an MQTT topic matches conditions
  *
  * Visual Design:
  * - Green border to indicate "start" semantics
@@ -26,6 +27,7 @@ const TRIGGER_ICONS: Record<TriggerType, React.ComponentType<{ className?: strin
   schedule: Clock,
   sensor_threshold: Thermometer,
   manual: MousePointer,
+  mqtt: Radio,
 };
 
 /** Labels for trigger types */
@@ -33,6 +35,7 @@ const TRIGGER_LABELS: Record<TriggerType, string> = {
   schedule: "Schedule",
   sensor_threshold: "Sensor Threshold",
   manual: "Manual Trigger",
+  mqtt: "MQTT Trigger",
 };
 
 interface TriggerNodeProps {
@@ -74,6 +77,19 @@ export function TriggerNode({ data, selected, id }: TriggerNodeProps) {
         }
         return "Not configured";
       }
+      case "mqtt": {
+        const config = data.config;
+        if (config.topic) {
+          const topicDisplay = config.topic.length > 25 
+            ? config.topic.substring(0, 22) + "..." 
+            : config.topic;
+          if (config.jsonPath && config.operator && config.threshold !== undefined) {
+            return `${topicDisplay} → ${config.jsonPath} ${config.operator} ${config.threshold}`;
+          }
+          return `Topic: ${topicDisplay}`;
+        }
+        return "Not configured";
+      }
       case "manual":
         return "Click to run";
       default:
@@ -84,7 +100,7 @@ export function TriggerNode({ data, selected, id }: TriggerNodeProps) {
   return (
     <div
       className={cn(
-        "min-w-[200px] rounded-lg border-2 bg-card shadow-md transition-all",
+        "group min-w-[200px] rounded-lg border-2 bg-card shadow-md transition-all",
         "border-green-500 dark:border-green-400",
         selected && "ring-2 ring-green-500/50 ring-offset-2 ring-offset-background"
       )}

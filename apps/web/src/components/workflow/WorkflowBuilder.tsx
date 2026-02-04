@@ -25,6 +25,7 @@ import "@xyflow/react/dist/style.css";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Save,
   Maximize,
@@ -34,6 +35,7 @@ import {
   Zap,
   Sun,
   Bell,
+  AlertTriangle,
 } from "lucide-react";
 
 import { TriggerNode } from "./nodes/TriggerNode";
@@ -46,6 +48,10 @@ import { ModeNode } from "./nodes/ModeNode";
 import { DelayNode } from "./nodes/DelayNode";
 import { VariableNode } from "./nodes/VariableNode";
 import { DebounceNode } from "./nodes/DebounceNode";
+import { VerifiedActionNode } from "./nodes/VerifiedActionNode";
+import { PortConditionNode } from "./nodes/PortConditionNode";
+import { DryRunPreview } from "./DryRunPreview";
+import { RateLimitIndicator } from "./RateLimitIndicator";
 import type {
   WorkflowNode,
   WorkflowEdge,
@@ -61,6 +67,8 @@ import type {
   DelayNodeData,
   VariableNodeData,
   DebounceNodeData,
+  VerifiedActionNodeData,
+  PortConditionNodeData,
 } from "./types";
 
 /**
@@ -91,6 +99,8 @@ const nodeTypes: NodeTypes = {
   delay: DelayNode,
   variable: VariableNode,
   debounce: DebounceNode,
+  verified_action: VerifiedActionNode,
+  port_condition: PortConditionNode,
 };
 
 /** Node palette items for drag and drop */
@@ -166,7 +176,7 @@ interface WorkflowBuilderProps {
 }
 
 /** Union type for all node data types */
-type AllNodeData = TriggerNodeData | SensorNodeData | ConditionNodeData | ActionNodeData | DimmerNodeData | NotificationNodeData | ModeNodeData | DelayNodeData | VariableNodeData | DebounceNodeData;
+type AllNodeData = TriggerNodeData | SensorNodeData | ConditionNodeData | ActionNodeData | DimmerNodeData | NotificationNodeData | ModeNodeData | DelayNodeData | VariableNodeData | DebounceNodeData | VerifiedActionNodeData | PortConditionNodeData;
 
 /**
  * Creates default node data based on node type
@@ -264,7 +274,7 @@ function createDefaultNodeData(type: string, label: string): AllNodeData {
           retryCount: 3,
           rollbackOnFailure: true,
         },
-      } as any; // Will be properly typed when VerifiedActionNodeData is defined
+      } as VerifiedActionNodeData;
     case "port_condition":
       return {
         label,
@@ -275,7 +285,7 @@ function createDefaultNodeData(type: string, label: string): AllNodeData {
           portName: "",
           condition: "is_on",
         },
-      } as any; // Will be properly typed when PortConditionNodeData is defined
+      } as PortConditionNodeData;
     default:
       return {
         label,
@@ -341,6 +351,7 @@ export function WorkflowBuilder({
   const reactFlowWrapper = React.useRef<HTMLDivElement>(null);
   const [workflowName, setWorkflowName] = React.useState(workflow?.name ?? "Untitled Workflow");
   const [isDirty, setIsDirty] = React.useState(false);
+  const [validationWarning, setValidationWarning] = React.useState<string | null>(null);
 
   // Initialize nodes and edges from workflow or empty
   const initialNodes: WorkflowNode[] = workflow?.nodes ?? [];
@@ -350,6 +361,31 @@ export function WorkflowBuilder({
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges as unknown as Edge[]);
 
   const { screenToFlowPosition, fitView } = useReactFlow();
+
+  // Calculate unconnected nodes
+  const unconnectedNodes = React.useMemo(() => {
+    if (nodes.length === 0) return [];
+    
+    // Get all node IDs that are connected via edges
+    const connectedNodeIds = new Set<string>();
+    edges.forEach((edge) => {
+      connectedNodeIds.add(edge.source);
+      connectedNodeIds.add(edge.target);
+    });
+    
+    // Find nodes that aren't connected (excluding the first trigger node)
+    const triggerNode = nodes.find((n) => n.type === "trigger");
+    const unconnected = nodes.filter((node) => {
+      // Trigger node only needs outgoing connection
+      if (node.type === "trigger") {
+        return !edges.some((e) => e.source === node.id);
+      }
+      // Other nodes need at least one connection
+      return !connectedNodeIds.has(node.id);
+    });
+    
+    return unconnected;
+  }, [nodes, edges]);
 
   // Notify parent when nodes change
   React.useEffect(() => {
@@ -524,6 +560,18 @@ export function WorkflowBuilder({
   const handleSave = React.useCallback(async () => {
     if (!onSave) return;
 
+    // Show warning for unconnected nodes (but still allow save)
+    if (unconnectedNodes.length > 0) {
+      const nodeLabels = unconnectedNodes
+        .map((n) => (n.data as { label?: string })?.label || n.type)
+        .join(", ");
+      setValidationWarning(
+        `${unconnectedNodes.length} node(s) are not connected to the flow and won't execute: ${nodeLabels}`
+      );
+    } else {
+      setValidationWarning(null);
+    }
+
     const workflowData: Partial<WorkflowDefinition> = {
       id: workflow?.id,
       name: workflowName,
@@ -534,7 +582,7 @@ export function WorkflowBuilder({
 
     await onSave(workflowData);
     setIsDirty(false);
-  }, [onSave, workflow, workflowName, nodes, edges]);
+  }, [onSave, workflow, workflowName, nodes, edges, unconnectedNodes]);
 
   return (
     <div className="flex h-full flex-col">
@@ -553,6 +601,12 @@ export function WorkflowBuilder({
         </div>
 
         <div className="flex items-center gap-2">
+          <RateLimitIndicator />
+          <DryRunPreview
+            nodes={nodes as unknown as WorkflowNode[]}
+            edges={edges as unknown as WorkflowEdge[]}
+            isDisabled={nodes.length === 0}
+          />
           <Button
             variant="outline"
             size="sm"
@@ -572,6 +626,24 @@ export function WorkflowBuilder({
           </Button>
         </div>
       </div>
+
+      {/* Validation Warning Banner */}
+      {validationWarning && (
+        <Alert variant="default" className="mx-4 mb-2 border-amber-500/50 bg-amber-500/10">
+          <AlertTriangle className="h-4 w-4 text-amber-500" />
+          <AlertDescription className="text-amber-700 dark:text-amber-400 text-sm">
+            {validationWarning}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-2 h-6 px-2 text-xs"
+              onClick={() => setValidationWarning(null)}
+            >
+              Dismiss
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Canvas Area */}
       <div ref={reactFlowWrapper} className="flex-1" onClick={handlePaneClick}>

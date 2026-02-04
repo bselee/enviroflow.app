@@ -20,6 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { SensorNodeData, SensorType } from "../types";
 import { useControllerCapabilities } from "@/hooks/use-controller-capabilities";
+import { HysteresisViz } from "../HysteresisViz";
 
 /**
  * SensorNode - Reads sensor data from a controller
@@ -309,12 +310,17 @@ export function SensorNode({ data, selected, id }: SensorNodeProps) {
           </span>
         </div>
 
-        {/* Hysteresis Info */}
+        {/* Hysteresis Visualization */}
         {config.resetThreshold !== undefined && (
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            Reset at: {config.resetThreshold}
-            {getSensorUnit(sensorType, config.unit)}
-          </p>
+          <div className="mt-2">
+            <HysteresisViz
+              operator={config.operator}
+              threshold={config.threshold ?? 0}
+              resetThreshold={config.resetThreshold}
+              unit={getSensorUnit(sensorType, config.unit)}
+              size="compact"
+            />
+          </div>
         )}
 
         {/* Condition Status Indicator */}

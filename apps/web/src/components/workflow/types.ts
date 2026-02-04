@@ -16,7 +16,7 @@ export type { SensorType };
 // ============================================================================
 
 /** Types of triggers that can initiate a workflow */
-export type TriggerType = "schedule" | "sensor_threshold" | "manual";
+export type TriggerType = "schedule" | "sensor_threshold" | "manual" | "mqtt";
 
 /** Configuration for schedule-based triggers */
 export interface ScheduleTriggerConfig {
@@ -34,6 +34,10 @@ export interface SensorThresholdTriggerConfig {
   triggerType: "sensor_threshold";
   /** ID of the controller to monitor */
   controllerId?: string;
+  /** ID of standalone sensor (alternative to controllerId) */
+  sensorId?: string;
+  /** Whether this references a controller sensor or standalone sensor */
+  sensorSource?: 'controller' | 'standalone';
   /** Type of sensor to monitor */
   sensorType?: SensorType;
   /** Comparison operator */
@@ -47,8 +51,29 @@ export interface ManualTriggerConfig {
   triggerType: "manual";
 }
 
+/** Configuration for MQTT-based triggers */
+export interface MQTTTriggerConfig {
+  triggerType: "mqtt";
+  /** Reference to an MQTT controller (credentials stored encrypted in controllers table) */
+  controllerId?: string;
+  /** Controller name for display purposes only */
+  controllerName?: string;
+  /** MQTT topic to subscribe to (supports wildcards: + for single level, # for multi-level) */
+  topic?: string;
+  /** JSONPath expression to extract value from payload (e.g., $.temperature) */
+  jsonPath?: string;
+  /** Comparison operator for threshold */
+  operator?: ComparisonOperator;
+  /** Threshold value to compare against extracted value */
+  threshold?: number;
+  /** Last received message (for preview in UI) */
+  lastMessage?: string;
+  /** Last received timestamp */
+  lastReceivedAt?: string;
+}
+
 /** Union type for all trigger configurations */
-export type TriggerConfig = ScheduleTriggerConfig | SensorThresholdTriggerConfig | ManualTriggerConfig;
+export type TriggerConfig = ScheduleTriggerConfig | SensorThresholdTriggerConfig | ManualTriggerConfig | MQTTTriggerConfig;
 
 /** Data payload for TriggerNode */
 export interface TriggerNodeData {
@@ -65,6 +90,12 @@ export interface SensorNodeConfig {
   controllerId?: string;
   /** Controller name for display purposes */
   controllerName?: string;
+  /** ID of standalone sensor (alternative to controllerId) */
+  sensorId?: string;
+  /** Standalone sensor name for display */
+  sensorName?: string;
+  /** Whether this references a controller sensor or standalone sensor */
+  sensorSource?: 'controller' | 'standalone';
   /** Type of sensor reading to monitor */
   sensorType?: SensorType;
   /** Port number for multi-port sensors (e.g., Ecowitt CH1, CH2) */

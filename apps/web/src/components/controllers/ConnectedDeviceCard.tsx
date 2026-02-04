@@ -200,7 +200,7 @@ export function ConnectedDeviceCard({
             </div>
             <div className="flex-1 min-w-0">
               <h4 className="font-medium text-sm truncate">{device.name}</h4>
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <Badge variant="outline" className="text-xs px-1.5 py-0 h-5">
                   Port {device.port}
                 </Badge>
@@ -213,7 +213,29 @@ export function ConnectedDeviceCard({
                     {localIsOn ? 'On' : 'Off'}
                   </span>
                 </div>
+                {/* Show current mode from AC Infinity programming */}
+                {device.mode && device.mode !== 'off' && (
+                  <Badge 
+                    variant="secondary" 
+                    className={cn(
+                      "text-xs px-1.5 py-0 h-5 uppercase",
+                      device.mode === 'auto' && "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+                      device.mode === 'vpd' && "bg-purple-500/10 text-purple-600 dark:text-purple-400",
+                      device.mode === 'timer' && "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+                      device.mode === 'cycle' && "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
+                      device.mode === 'schedule' && "bg-green-500/10 text-green-600 dark:text-green-400",
+                    )}
+                  >
+                    {device.mode}
+                  </Badge>
+                )}
               </div>
+              {/* Show mode summary if available */}
+              {device.modeSummary && (
+                <p className="text-[10px] text-muted-foreground mt-1 truncate">
+                  {device.modeSummary}
+                </p>
+              )}
             </div>
           </div>
 

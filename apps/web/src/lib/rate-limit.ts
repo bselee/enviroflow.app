@@ -127,3 +127,40 @@ export function resetRateLimit(identifier: string, keyPrefix?: string): void {
   const key = keyPrefix ? `${keyPrefix}:${identifier}` : identifier
   rateLimitStore.delete(key)
 }
+
+/**
+ * Peek at current rate limit status without consuming a token
+ *
+ * Unlike checkRateLimit, this does NOT increment the counter.
+ * Use this for status/info endpoints that should not count as a request.
+ *
+ * @param identifier - Unique identifier (typically user ID)
+ * @param config - Rate limit configuration
+ * @returns Rate limit result with current status (does not modify state)
+ */
+export function peekRateLimit(
+  identifier: string,
+  config: RateLimitConfig
+): RateLimitResult {
+  const key = config.keyPrefix ? `${config.keyPrefix}:${identifier}` : identifier
+  const now = Date.now()
+
+  const entry = rateLimitStore.get(key)
+
+  // If no entry exists or window expired, all tokens are available
+  if (!entry || entry.resetAt < now) {
+    return {
+      success: true,
+      limit: config.maxRequests,
+      remaining: config.maxRequests,
+      reset: now + config.windowMs,
+    }
+  }
+
+  return {
+    success: entry.count < config.maxRequests,
+    limit: config.maxRequests,
+    remaining: Math.max(0, config.maxRequests - entry.count),
+    reset: entry.resetAt,
+  }
+}

@@ -69,8 +69,39 @@ function getSupabase(): SupabaseClient {
 // Workflow node types
 interface WorkflowNode {
   id: string
-  type: 'trigger' | 'sensor' | 'condition' | 'action' | 'delay' | 'dimmer' | 'notification' | 'mode' | 'verified_action' | 'port_condition'
+  type: 'trigger' | 'sensor' | 'condition' | 'action' | 'delay' | 'dimmer' | 'notification' | 'mode' | 'verified_action' | 'port_condition' | 'variable' | 'debounce'
   data: Record<string, unknown>
+}
+
+// Delay Node Configuration
+interface DelayNodeConfig {
+  duration: number
+  unit: 'seconds' | 'minutes' | 'hours'
+}
+
+// Variable Node Configuration
+interface VariableNodeConfig {
+  name: string
+  scope: 'workflow' | 'global'
+  operation: 'set' | 'get' | 'increment' | 'decrement'
+  valueType: 'number' | 'string' | 'boolean'
+  value?: number | string | boolean
+  amount?: number
+}
+
+// Debounce Node Configuration
+interface DebounceNodeConfig {
+  cooldownSeconds: number
+  executeOnLead: boolean
+  executeOnTrail: boolean
+}
+
+// Execution state for paused workflows (delay nodes)
+interface ExecutionState {
+  paused_at_node: string
+  resume_after: string // ISO timestamp
+  next_nodes: string[] // Nodes to execute after resume
+  workflow_variables: Record<string, number | string | boolean> // Runtime variable storage
 }
 
 // Device Programming Node Configurations
@@ -158,6 +189,7 @@ interface Workflow {
   is_active: boolean
   dry_run_enabled: boolean
   room_id: string | null
+  execution_state: ExecutionState | null
   room?: {
     name: string
   } | null
@@ -168,14 +200,76 @@ interface SensorReading {
   sensor_type: string
   value: number
   timestamp: string
+  port?: number
+  user_id?: string
 }
 
 interface ExecutionResult {
   workflowId: string
   workflowName: string
-  status: 'success' | 'failed' | 'skipped' | 'dry_run'
+  status: 'success' | 'failed' | 'skipped' | 'dry_run' | 'conflict'
   actionsExecuted: number
   error?: string
+  conflictsWith?: string[] // IDs of conflicting workflows
+}
+
+// Target port reference for conflict detection
+interface TargetPort {
+  controllerId: string
+  port: number
+  nodeId: string
+  nodeType: string
+}
+
+/**
+ * Extract all target ports from action nodes in a workflow.
+ * Used for conflict detection.
+ */
+function extractTargetPorts(nodes: WorkflowNode[]): TargetPort[] {
+  const targets: TargetPort[] = []
+  
+  for (const node of nodes) {
+    if (['action', 'dimmer', 'mode', 'verified_action'].includes(node.type)) {
+      const data = node.data as { 
+        controllerId?: string
+        port?: number
+        config?: { controllerId?: string; port?: number }
+      }
+      
+      // Handle both direct properties and nested config
+      const controllerId = data.controllerId || data.config?.controllerId
+      const port = data.port ?? data.config?.port
+      
+      if (controllerId && port !== undefined) {
+        targets.push({
+          controllerId,
+          port,
+          nodeId: node.id,
+          nodeType: node.type,
+        })
+      }
+    }
+  }
+  
+  return targets
+}
+
+/**
+ * Check if two workflows have conflicting target ports.
+ * Returns the list of conflicting port keys (controllerId:port).
+ */
+function findPortConflicts(targets1: TargetPort[], targets2: TargetPort[]): string[] {
+  const keys1 = new Set(targets1.map(t => `${t.controllerId}:${t.port}`))
+  const conflicts: string[] = []
+  
+  for (const t of targets2) {
+    const key = `${t.controllerId}:${t.port}`
+    if (keys1.has(key)) {
+      conflicts.push(key)
+    }
+  }
+  
+  return conflicts
 }
 
 /**
@@ -214,6 +308,7 @@ export async function GET(request: NextRequest) {
         is_active,
         dry_run_enabled,
         room_id,
+        execution_state,
         room:rooms(name)
       `)
       .eq('is_active', true)
@@ -236,9 +331,89 @@ export async function GET(request: NextRequest) {
     
     console.log(`Processing ${workflows.length} active workflows`)
     
+    // Build conflict detection map: port key -> workflow IDs targeting it
+    const portTargetMap = new Map<string, { workflowId: string; workflowName: string }[]>()
+    const workflowTargets = new Map<string, TargetPort[]>()
+    
+    for (const workflow of workflows) {
+      const parsedNodes: WorkflowNode[] = typeof workflow.nodes === 'string' 
+        ? JSON.parse(workflow.nodes) 
+        : workflow.nodes || []
+      
+      const targets = extractTargetPorts(parsedNodes)
+      workflowTargets.set(workflow.id, targets)
+      
+      for (const target of targets) {
+        const key = `${target.controllerId}:${target.port}`
+        if (!portTargetMap.has(key)) {
+          portTargetMap.set(key, [])
+        }
+        portTargetMap.get(key)!.push({ 
+          workflowId: workflow.id, 
+          workflowName: workflow.name 
+        })
+      }
+    }
+    
+    // Find conflicting workflows (same port targeted by multiple workflows)
+    const conflictingWorkflows = new Set<string>()
+    const workflowConflicts = new Map<string, string[]>() // workflowId -> conflicting workflow names
+    
+    for (const [portKey, targetingWorkflows] of portTargetMap.entries()) {
+      if (targetingWorkflows.length > 1) {
+        // Multiple workflows target the same port - mark all as conflicting
+        console.warn(`[CONFLICT] Port ${portKey} targeted by ${targetingWorkflows.length} workflows: ${targetingWorkflows.map(w => w.workflowName).join(', ')}`)
+        
+        for (const wf of targetingWorkflows) {
+          conflictingWorkflows.add(wf.workflowId)
+          
+          // Track which other workflows this one conflicts with
+          const others = targetingWorkflows
+            .filter(o => o.workflowId !== wf.workflowId)
+            .map(o => o.workflowName)
+          
+          const existing = workflowConflicts.get(wf.workflowId) || []
+          workflowConflicts.set(wf.workflowId, [...new Set([...existing, ...others])])
+        }
+      }
+    }
+    
+    if (conflictingWorkflows.size > 0) {
+      console.warn(`[CONFLICT DETECTION] ${conflictingWorkflows.size} workflows blocked due to port conflicts`)
+    }
+    
     // Execute each workflow
     for (const workflow of workflows) {
       try {
+        // Check for conflicts BEFORE execution
+        if (conflictingWorkflows.has(workflow.id)) {
+          const conflictNames = workflowConflicts.get(workflow.id) || []
+          console.warn(`[BLOCKED] Workflow "${workflow.name}" conflicts with: ${conflictNames.join(', ')}`)
+          
+          // Log the conflict
+          await supabase.from('activity_logs').insert({
+            user_id: workflow.user_id,
+            workflow_id: workflow.id,
+            action_type: 'workflow_conflict',
+            action_data: {
+              conflictsWith: conflictNames,
+              blockedPorts: workflowTargets.get(workflow.id)?.map(t => `${t.controllerId}:${t.port}`),
+            },
+            result: 'blocked',
+            error_message: `Workflow blocked: port conflict with ${conflictNames.join(', ')}`,
+          })
+          
+          results.push({
+            workflowId: workflow.id,
+            workflowName: workflow.name,
+            status: 'conflict',
+            actionsExecuted: 0,
+            error: `Port conflict with: ${conflictNames.join(', ')}`,
+            conflictsWith: conflictNames,
+          })
+          continue
+        }
+        
         // Transform Supabase join result to expected Workflow shape
         // Supabase returns room as an array for single relations in some query patterns
         const workflowData: Workflow = {
@@ -263,6 +438,7 @@ export async function GET(request: NextRequest) {
     const failedCount = results.filter(r => r.status === 'failed').length
     const skippedCount = results.filter(r => r.status === 'skipped').length
     const dryRunCount = results.filter(r => r.status === 'dry_run').length
+    const conflictCount = results.filter(r => r.status === 'conflict').length
     
     return NextResponse.json({
       message: `Processed ${workflows.length} workflows`,
@@ -271,7 +447,8 @@ export async function GET(request: NextRequest) {
         success: successCount,
         failed: failedCount,
         skipped: skippedCount,
-        dryRun: dryRunCount
+        dryRun: dryRunCount,
+        conflict: conflictCount
       },
       details: results,
       duration: Date.now() - startTime
@@ -294,7 +471,7 @@ async function executeWorkflow(
   supabase: SupabaseClient,
   workflow: Workflow
 ): Promise<ExecutionResult> {
-  const { id, user_id, name, nodes, dry_run_enabled, room } = workflow
+  const { id, user_id, name, nodes, dry_run_enabled, room, execution_state } = workflow
 
   // Extract room name for notification context
   const roomName = room?.name || undefined
@@ -313,6 +490,52 @@ async function executeWorkflow(
       error: 'No nodes in workflow'
     }
   }
+
+  // Initialize runtime variable storage
+  let workflowVariables: Record<string, number | string | boolean> = {}
+  
+  // Check if workflow is paused (from a delay node)
+  if (execution_state?.paused_at_node && execution_state?.resume_after) {
+    const resumeTime = new Date(execution_state.resume_after)
+    const now = new Date()
+    
+    if (now < resumeTime) {
+      // Not yet time to resume
+      return {
+        workflowId: id,
+        workflowName: name,
+        status: 'skipped',
+        actionsExecuted: 0,
+        error: `Paused until ${resumeTime.toISOString()}`
+      }
+    }
+    
+    // Time to resume - restore variables and continue from where we left off
+    workflowVariables = execution_state.workflow_variables || {}
+    console.log(`[Workflow ${name}] Resuming from delay node ${execution_state.paused_at_node}`)
+    
+    // Clear the execution state and resume
+    await supabase
+      .from('workflows')
+      .update({ execution_state: null })
+      .eq('id', id)
+    
+    // Parse edges and continue from the paused node
+    const parsedEdges: WorkflowEdge[] = typeof workflow.edges === 'string'
+      ? JSON.parse(workflow.edges)
+      : workflow.edges || []
+    
+    // Execute from the saved next nodes
+    return await executeFromNodes(
+      supabase,
+      workflow,
+      parsedNodes,
+      parsedEdges,
+      execution_state.next_nodes,
+      workflowVariables,
+      roomName
+    )
+  }
   
   // Find trigger node
   const triggerNode = parsedNodes.find(n => n.type === 'trigger')
@@ -327,15 +550,10 @@ async function executeWorkflow(
     }
   }
   
-  // Evaluate trigger condition
-  const triggerData = triggerNode.data as {
-    variant?: string
-    time?: string
-    sensorType?: string
-    threshold?: number
-    operator?: string
-  }
-  
+  // TriggerNode stores data as { config: { triggerType, ... } } (new UI)
+  // Legacy may use { variant, ... } at top level - both supported
+  const triggerData = triggerNode.data as Record<string, unknown>
+
   // Get latest sensor readings for this user
   const { data: readings } = await supabase
     .from('sensor_readings')
@@ -369,9 +587,34 @@ async function executeWorkflow(
     : workflow.edges || []
 
   // Execute workflow by traversing the graph starting from trigger
+  return await executeFromNodes(
+    supabase,
+    workflow,
+    parsedNodes,
+    parsedEdges,
+    [triggerNode.id],
+    workflowVariables,
+    roomName
+  )
+}
+
+/**
+ * Execute workflow from specific starting nodes (used for both initial and resumed execution)
+ */
+async function executeFromNodes(
+  supabase: SupabaseClient,
+  workflow: Workflow,
+  parsedNodes: WorkflowNode[],
+  parsedEdges: WorkflowEdge[],
+  startingNodes: string[],
+  workflowVariables: Record<string, number | string | boolean>,
+  roomName?: string
+): Promise<ExecutionResult> {
+  const { id, user_id, name, dry_run_enabled } = workflow
+  
   let actionsExecuted = 0
   const visited = new Set<string>()
-  const nodesToExecute: string[] = [triggerNode.id]
+  const nodesToExecute: string[] = [...startingNodes]
 
   while (nodesToExecute.length > 0) {
     const currentNodeId = nodesToExecute.shift()!
@@ -387,6 +630,191 @@ async function executeWorkflow(
     if (currentNode.type === 'trigger') {
       // Find all edges from trigger and add their targets to execution queue
       const nextEdges = parsedEdges.filter(e => e.source === currentNodeId)
+      nodesToExecute.push(...nextEdges.map(e => e.target))
+      continue
+    }
+
+    // FIX #12: Handle condition nodes (AND/OR branching logic)
+    if (currentNode.type === 'condition') {
+      const conditionConfig = (currentNode.data.config || currentNode.data) as { logicType?: 'AND' | 'OR' }
+      const logicType = conditionConfig.logicType || 'AND'
+      const incomingEdges = parsedEdges.filter(e => e.target === currentNodeId)
+      let conditionResult: boolean
+      if (logicType === 'AND') {
+        conditionResult = incomingEdges.length > 0 && incomingEdges.every(e => visited.has(e.source))
+      } else {
+        conditionResult = true
+      }
+      const branchToFollow = conditionResult ? 'true' : 'false'
+      const branchEdges = parsedEdges.filter(e => e.source === currentNodeId && e.sourceHandle === branchToFollow)
+      if (branchEdges.length > 0) {
+        nodesToExecute.push(...branchEdges.map(e => e.target))
+      } else {
+        const fallbackEdges = parsedEdges.filter(e => e.source === currentNodeId && !e.sourceHandle)
+        if (conditionResult && fallbackEdges.length > 0) {
+          nodesToExecute.push(...fallbackEdges.map(e => e.target))
+        }
+      }
+      await logActivity(supabase, { user_id, workflow_id: id, action_type: 'condition_evaluated', action_data: { logicType, result: conditionResult, branch: branchToFollow, incomingCount: incomingEdges.length }, result: 'success' })
+      continue
+    }
+
+    // FIX #13: Handle sensor nodes
+    if (currentNode.type === 'sensor') {
+      const sensorConfig = (currentNode.data.config || currentNode.data) as {
+        controllerId?: string; sensorId?: string; sensorSource?: 'controller' | 'standalone'
+        sensorType?: string; port?: number; operator?: string; threshold?: number
+      }
+      try {
+        let sensorReading: SensorReading | undefined
+        if (sensorConfig.sensorId && (sensorConfig.sensorSource === 'standalone' || !sensorConfig.controllerId)) {
+          const { data: readings } = await supabase.from('sensor_readings').select('*').eq('sensor_id', sensorConfig.sensorId).eq('sensor_type', sensorConfig.sensorType || '').order('timestamp', { ascending: false }).limit(1)
+          sensorReading = readings?.[0] as SensorReading | undefined
+        } else if (sensorConfig.controllerId) {
+          let query = supabase.from('sensor_readings').select('*').eq('controller_id', sensorConfig.controllerId).eq('sensor_type', sensorConfig.sensorType || '').order('timestamp', { ascending: false }).limit(1)
+          if (sensorConfig.port !== undefined) { query = query.eq('port', sensorConfig.port) }
+          const { data: readings } = await query
+          sensorReading = readings?.[0] as SensorReading | undefined
+        }
+        if (!sensorReading) { await logActivity(supabase, { user_id, workflow_id: id, action_type: 'sensor_evaluated', action_data: { ...sensorConfig, result: false, reason: 'no_reading' }, result: 'skipped' }); continue }
+        const value = sensorReading.value
+        const threshold = sensorConfig.threshold
+        const operator = sensorConfig.operator
+        let conditionMet = false
+        if (threshold !== undefined && operator) { switch (operator) { case '>': conditionMet = value > threshold; break; case '<': conditionMet = value < threshold; break; case '>=': conditionMet = value >= threshold; break; case '<=': conditionMet = value <= threshold; break; case '=': conditionMet = value === threshold; break; default: conditionMet = false } } else { conditionMet = true }
+        await logActivity(supabase, { user_id, workflow_id: id, action_type: 'sensor_evaluated', action_data: { sensorType: sensorConfig.sensorType, controllerId: sensorConfig.controllerId, sensorId: sensorConfig.sensorId, value, operator, threshold, result: conditionMet }, result: 'success' })
+        if (conditionMet) { const nextEdges = parsedEdges.filter(e => e.source === currentNodeId && !e.sourceHandle); nodesToExecute.push(...nextEdges.map(e => e.target)) }
+      } catch (err) { console.error('[Sensor node error]', err); await logActivity(supabase, { user_id, workflow_id: id, action_type: 'sensor_evaluated', action_data: sensorConfig, result: 'failed', error_message: err instanceof Error ? err.message : 'Unknown error' }) }
+      continue
+    }
+
+    // Handle delay nodes - pause execution and save state
+    if (currentNode.type === 'delay') {
+      const delayConfig = currentNode.data.config as DelayNodeConfig
+      const delayMs = calculateDelayMs(delayConfig)
+      
+      if (delayMs > 0) {
+        const resumeAfter = new Date(Date.now() + delayMs)
+        
+        // Get next nodes to execute after delay
+        const nextEdges = parsedEdges.filter(e => e.source === currentNodeId && !e.sourceHandle)
+        const nextNodes = nextEdges.map(e => e.target)
+        
+        // Save execution state
+        const executionState: ExecutionState = {
+          paused_at_node: currentNodeId,
+          resume_after: resumeAfter.toISOString(),
+          next_nodes: nextNodes,
+          workflow_variables: workflowVariables
+        }
+        
+        await supabase
+          .from('workflows')
+          .update({ execution_state: executionState })
+          .eq('id', id)
+        
+        // Log the delay
+        await logActivity(supabase, {
+          user_id,
+          workflow_id: id,
+          action_type: 'delay_started',
+          action_data: {
+            duration: delayConfig.duration,
+            unit: delayConfig.unit,
+            resume_after: resumeAfter.toISOString()
+          },
+          result: 'success'
+        })
+        
+        console.log(`[Workflow ${name}] Paused at delay node, resuming at ${resumeAfter.toISOString()}`)
+        
+        // Return early - workflow will resume on next cron run after delay
+        return {
+          workflowId: id,
+          workflowName: name,
+          status: 'success',
+          actionsExecuted,
+          error: `Paused for ${delayConfig.duration} ${delayConfig.unit}`
+        }
+      }
+      
+      // Zero delay - continue immediately
+      const nextEdges = parsedEdges.filter(e => e.source === currentNodeId && !e.sourceHandle)
+      nodesToExecute.push(...nextEdges.map(e => e.target))
+      continue
+    }
+
+    // Handle variable nodes
+    if (currentNode.type === 'variable') {
+      const varConfig = currentNode.data.config as VariableNodeConfig
+      
+      try {
+        await handleVariableNode(supabase, user_id, id, varConfig, workflowVariables)
+        
+        await logActivity(supabase, {
+          user_id,
+          workflow_id: id,
+          action_type: 'variable_operation',
+          action_data: {
+            name: varConfig.name,
+            scope: varConfig.scope,
+            operation: varConfig.operation,
+            value: workflowVariables[`${varConfig.scope}.${varConfig.name}`]
+          },
+          result: 'success'
+        })
+      } catch (err) {
+        console.error(`[Workflow ${name}] Variable operation error:`, err)
+        await logActivity(supabase, {
+          user_id,
+          workflow_id: id,
+          action_type: 'variable_operation',
+          action_data: varConfig,
+          result: 'failed',
+          error_message: err instanceof Error ? err.message : 'Unknown error'
+        })
+      }
+      
+      // Continue to next nodes
+      const nextEdges = parsedEdges.filter(e => e.source === currentNodeId && !e.sourceHandle)
+      nodesToExecute.push(...nextEdges.map(e => e.target))
+      continue
+    }
+
+    // Handle debounce nodes
+    if (currentNode.type === 'debounce') {
+      const debounceConfig = currentNode.data.config as DebounceNodeConfig
+      
+      try {
+        const shouldContinue = await handleDebounceNode(supabase, id, currentNodeId, debounceConfig)
+        
+        if (!shouldContinue) {
+          console.log(`[Workflow ${name}] Debounce blocked execution (cooldown active)`)
+          await logActivity(supabase, {
+            user_id,
+            workflow_id: id,
+            action_type: 'debounce_blocked',
+            action_data: debounceConfig,
+            result: 'skipped'
+          })
+          
+          // Don't add next nodes - stop execution at debounce
+          continue
+        }
+        
+        await logActivity(supabase, {
+          user_id,
+          workflow_id: id,
+          action_type: 'debounce_passed',
+          action_data: debounceConfig,
+          result: 'success'
+        })
+      } catch (err) {
+        console.error(`[Workflow ${name}] Debounce check error:`, err)
+      }
+      
+      // Continue to next nodes
+      const nextEdges = parsedEdges.filter(e => e.source === currentNodeId && !e.sourceHandle)
       nodesToExecute.push(...nextEdges.map(e => e.target))
       continue
     }
@@ -556,20 +984,64 @@ async function evaluateTrigger(
   sensorReadings: SensorReading[],
   context: TriggerContext
 ): Promise<boolean> {
-  const variant = triggerData.variant as string
+  const config = triggerData.config as Record<string, unknown> | undefined
+  const variant = (config?.triggerType as string) || (triggerData.variant as string)
+  const getField = (field: string): unknown => {
+    return config?.[field] !== undefined ? config[field] : triggerData[field]
+  }
 
   switch (variant) {
-    case 'schedule':
-      // Always execute for cron-based schedules
-      return true
+    case 'schedule': {
+      const simpleTime = getField('simpleTime') as string | undefined
+      const cronExpression = getField('cronExpression') as string | undefined
+      const daysOfWeek = getField('daysOfWeek') as number[] | undefined
+      if (!simpleTime && !cronExpression) { console.warn('[Schedule Trigger] No time configured - skipping'); return false }
+      if (cronExpression && !simpleTime) { console.warn('[Schedule Trigger] cronExpression not supported - skipping'); return false }
+      if (simpleTime) {
+        const now = new Date()
+        const tp = simpleTime.split(':')
+        const tH = parseInt(tp[0], 10), tM = parseInt(tp[1], 10)
+        if (isNaN(tH) || isNaN(tM)) return false
+        if (daysOfWeek && daysOfWeek.length > 0 && daysOfWeek.length < 7) {
+          if (!daysOfWeek.includes(now.getDay())) return false
+        }
+        const tgt = tH * 60 + tM
+        const cur = now.getHours() * 60 + now.getMinutes()
+        const d = Math.abs(cur - tgt)
+        return Math.min(d, 1440 - d) <= 1
+      }
+      return false
+    }
 
     case 'sensor_threshold': {
-      const sensorType = triggerData.sensorType as string
-      const threshold = triggerData.threshold as number
-      const operator = triggerData.operator as string
+      const sensorType = getField('sensorType') as string
+      const threshold = getField('threshold') as number
+      const operator = getField('operator') as string
+      const controllerId = getField('controllerId') as string | undefined
+      // FIX #5: Support standalone sensors via sensorId
+      const sensorId = getField('sensorId') as string | undefined
+      const sensorSource = getField('sensorSource') as string | undefined
+      const port = getField('port') as number | undefined
 
       // Find latest reading of this type
-      const reading = sensorReadings.find(r => r.sensor_type === sensorType)
+      let reading: SensorReading | undefined
+
+      if (sensorId && (sensorSource === 'standalone' || !controllerId)) {
+        // Standalone sensor: query by sensor_id
+        reading = sensorReadings.find(r =>
+          r.sensor_type === sensorType &&
+          (r as unknown as Record<string, unknown>).sensor_id === sensorId
+        )
+      } else if (controllerId) {
+        reading = sensorReadings.find(r =>
+          r.sensor_type === sensorType &&
+          r.controller_id === controllerId &&
+          (port === undefined || r.port === port)
+        )
+      } else {
+        reading = sensorReadings.find(r => r.sensor_type === sensorType)
+      }
+
       if (!reading) return false
 
       switch (operator) {
@@ -578,12 +1050,18 @@ async function evaluateTrigger(
         case 'gte': return reading.value >= threshold
         case 'lte': return reading.value <= threshold
         case 'eq': return reading.value === threshold
+        // Also support the standard operators used in UI
+        case '>': return reading.value > threshold
+        case '<': return reading.value < threshold
+        case '>=': return reading.value >= threshold
+        case '<=': return reading.value <= threshold
+        case '=': return reading.value === threshold
         default: return false
       }
     }
 
     case 'time_of_day': {
-      const triggerTime = triggerData.time as string // "HH:MM"
+      const triggerTime = (getField('time') as string) // "HH:MM"
       if (!triggerTime) return false
 
       const now = new Date()
@@ -618,7 +1096,7 @@ async function evaluateTrigger(
       const { sunrise, sunset, timezone } = sunTimesResult.data
 
       // Get optional offset from trigger data (e.g., -30 for 30 minutes before)
-      const offsetMinutes = (triggerData.offsetMinutes as number) || 0
+      const offsetMinutes = (getField('offsetMinutes') as number) || 0
 
       // Calculate the target time with offset (still in local timezone)
       const targetTime = variant === 'sunrise'
@@ -645,9 +1123,98 @@ async function evaluateTrigger(
       // Manual triggers don't auto-execute
       return false
 
+    case 'mqtt': {
+      // MQTT triggers are evaluated based on cached MQTT messages
+      // The actual MQTT subscription and caching happens via a separate service
+      const topic = getField('topic') as string
+      const jsonPath = getField('jsonPath') as string
+      const threshold = getField('threshold') as number
+      const operator = getField('operator') as string
+
+      if (!topic) {
+        console.warn('[MQTT Trigger] No topic configured')
+        return false
+      }
+
+      // Get cached MQTT message for this topic
+      // In a full implementation, this would query a mqtt_messages cache table
+      // For now, we check if the trigger has a lastMessage in its config
+      const lastMessage = getField('lastMessage') as string
+      if (!lastMessage) {
+        // No message received yet
+        return false
+      }
+
+      // If no condition is set, trigger on any message
+      if (!jsonPath || threshold === undefined) {
+        return true
+      }
+
+      // Parse the message and extract value using JSONPath
+      try {
+        const payload = JSON.parse(lastMessage)
+        const value = extractJsonPath(payload, jsonPath)
+        
+        if (value === undefined || typeof value !== 'number') {
+          console.warn(`[MQTT Trigger] JSONPath ${jsonPath} did not return a number`)
+          return false
+        }
+
+        // Evaluate condition
+        switch (operator) {
+          case '>': return value > threshold
+          case '<': return value < threshold
+          case '>=': return value >= threshold
+          case '<=': return value <= threshold
+          case '=': return value === threshold
+          default: return false
+        }
+      } catch (parseError) {
+        console.warn('[MQTT Trigger] Failed to parse message:', parseError)
+        return false
+      }
+    }
+
     default:
-      return true
+      console.warn(`[Trigger] Unknown trigger type`)
+      return false
   }
+}
+
+/**
+ * Extract a value from a JSON object using a simple JSONPath-like expression.
+ * Supports: $.field, $.nested.field, $.array[0], $.array[0].field
+ */
+function extractJsonPath(obj: unknown, path: string): unknown {
+  if (!path || typeof obj !== 'object' || obj === null) {
+    return undefined
+  }
+
+  // Remove leading $. if present
+  const normalizedPath = path.startsWith('$.') ? path.slice(2) : path
+
+  const parts = normalizedPath.split(/\.|\[|\]/).filter(Boolean)
+  let current: unknown = obj
+
+  for (const part of parts) {
+    if (current === null || current === undefined) {
+      return undefined
+    }
+    
+    if (typeof current !== 'object') {
+      return undefined
+    }
+
+    // Handle array index
+    const index = parseInt(part, 10)
+    if (!isNaN(index) && Array.isArray(current)) {
+      current = current[index]
+    } else {
+      current = (current as Record<string, unknown>)[part]
+    }
+  }
+
+  return current
 }
 
 /**
@@ -1179,6 +1746,218 @@ async function executeDeviceControl(
       )
     }
   }
+}
+
+// ============================================
+// Flow Control Node Handlers (Delay, Variable, Debounce)
+// ============================================
+
+/**
+ * Calculate delay in milliseconds from DelayNodeConfig
+ */
+function calculateDelayMs(config: DelayNodeConfig): number {
+  const { duration, unit } = config
+  switch (unit) {
+    case 'seconds':
+      return duration * 1000
+    case 'minutes':
+      return duration * 60 * 1000
+    case 'hours':
+      return duration * 60 * 60 * 1000
+    default:
+      return 0
+  }
+}
+
+/**
+ * Handle variable node operations (set, get, increment, decrement)
+ */
+async function handleVariableNode(
+  supabase: SupabaseClient,
+  userId: string,
+  workflowId: string,
+  config: VariableNodeConfig,
+  workflowVariables: Record<string, number | string | boolean>
+): Promise<void> {
+  const { name, scope, operation, valueType, value, amount } = config
+  const varKey = `${scope}.${name}`
+  
+  if (scope === 'global') {
+    // Global variables are stored in the database
+    switch (operation) {
+      case 'set': {
+        await upsertGlobalVariable(supabase, userId, name, valueType, value)
+        workflowVariables[varKey] = value!
+        break
+      }
+      case 'get': {
+        const globalValue = await getGlobalVariable(supabase, userId, name)
+        if (globalValue !== undefined) {
+          workflowVariables[varKey] = globalValue
+        }
+        break
+      }
+      case 'increment': {
+        const current = await getGlobalVariable(supabase, userId, name)
+        const newValue = (typeof current === 'number' ? current : 0) + (amount || 1)
+        await upsertGlobalVariable(supabase, userId, name, 'number', newValue)
+        workflowVariables[varKey] = newValue
+        break
+      }
+      case 'decrement': {
+        const current = await getGlobalVariable(supabase, userId, name)
+        const newValue = (typeof current === 'number' ? current : 0) - (amount || 1)
+        await upsertGlobalVariable(supabase, userId, name, 'number', newValue)
+        workflowVariables[varKey] = newValue
+        break
+      }
+    }
+  } else {
+    // Workflow-scoped variables are stored in memory (persisted in execution_state during delays)
+    switch (operation) {
+      case 'set':
+        workflowVariables[varKey] = value!
+        break
+      case 'get':
+        // Already in memory, nothing to do
+        break
+      case 'increment': {
+        const current = workflowVariables[varKey]
+        workflowVariables[varKey] = (typeof current === 'number' ? current : 0) + (amount || 1)
+        break
+      }
+      case 'decrement': {
+        const current = workflowVariables[varKey]
+        workflowVariables[varKey] = (typeof current === 'number' ? current : 0) - (amount || 1)
+        break
+      }
+    }
+  }
+}
+
+/**
+ * Get a global variable from the database
+ */
+async function getGlobalVariable(
+  supabase: SupabaseClient,
+  userId: string,
+  name: string
+): Promise<number | string | boolean | undefined> {
+  const { data, error } = await supabase
+    .from('workflow_variables')
+    .select('value_type, value_number, value_string, value_boolean')
+    .eq('user_id', userId)
+    .eq('scope', 'global')
+    .eq('name', name)
+    .single()
+  
+  if (error || !data) return undefined
+  
+  switch (data.value_type) {
+    case 'number':
+      return data.value_number
+    case 'string':
+      return data.value_string
+    case 'boolean':
+      return data.value_boolean
+    default:
+      return undefined
+  }
+}
+
+/**
+ * Upsert a global variable to the database
+ */
+async function upsertGlobalVariable(
+  supabase: SupabaseClient,
+  userId: string,
+  name: string,
+  valueType: string,
+  value: number | string | boolean | undefined
+): Promise<void> {
+  const row: Record<string, unknown> = {
+    user_id: userId,
+    workflow_id: null, // Global variables are not tied to a specific workflow
+    scope: 'global',
+    name,
+    value_type: valueType,
+    value_number: valueType === 'number' ? value : null,
+    value_string: valueType === 'string' ? value : null,
+    value_boolean: valueType === 'boolean' ? value : null,
+    updated_at: new Date().toISOString()
+  }
+  
+  await supabase
+    .from('workflow_variables')
+    .upsert(row, {
+      onConflict: 'user_id,workflow_id,scope,name'
+    })
+}
+
+/**
+ * Handle debounce node - check if cooldown has passed
+ * Returns true if execution should continue, false if blocked by cooldown
+ */
+async function handleDebounceNode(
+  supabase: SupabaseClient,
+  workflowId: string,
+  nodeId: string,
+  config: DebounceNodeConfig
+): Promise<boolean> {
+  const { cooldownSeconds, executeOnLead } = config
+  const now = new Date()
+  
+  // Check last execution time
+  const { data: debounceState, error } = await supabase
+    .from('debounce_state')
+    .select('last_executed_at, execution_count')
+    .eq('workflow_id', workflowId)
+    .eq('node_id', nodeId)
+    .single()
+  
+  if (error && error.code !== 'PGRST116') {
+    // PGRST116 = no rows found, which is OK for first execution
+    console.error('Failed to check debounce state:', error)
+    return true // Allow execution on error
+  }
+  
+  if (!debounceState) {
+    // First execution - record and allow if executeOnLead is true
+    if (executeOnLead) {
+      await supabase
+        .from('debounce_state')
+        .insert({
+          workflow_id: workflowId,
+          node_id: nodeId,
+          last_executed_at: now.toISOString(),
+          execution_count: 1
+        })
+      return true
+    }
+    return false
+  }
+  
+  // Check if cooldown has passed
+  const lastExecuted = new Date(debounceState.last_executed_at)
+  const cooldownMs = cooldownSeconds * 1000
+  const timeSinceLast = now.getTime() - lastExecuted.getTime()
+  
+  if (timeSinceLast < cooldownMs) {
+    // Still in cooldown - block execution
+    return false
+  }
+  
+  // Cooldown passed - update and allow
+  await supabase
+    .from('debounce_state')
+    .update({
+      last_executed_at: now.toISOString(),
+      execution_count: debounceState.execution_count + 1
+    })
+    .eq('workflow_id', workflowId)
+    .eq('node_id', nodeId)
+  
+  return true
 }
 
 /**

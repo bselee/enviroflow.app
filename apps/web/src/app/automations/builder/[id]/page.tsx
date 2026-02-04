@@ -26,6 +26,7 @@ import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { useControllers } from "@/hooks/use-controllers";
 
 /**
  * EditWorkflowPage - Edit an existing automation workflow
@@ -40,12 +41,7 @@ import { useToast } from "@/hooks/use-toast";
  * - Delete the workflow
  */
 
-/** Mock controllers for development - replace with real data from API */
-const MOCK_CONTROLLERS = [
-  { id: "ctrl-1", name: "AC Infinity Controller 69 Pro" },
-  { id: "ctrl-2", name: "Inkbird ITC-308" },
-  { id: "ctrl-3", name: "Veg Tent Controller" },
-];
+
 
 /** Mock workflow data for development - replace with API call */
 const MOCK_WORKFLOWS: Record<string, WorkflowDefinition> = {
@@ -172,6 +168,7 @@ export default function EditWorkflowPage() {
   const router = useRouter();
   const params = useParams();
   const { toast } = useToast();
+  const { controllers } = useControllers();
   const workflowId = params.id as string;
 
   const [workflow, setWorkflow] = React.useState<WorkflowDefinition | null>(null);
@@ -185,6 +182,10 @@ export default function EditWorkflowPage() {
     nodeId: string;
     data: Partial<WorkflowNode["data"]>;
   } | null>(null);
+
+  const controllerOptions = React.useMemo(() => {
+    return controllers.map((c) => ({id: c.id, name: c.name, brand: c.brand}));
+  }, [controllers]);
 
   /**
    * Loads the workflow data from the API
@@ -522,7 +523,7 @@ export default function EditWorkflowPage() {
                 node={selectedNode}
                 onUpdate={handleNodeUpdate}
                 onClose={handleClosePanel}
-                controllers={MOCK_CONTROLLERS}
+                controllers={controllerOptions}
               />
             )}
           </div>

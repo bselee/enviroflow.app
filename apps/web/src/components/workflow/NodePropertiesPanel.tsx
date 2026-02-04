@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { X, Play, Thermometer, GitBranch, Clock, MousePointer, AlertCircle, Timer, Variable, Filter } from "lucide-react";
+import { X, Play, Thermometer, GitBranch, Clock, MousePointer, AlertCircle, Timer, Variable, Filter, Radio, CheckCircle2, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,8 +32,10 @@ import type {
   VariableOperation,
   VariableValueType,
   DebounceNodeData,
+  MQTTTriggerConfig,
 } from "./types";
 import { useControllerCapabilities } from "@/hooks/use-controller-capabilities";
+import { HysteresisViz } from "./HysteresisViz";
 
 /**
  * NodePropertiesPanel - Side panel for configuring selected workflow nodes
@@ -52,7 +54,7 @@ interface NodePropertiesPanelProps {
   /** Callback to close the panel */
   onClose: () => void;
   /** List of available controllers for sensor nodes */
-  controllers?: Array<{ id: string; name: string }>;
+  controllers?: Array<{ id: string; name: string; brand?: string }>;
 }
 
 /** Comparison operators for thresholds */
@@ -81,9 +83,11 @@ const DAYS_OF_WEEK = [
 function TriggerProperties({
   node,
   onUpdate,
+  controllers = [],
 }: {
   node: WorkflowNode;
   onUpdate: NodePropertiesPanelProps["onUpdate"];
+  controllers?: Array<{ id: string; name: string; brand?: string }>;
 }) {
   const data = node.data as TriggerNodeData;
   const triggerType = data.config.triggerType;
@@ -152,8 +156,31 @@ function TriggerProperties({
               </div>
             </Label>
           </div>
+          <div className="flex items-center space-x-3 rounded-md border p-3 hover:bg-muted/50 border-purple-200 dark:border-purple-800">
+            <RadioGroupItem value="mqtt" id="mqtt" />
+            <Label htmlFor="mqtt" className="flex items-center gap-2 cursor-pointer">
+              <Radio className="h-4 w-4 text-purple-500" />
+              <div>
+                <p className="text-sm font-medium">MQTT</p>
+                <p className="text-xs text-muted-foreground">Cross-manufacturer sensor data</p>
+              </div>
+            </Label>
+          </div>
         </RadioGroup>
       </div>
+
+      {/* MQTT Configuration */}
+      {triggerType === "mqtt" && data.config.triggerType === "mqtt" && (
+        <MQTTTriggerConfigPanel
+          config={data.config}
+          onUpdate={(updates) => {
+            onUpdate(node.id, {
+              config: { ...data.config, ...updates },
+            } as Partial<TriggerNodeData>);
+          }}
+          controllers={controllers}
+        />
+      )}
 
       {/* Schedule Configuration */}
       {triggerType === "schedule" && data.config.triggerType === "schedule" && (
@@ -212,6 +239,208 @@ function TriggerProperties({
 }
 
 /**
+ * MQTTTriggerConfigPanel - Configuration panel for MQTT triggers
+ *
+ * SECURITY: MQTT connection credentials (brokerUrl, username, password) are stored
+ * encrypted in the controllers table via server-encryption.ts. This panel only stores
+ * a controllerId reference in the workflow node config, never raw credentials.
+ */
+function MQTTTriggerConfigPanel({
+  config,
+  onUpdate,
+  controllers = [],
+}: {
+  config: MQTTTriggerConfig;
+  onUpdate: (updates: Partial<MQTTTriggerConfig>) => void;
+  controllers?: Array<{ id: string; name: string; brand?: string }>;
+}) {
+  // Filter to only show MQTT controllers
+  const mqttControllers = controllers.filter((c) => c.brand === "mqtt");
+  const [testingConnection, setTestingConnection] = React.useState(false);
+  const [connectionStatus, setConnectionStatus] = React.useState<"idle" | "success" | "error">("idle");
+
+  const handleTestConnection = async () => {
+    if (!config.controllerId) return;
+    
+    setTestingConnection(true);
+    setConnectionStatus("idle");
+    
+    try {
+      const response = await fetch("/api/mqtt/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          controllerId: config.controllerId,
+          topic: config.topic,
+        }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setConnectionStatus("success");
+        if (data.lastMessage) {
+          onUpdate({ lastMessage: data.lastMessage, lastReceivedAt: new Date().toISOString() });
+        }
+      } else {
+        setConnectionStatus("error");
+      }
+    } catch {
+      setConnectionStatus("error");
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4 pt-2">
+      {/* MQTT Controller Selection - credentials stored securely in controllers table */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">MQTT Controller</Label>
+        {mqttControllers.length === 0 ? (
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="text-xs">
+              No MQTT controllers found. Add an MQTT broker on the Controllers page first,
+              then select it here.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <Select
+            value={config.controllerId ?? ""}
+            onValueChange={(v) => {
+              const controller = mqttControllers.find((c) => c.id === v);
+              onUpdate({
+                controllerId: v,
+                controllerName: controller?.name,
+              });
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select an MQTT controller" />
+            </SelectTrigger>
+            <SelectContent>
+              {mqttControllers.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <p className="text-[10px] text-muted-foreground">
+          Connection credentials are stored securely with the controller.
+        </p>
+      </div>
+
+      {/* Topic */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Topic</Label>
+        <Input
+          value={config.topic ?? ""}
+          onChange={(e) => onUpdate({ topic: e.target.value })}
+          placeholder="home/growroom/sensors/temperature"
+          className="font-mono text-sm"
+        />
+        <p className="text-[10px] text-muted-foreground">
+          Use + for single level wildcard, # for multi-level (e.g., home/+/sensors/#)
+        </p>
+      </div>
+
+      {/* Test Connection */}
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleTestConnection}
+          disabled={!config.controllerId || testingConnection}
+        >
+          {testingConnection ? "Testing..." : "Test Connection"}
+        </Button>
+        {connectionStatus === "success" && (
+          <span className="text-xs text-green-600 dark:text-green-400">✓ Connected</span>
+        )}
+        {connectionStatus === "error" && (
+          <span className="text-xs text-red-600 dark:text-red-400">✗ Connection failed</span>
+        )}
+      </div>
+
+      {/* Last Message Preview */}
+      {config.lastMessage && (
+        <div className="space-y-1 rounded-md bg-muted/50 p-2">
+          <p className="text-[10px] font-medium text-muted-foreground">Last received message:</p>
+          <pre className="text-xs font-mono text-foreground overflow-auto max-h-20">
+            {config.lastMessage}
+          </pre>
+          {config.lastReceivedAt && (
+            <p className="text-[10px] text-muted-foreground">
+              {new Date(config.lastReceivedAt).toLocaleString()}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* JSONPath Condition */}
+      <div className="space-y-2 border-t pt-4">
+        <Label className="text-sm font-medium">Trigger Condition (Optional)</Label>
+        <p className="text-[10px] text-muted-foreground">
+          Extract a value from the payload and trigger when it crosses a threshold
+        </p>
+        
+        <div className="space-y-2">
+          <Label className="text-xs">JSONPath Expression</Label>
+          <Input
+            value={config.jsonPath ?? ""}
+            onChange={(e) => onUpdate({ jsonPath: e.target.value })}
+            placeholder="$.temperature or $.sensors[0].value"
+            className="font-mono text-sm"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-2">
+            <Label className="text-xs">Operator</Label>
+            <Select
+              value={config.operator ?? ""}
+              onValueChange={(v) => onUpdate({ operator: v as ComparisonOperator })}
+            >
+              <SelectTrigger className="h-8">
+                <SelectValue placeholder="Select" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value=">">Greater than (&gt;)</SelectItem>
+                <SelectItem value="<">Less than (&lt;)</SelectItem>
+                <SelectItem value=">=">Greater or equal (≥)</SelectItem>
+                <SelectItem value="<=">Less or equal (≤)</SelectItem>
+                <SelectItem value="=">Equal to (=)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs">Threshold</Label>
+            <Input
+              type="number"
+              value={config.threshold ?? ""}
+              onChange={(e) => onUpdate({ threshold: parseFloat(e.target.value) || undefined })}
+              placeholder="e.g., 82"
+              className="h-8 text-sm"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Help text */}
+      <Alert className="bg-purple-50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800">
+        <Radio className="h-4 w-4 text-purple-500" />
+        <AlertDescription className="text-xs">
+          MQTT triggers enable cross-manufacturer automation. Connect sensors from Inkbird, Ecowitt, 
+          Zigbee2MQTT, or any MQTT-compatible device to control AC Infinity equipment.
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+}
+
+/**
  * SensorProperties - Configuration panel for sensor nodes
  */
 function SensorProperties({
@@ -221,7 +450,7 @@ function SensorProperties({
 }: {
   node: WorkflowNode;
   onUpdate: NodePropertiesPanelProps["onUpdate"];
-  controllers?: Array<{ id: string; name: string }>;
+  controllers?: Array<{ id: string; name: string; brand?: string }>;
 }) {
   const data = node.data as SensorNodeData;
 
@@ -234,7 +463,25 @@ function SensorProperties({
     } as Partial<SensorNodeData>);
   };
 
-  // Get available sensors for selected controller
+  // Build a unified list of all sensors from all controllers
+  const allSensors = React.useMemo(() => {
+    if (!capabilities) return [];
+    
+    const list = capabilities instanceof Map 
+      ? Array.from(capabilities.values())
+      : [capabilities];
+    
+    return list.flatMap(ctrl => 
+      (ctrl.sensors || []).map(sensor => ({
+        ...sensor,
+        controllerId: ctrl.controller_id,
+        controllerName: ctrl.controller_name,
+        controllerStatus: ctrl.status,
+      }))
+    );
+  }, [capabilities]);
+
+  // Get available sensors for selected controller (legacy flow)
   const selectedControllerCapabilities = React.useMemo(() => {
     if (!data.config.controllerId || !capabilities) return null;
 
@@ -259,103 +506,75 @@ function SensorProperties({
         </Alert>
       )}
 
-      {/* Controller Selection */}
-      <div className="space-y-2">
-        <Label className="text-sm font-medium">Controller</Label>
-        <Select
-          value={data.config.controllerId ?? ""}
-          onValueChange={(v) => {
-            const controller = controllers.find((c) => c.id === v);
-            updateConfig("controllerId", v);
-            if (controller) {
-              updateConfig("controllerName", controller.name);
-            }
-            // Reset sensor selection when controller changes
-            updateConfig("sensorType", undefined);
-            updateConfig("port", undefined);
-            updateConfig("unit", undefined);
-          }}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select a controller" />
-          </SelectTrigger>
-          <SelectContent>
-            {controllers.length === 0 ? (
-              <SelectItem value="" disabled>
-                No controllers available
-              </SelectItem>
-            ) : (
-              controllers.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))
-            )}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Sensor Selection - Dynamic based on controller capabilities */}
-      {data.config.controllerId && (
+      {/* Unified Sensor Selection - Browse all sensors across controllers */}
+      {allSensors.length > 0 && (
         <div className="space-y-2">
-          <Label className="text-sm font-medium">Sensor</Label>
-          {capsLoading ? (
-            <div className="text-xs text-muted-foreground">Loading sensors...</div>
-          ) : availableSensors.length === 0 ? (
-            <Alert>
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription className="text-xs">
-                No sensors available for this controller. Make sure the controller is online and has reported sensor data.
-              </AlertDescription>
-            </Alert>
-          ) : (
-            <>
-              <Select
-                value={
-                  data.config.sensorType && data.config.port !== undefined
-                    ? `${data.config.sensorType}-${data.config.port}`
-                    : data.config.sensorType || ""
-                }
-                onValueChange={(v) => {
-                  const sensor = availableSensors.find(
-                    (s) => `${s.type}-${s.port || 0}` === v || s.type === v
-                  );
-                  if (sensor) {
-                    updateConfig("sensorType", sensor.type as SensorType);
-                    updateConfig("port", sensor.port);
-                    updateConfig("unit", sensor.unit);
-                  }
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a sensor" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableSensors.map((sensor) => {
-                    const key = `${sensor.type}-${sensor.port || 0}`;
-                    return (
-                      <SelectItem key={key} value={key}>
-                        <div className="flex items-center justify-between w-full">
-                          <span>{sensor.name}</span>
-                          {sensor.currentValue !== undefined && (
-                            <span className="text-xs text-muted-foreground ml-2">
-                              {sensor.currentValue.toFixed(1)} {sensor.unit}
-                              {sensor.isStale && " (stale)"}
-                            </span>
-                          )}
-                        </div>
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-              {selectedControllerCapabilities?.status === 'offline' && (
-                <p className="text-xs text-amber-600 dark:text-amber-400">
-                  Controller is offline. Sensor values may be stale.
-                </p>
-              )}
-            </>
+          <Label className="text-sm font-medium">Select Sensor</Label>
+          <Select
+            value={
+              data.config.controllerId && data.config.sensorType
+                ? `${data.config.controllerId}:${data.config.sensorType}-${data.config.port ?? 0}`
+                : ""
+            }
+            onValueChange={(v) => {
+              const [controllerId, sensorKey] = v.split(':');
+              const sensor = allSensors.find(
+                s => s.controllerId === controllerId && 
+                `${s.type}-${s.port || 0}` === sensorKey
+              );
+              if (sensor) {
+                updateConfig("controllerId", sensor.controllerId);
+                updateConfig("controllerName", sensor.controllerName);
+                updateConfig("sensorType", sensor.type as SensorType);
+                updateConfig("port", sensor.port);
+                updateConfig("unit", sensor.unit);
+              }
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Browse all sensors..." />
+            </SelectTrigger>
+            <SelectContent>
+              {allSensors.map((sensor) => {
+                const key = `${sensor.controllerId}:${sensor.type}-${sensor.port || 0}`;
+                return (
+                  <SelectItem key={key} value={key}>
+                    <div className="flex items-center justify-between w-full">
+                      <div className="flex flex-col">
+                        <span className="font-medium">{sensor.name}</span>
+                        <span className="text-[10px] text-muted-foreground">{sensor.controllerName}</span>
+                      </div>
+                      {sensor.currentValue !== undefined && (
+                        <span className="text-xs text-muted-foreground ml-2">
+                          {sensor.currentValue.toFixed(1)}{sensor.unit}
+                          {sensor.isStale && " (stale)"}
+                        </span>
+                      )}
+                    </div>
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+          {capsLoading && (
+            <p className="text-xs text-muted-foreground">Loading sensors...</p>
           )}
+        </div>
+      )}
+
+      {/* Show selected sensor info */}
+      {data.config.controllerId && data.config.sensorType && (
+        <div className="rounded-md border border-border bg-muted/50 p-3 space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium">Selected Sensor</span>
+            {selectedControllerCapabilities?.status === 'offline' && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600">
+                Offline
+              </span>
+            )}
+          </div>
+          <p className="text-sm">{data.config.sensorType} ({data.config.unit ?? ''})</p>
+          <p className="text-xs text-muted-foreground">via {data.config.controllerName}</p>
         </div>
       )}
 
@@ -407,6 +626,16 @@ function SensorProperties({
         <p className="text-[10px] text-muted-foreground">
           Prevents rapid on/off cycling by requiring value to cross reset point before re-triggering
         </p>
+        {data.config.resetThreshold !== undefined && data.config.threshold !== undefined && (
+          <HysteresisViz
+            operator={data.config.operator}
+            threshold={data.config.threshold}
+            resetThreshold={data.config.resetThreshold}
+            unit={data.config.unit ?? ""}
+            size="normal"
+            className="mt-2"
+          />
+        )}
       </div>
     </div>
   );
@@ -422,7 +651,7 @@ function ActionProperties({
 }: {
   node: WorkflowNode;
   onUpdate: NodePropertiesPanelProps["onUpdate"];
-  controllers?: Array<{ id: string; name: string }>;
+  controllers?: Array<{ id: string; name: string; brand?: string }>;
 }) {
   const data = node.data as import("./types").ActionNodeData;
 
@@ -971,6 +1200,286 @@ function DebounceProperties({
 }
 
 /**
+ * VerifiedActionProperties - Configuration panel for verified action nodes
+ */
+function VerifiedActionProperties({
+  node,
+  onUpdate,
+  controllers = [],
+}: {
+  node: WorkflowNode;
+  onUpdate: NodePropertiesPanelProps["onUpdate"];
+  controllers: NodePropertiesPanelProps["controllers"];
+}) {
+  const data = node.data as { label: string; config: { 
+    controllerId?: string;
+    controllerName?: string;
+    port?: number;
+    portName?: string;
+    action?: 'on' | 'off' | 'set_level';
+    level?: number;
+    verifyTimeout?: number;
+    retryCount?: number;
+    rollbackOnFailure?: boolean;
+  }};
+  
+  const updateConfig = (field: string, value: unknown) => {
+    onUpdate(node.id, {
+      config: { ...data.config, [field]: value },
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Controller Selection */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Controller</Label>
+        <Select
+          value={data.config.controllerId ?? ""}
+          onValueChange={(value) => {
+            const controller = controllers?.find(c => c.id === value);
+            updateConfig("controllerId", value);
+            if (controller) {
+              updateConfig("controllerName", controller.name);
+            }
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select a controller" />
+          </SelectTrigger>
+          <SelectContent>
+            {controllers?.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Port Selection */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Port</Label>
+        <Select
+          value={data.config.port?.toString() ?? ""}
+          onValueChange={(value) => updateConfig("port", parseInt(value, 10))}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select a port" />
+          </SelectTrigger>
+          <SelectContent>
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((p) => (
+              <SelectItem key={p} value={p.toString()}>
+                Port {p}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Action Type */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Action</Label>
+        <Select
+          value={data.config.action ?? "on"}
+          onValueChange={(value) => updateConfig("action", value)}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="on">Turn ON</SelectItem>
+            <SelectItem value="off">Turn OFF</SelectItem>
+            <SelectItem value="set_level">Set Level</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Level (if set_level) */}
+      {data.config.action === "set_level" && (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Level (0-10)</Label>
+          <Input
+            type="number"
+            min={0}
+            max={10}
+            value={data.config.level ?? 5}
+            onChange={(e) => updateConfig("level", parseInt(e.target.value, 10))}
+          />
+        </div>
+      )}
+
+      {/* Verification Settings */}
+      <div className="border-t pt-4 mt-4">
+        <h4 className="text-sm font-medium mb-3">Verification Settings</h4>
+        
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <Label className="text-sm">Timeout (seconds)</Label>
+            <Input
+              type="number"
+              min={1}
+              max={300}
+              value={data.config.verifyTimeout ?? 30}
+              onChange={(e) => updateConfig("verifyTimeout", parseInt(e.target.value, 10))}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-sm">Retry Count</Label>
+            <Input
+              type="number"
+              min={0}
+              max={10}
+              value={data.config.retryCount ?? 3}
+              onChange={(e) => updateConfig("retryCount", parseInt(e.target.value, 10))}
+            />
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border p-3">
+            <div>
+              <Label className="text-sm">Rollback on Failure</Label>
+              <p className="text-xs text-muted-foreground">Revert if verification fails</p>
+            </div>
+            <Switch
+              checked={data.config.rollbackOnFailure ?? false}
+              onCheckedChange={(v) => updateConfig("rollbackOnFailure", v)}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-md border border-dashed p-3 bg-emerald-500/5">
+        <p className="text-xs text-muted-foreground">
+          Verified actions confirm device state after sending commands and can automatically retry or rollback.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * PortConditionProperties - Configuration panel for port condition nodes
+ */
+function PortConditionProperties({
+  node,
+  onUpdate,
+  controllers = [],
+}: {
+  node: WorkflowNode;
+  onUpdate: NodePropertiesPanelProps["onUpdate"];
+  controllers: NodePropertiesPanelProps["controllers"];
+}) {
+  const data = node.data as { label: string; config: {
+    controllerId?: string;
+    controllerName?: string;
+    port?: number;
+    portName?: string;
+    condition?: 'is_on' | 'is_off' | 'level_equals' | 'level_above' | 'level_below' | 'mode_equals';
+    targetLevel?: number;
+    targetMode?: string;
+  }};
+
+  const updateConfig = (field: string, value: unknown) => {
+    onUpdate(node.id, {
+      config: { ...data.config, [field]: value },
+    });
+  };
+
+  const conditionNeedsLevel = ['level_equals', 'level_above', 'level_below'].includes(data.config.condition ?? '');
+
+  return (
+    <div className="space-y-4">
+      {/* Controller Selection */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Controller</Label>
+        <Select
+          value={data.config.controllerId ?? ""}
+          onValueChange={(value) => {
+            const controller = controllers?.find(c => c.id === value);
+            updateConfig("controllerId", value);
+            if (controller) {
+              updateConfig("controllerName", controller.name);
+            }
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select a controller" />
+          </SelectTrigger>
+          <SelectContent>
+            {controllers?.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Port Selection */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Port</Label>
+        <Select
+          value={data.config.port?.toString() ?? ""}
+          onValueChange={(value) => updateConfig("port", parseInt(value, 10))}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select a port" />
+          </SelectTrigger>
+          <SelectContent>
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((p) => (
+              <SelectItem key={p} value={p.toString()}>
+                Port {p}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Condition Type */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Condition</Label>
+        <Select
+          value={data.config.condition ?? "is_on"}
+          onValueChange={(value) => updateConfig("condition", value)}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="is_on">Port is ON</SelectItem>
+            <SelectItem value="is_off">Port is OFF</SelectItem>
+            <SelectItem value="level_equals">Level equals</SelectItem>
+            <SelectItem value="level_above">Level above</SelectItem>
+            <SelectItem value="level_below">Level below</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Target Level (if level condition) */}
+      {conditionNeedsLevel && (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Target Level (0-10)</Label>
+          <Input
+            type="number"
+            min={0}
+            max={10}
+            value={data.config.targetLevel ?? 5}
+            onChange={(e) => updateConfig("targetLevel", parseInt(e.target.value, 10))}
+          />
+        </div>
+      )}
+
+      <div className="rounded-md border border-dashed p-3 bg-amber-500/5">
+        <p className="text-xs text-muted-foreground">
+          Routes workflow based on current port state. Has two outputs: "true" path and "false" path.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Main NodePropertiesPanel component
  */
 export function NodePropertiesPanel({
@@ -1017,6 +1526,16 @@ export function NodePropertiesPanel({
       icon = <Filter className="h-4 w-4" />;
       colorClass = "border-slate-500";
       break;
+    case "verified_action":
+      title = "Verified Action";
+      icon = <CheckCircle2 className="h-4 w-4" />;
+      colorClass = "border-emerald-500";
+      break;
+    case "port_condition":
+      title = "Port Condition";
+      icon = <Zap className="h-4 w-4" />;
+      colorClass = "border-amber-500";
+      break;
   }
 
   return (
@@ -1046,7 +1565,7 @@ export function NodePropertiesPanel({
 
         {/* Type-specific properties */}
         {nodeType === "trigger" && (
-          <TriggerProperties node={node} onUpdate={onUpdate} />
+          <TriggerProperties node={node} onUpdate={onUpdate} controllers={controllers} />
         )}
         {nodeType === "sensor" && (
           <SensorProperties node={node} onUpdate={onUpdate} controllers={controllers} />
@@ -1065,6 +1584,12 @@ export function NodePropertiesPanel({
         )}
         {nodeType === "debounce" && (
           <DebounceProperties node={node} onUpdate={onUpdate} />
+        )}
+        {nodeType === "verified_action" && (
+          <VerifiedActionProperties node={node} onUpdate={onUpdate} controllers={controllers} />
+        )}
+        {nodeType === "port_condition" && (
+          <PortConditionProperties node={node} onUpdate={onUpdate} controllers={controllers} />
         )}
       </div>
     </div>

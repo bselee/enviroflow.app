@@ -116,10 +116,8 @@ async function getUserId(request: NextRequest, supabase: SupabaseClient): Promis
     }
   }
 
-  const devUserId = request.headers.get('x-user-id')
-  if (devUserId && process.env.NODE_ENV !== 'production') {
-    return devUserId
-  }
+  // SECURITY: x-user-id header bypass has been removed to prevent impersonation attacks.
+  // All requests must use proper Bearer token authentication.
 
   return null
 }

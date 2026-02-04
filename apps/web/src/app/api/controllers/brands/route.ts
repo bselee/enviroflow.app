@@ -84,25 +84,26 @@ const SUPPORTED_BRANDS = [
   },
   {
     id: 'mqtt',
-    name: 'MQTT Generic',
-    description: 'Any MQTT-compatible controller, sensor, or home automation hub',
+    name: 'MQTT Broker',
+    description: 'Any MQTT-compatible sensors, ESPHome, Tasmota, Zigbee2MQTT, Home Assistant',
     logo: '/logos/mqtt.svg',
     requiresCredentials: true,
     credentialFields: [
-      { name: 'brokerUrl', label: 'Broker URL', type: 'text', required: true, placeholder: 'mqtt://localhost:1883' },
+      { name: 'brokerUrl', label: 'Broker URL', type: 'text', required: true, placeholder: 'mqtt://192.168.1.100:1883 or wss://broker.example.com' },
       { name: 'username', label: 'Username', type: 'text', required: false, placeholder: 'Optional' },
       { name: 'password', label: 'Password', type: 'password', required: false, placeholder: 'Optional' },
-      { name: 'topic', label: 'Topic Prefix', type: 'text', required: true, placeholder: 'sensors/room1' }
+      { name: 'topicPrefix', label: 'Topic Prefix', type: 'text', required: false, placeholder: 'home/sensors (subscribes to home/sensors/#)' }
     ],
     capabilities: {
-      sensors: ['temperature', 'humidity', 'vpd', 'co2', 'light'],
-      devices: ['fan', 'light', 'outlet'],
+      sensors: ['temperature', 'humidity', 'vpd', 'co2', 'light', 'soil_moisture', 'pressure'],
+      devices: ['fan', 'light', 'outlet', 'valve'],
       supportsDimming: true,
       supportsScheduling: true
     },
     marketShare: 5,
-    status: 'coming_soon',
-    note: 'For DIY builds, Home Assistant, and custom setups. Coming in Phase 2.'
+    status: 'available',
+    note: 'Connect any MQTT sensors (Zigbee, ESP32, Tasmota). Auto-discovers topics on connect.',
+    helpUrl: 'https://cedalo.com/blog/mqtt-connection-beginners-guide/'
   },
   {
     id: 'ecowitt',

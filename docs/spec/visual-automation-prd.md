@@ -104,6 +104,9 @@
 | F9 | Hysteresis-based sensor triggers | Configurable trigger/re-arm thresholds |
 | F10 | Cross-controller sensor→device automation | Any sensor can trigger any device action |
 | F11 | Workflow conflict detection | Block + alert on same-port conflicts |
+| F12 | Debounce node for cooldown periods | Prevent rapid re-triggering with configurable cooldown |
+| F13 | Native AC Infinity mode display | Show current programming (AUTO/VPD/TIMER/CYCLE/SCHEDULE) on device cards |
+| F14 | AC Infinity mode programming | Full read/write access to native AC Infinity modes |
 
 ---
 
@@ -234,19 +237,35 @@ On cron tick:
 Device nodes appear in an **expandable tree** structure:
 
 ```
-📁 Controllers
+📁 My Devices
   └─ 🌡️ Controller 1 "Tent A"
-       ├─ Port 1: Exhaust Fan
-       ├─ Port 2: Intake Fan
-       ├─ Port 3: Humidifier
-       └─ Sensor: Temp/Humidity/VPD
+       ├─ Port 1: Exhaust Fan [ON 80%]
+       ├─ Port 2: Intake Fan [OFF]
+       ├─ Port 3: Humidifier [ON 50%]
+       └─ ...
   └─ 🌡️ Controller 2 "Dry Room"
        └─ ...
 ```
 
 **Interaction:** User drags individual port to canvas, not entire controller.
 
-### 9.2 Node Display
+**Note:** Palette shows current ON/OFF state and level for workflow building context. Full native programming (AUTO, VPD, TIMER, CYCLE, SCHEDULE modes with thresholds) is displayed on the **Controllers page** where users can view and modify AC Infinity native settings.
+
+### 9.2 Native Mode Display (Controllers Page)
+
+Device cards on the Controllers page show:
+- Current operating mode badge (AUTO, VPD, TIMER, CYCLE, SCHEDULE)
+- Mode-specific summary (e.g., "75-85°F, 50-65% RH" for AUTO mode)
+- "Program Mode" menu option to open full configuration panel
+
+Color-coded mode badges:
+- 🔵 AUTO - Blue
+- 🟣 VPD - Purple  
+- 🟡 TIMER - Amber
+- 🔵 CYCLE - Cyan
+- 🟢 SCHEDULE - Green
+
+### 9.3 Node Display (Canvas)
 
 When placed on canvas, device node shows:
 - Controller name
@@ -284,15 +303,18 @@ When applying template:
 
 ## 11. Build Priority
 
-| Priority | Feature | Rationale |
-|----------|---------|-----------|
-| 1 | F3 - DelayNode | Enables sequenced automations |
-| 2 | F9 - Hysteresis on sensor triggers | Prevents flapping |
-| 3 | F2 - Device tree in palette | Visual device selection |
-| 4 | F11 - Conflict detection | Safety before scaling |
-| 5 | F4 - Variable nodes | Complex logic patterns |
-| 6 | F8 - MQTT trigger wiring | Cross-manufacturer unlock |
-| 7 | F7 - Template system | User retention + sharing |
+| Priority | Feature | Status | Rationale |
+|----------|---------|--------|-----------|
+| 1 | F3 - DelayNode | ✅ Complete | Enables sequenced automations |
+| 2 | F9 - Hysteresis on sensor triggers | ✅ Complete | Prevents flapping |
+| 3 | F2 - Device tree in palette | ✅ Complete | Visual device selection |
+| 4 | F12 - DebounceNode | ✅ Complete | Cooldown periods for flow control |
+| 5 | F4 - Variable nodes | ✅ Complete | Complex logic patterns |
+| 6 | F13 - Native mode display | ✅ Complete | Show AC Infinity programming on device cards |
+| 7 | F14 - Mode programming UI | ✅ Complete | Full DeviceModeProgramming panel |
+| 8 | F11 - Conflict detection | ✅ Complete | Safety before scaling |
+| 9 | F8 - MQTT trigger wiring | 🔄 Planned | Cross-manufacturer unlock |
+| 10 | F7 - Template system | 🔄 Planned | User retention + sharing |
 
 ---
 
@@ -310,12 +332,31 @@ When applying template:
 This PRD defines a **Node-RED inspired visual automation builder** for EnviroFlow that:
 
 1. Shows connected AC Infinity devices as draggable nodes in an expandable tree
-2. Adds **Delay** and **Variable** nodes for complex flows
+2. Adds **Delay**, **Variable**, and **Debounce** nodes for complex flows
 3. Implements **hysteresis** on sensor triggers to prevent rapid cycling
 4. Detects and **blocks conflicting workflows** targeting the same device port
 5. Enables **save/name/duplicate** for reusable automations
 6. Provides a **template gallery** with built-in and personal templates
 7. Wires **MQTT sensors** as trigger sources for cross-manufacturer automation
 8. Exports/imports workflows as JSON
+9. **Displays native AC Infinity programming** (AUTO/VPD/TIMER/CYCLE/SCHEDULE) on Controllers page
+10. Provides full **mode programming UI** to read/write AC Infinity native settings
 
-**Build order:** Delay → Hysteresis → Device tree → Conflict detection → Variables → MQTT triggers → Templates
+**Build order:** Delay → Hysteresis → Device tree → Debounce → Variables → Native mode display → Conflict detection → MQTT triggers → Templates
+
+### Implementation Status (Feb 2026)
+
+| Feature | Status |
+|---------|--------|
+| DelayNode | ✅ Complete |
+| VariableNode | ✅ Complete |
+| DebounceNode | ✅ Complete |
+| Hysteresis UI | ✅ Complete |
+| Device tree in palette | ✅ Complete |
+| Native mode display | ✅ Complete |
+| Mode programming UI | ✅ Complete |
+| Execution engine (delays/variables/debounce) | ✅ Complete |
+| Supabase migrations | ✅ Complete |
+| Conflict detection | ✅ Complete |
+| MQTT triggers | 🔄 Planned |
+| Template system | 🔄 Planned |

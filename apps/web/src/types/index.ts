@@ -85,6 +85,88 @@ export type SensorType =
   | "rain";
 
 /**
+ * Source type for standalone sensors
+ */
+export type SensorSourceType = 'cloud_api' | 'manual' | 'controller';
+
+/**
+ * Cloud API connection config for brand sensors (Inkbird, Govee, Ecowitt)
+ */
+export interface CloudAPIConnectionConfig {
+  email?: string;
+  password?: string; // stored encrypted via server-encryption.ts
+  deviceId?: string;
+  apiEndpoint?: string;
+}
+
+/**
+ * Union type for sensor connection configs
+ */
+export type SensorConnectionConfig = CloudAPIConnectionConfig | Record<string, never>;
+
+/**
+ * Standalone sensor entity from database
+ */
+export interface Sensor {
+  id: string;
+  user_id: string;
+  name: string;
+  sensor_type: SensorType;
+  source_type: SensorSourceType;
+  brand: string | null;
+  room_id: string | null;
+  controller_id: string | null;
+  controller_port: number | null;
+  unit: string;
+  current_value: number | null;
+  last_reading_at: string | null;
+  is_online: boolean;
+  connection_config: SensorConnectionConfig;
+  metadata: Record<string, unknown>;
+  show_on_dashboard: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Sensor with optional room details (for joined queries)
+ */
+export interface SensorWithRoom extends Sensor {
+  room?: {
+    id: string;
+    name: string;
+  } | null;
+}
+
+/**
+ * Input for creating a new standalone sensor
+ */
+export interface CreateSensorInput {
+  name: string;
+  sensor_type: SensorType;
+  source_type: SensorSourceType;
+  brand?: string;
+  room_id?: string | null;
+  controller_id?: string | null;
+  controller_port?: number | null;
+  unit?: string;
+  connection_config?: SensorConnectionConfig;
+  show_on_dashboard?: boolean;
+}
+
+/**
+ * Input for updating an existing sensor
+ */
+export interface UpdateSensorInput {
+  name?: string;
+  room_id?: string | null;
+  unit?: string;
+  connection_config?: SensorConnectionConfig;
+  is_online?: boolean;
+  show_on_dashboard?: boolean;
+}
+
+/**
  * Device types that can be controlled
  */
 export type DeviceType =
@@ -449,7 +531,8 @@ export interface UpdateWorkflowInput {
  */
 export interface SensorReading {
   id: string;
-  controller_id: string;
+  controller_id: string | null;
+  sensor_id: string | null;
   port: number | null;
   sensor_type: SensorType;
   value: number;

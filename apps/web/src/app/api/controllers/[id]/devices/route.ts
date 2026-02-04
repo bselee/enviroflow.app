@@ -77,6 +77,10 @@ interface DevicePortInfo {
   supportsDimming: boolean
   minLevel: number
   maxLevel: number
+  /** Current operating mode */
+  mode?: string
+  /** Brief summary of mode config */
+  modeSummary?: string
 }
 
 // ============================================
@@ -320,6 +324,65 @@ export async function GET(
       console.log('[Devices GET] Capabilities:', JSON.stringify(capabilities, null, 2))
       console.log('[Devices GET] Devices found:', devices.length)
 
+      // Try to fetch mode information for AC Infinity controllers
+      let modeMap: Map<number, { mode: string; summary: string }> = new Map()
+      
+      if (brand === 'ac_infinity') {
+        try {
+          const controllerId = connectionResult.controllerId || id
+          const modes = await (adapter as { getDeviceModes: (id: string) => Promise<Array<{ port: number; modeId?: number; mode?: number; [key: string]: unknown }>> }).getDeviceModes(controllerId)
+          
+          const modeNames: Record<number, string> = {
+            0: 'off',
+            1: 'on',
+            2: 'auto',
+            3: 'timer',
+            4: 'cycle',
+            5: 'schedule',
+            6: 'vpd',
+          }
+          
+          for (const modeData of modes) {
+            const modeId = (modeData.modeId ?? modeData.mode) as number
+            const modeName = modeNames[modeId] || 'unknown'
+            let summary = ''
+            
+            // Build summary based on mode
+            if (modeName === 'auto' || modeName === 'vpd') {
+              const parts: string[] = []
+              if (modeData.tempTriggerLow || modeData.tempTriggerHigh) {
+                parts.push(`${modeData.tempTriggerLow || '?'}-${modeData.tempTriggerHigh || '?'}°F`)
+              }
+              if (modeData.humidityTriggerLow || modeData.humidityTriggerHigh) {
+                parts.push(`${modeData.humidityTriggerLow || '?'}-${modeData.humidityTriggerHigh || '?'}% RH`)
+              }
+              if (modeName === 'vpd' && (modeData.vpdTriggerLow || modeData.vpdTriggerHigh)) {
+                parts.push(`${modeData.vpdTriggerLow || '?'}-${modeData.vpdTriggerHigh || '?'} kPa`)
+              }
+              summary = parts.join(', ')
+            } else if (modeName === 'timer') {
+              const duration = modeData.timerDuration as number
+              if (duration) {
+                const mins = Math.floor(duration / 60)
+                summary = `${mins}m ${modeData.timerType || ''}`
+              }
+            } else if (modeName === 'cycle') {
+              summary = `${modeData.cycleOnDuration || 0}s on / ${modeData.cycleOffDuration || 0}s off`
+            } else if (modeName === 'schedule') {
+              summary = `${modeData.scheduleStartTime || '?'} - ${modeData.scheduleEndTime || '?'}`
+            } else if (modeName === 'on') {
+              const level = modeData.level as number
+              if (level !== undefined) summary = `Level ${level}`
+            }
+            
+            modeMap.set(modeData.port, { mode: modeName, summary })
+          }
+        } catch (modeErr) {
+          console.warn('[Devices GET] Failed to fetch modes:', modeErr)
+          // Continue without mode info
+        }
+      }
+
       // Disconnect after getting capabilities
       const controllerId = connectionResult.controllerId || id
       try {
@@ -329,16 +392,21 @@ export async function GET(
       }
 
       // Map device capabilities to port info
-      const ports: DevicePortInfo[] = devices.map((device: DeviceCapability) => ({
-        port: device.port,
-        deviceType: device.type,
-        name: device.name || `Port ${device.port}`,
-        isOn: device.isOn || false,
-        level: device.currentLevel ? Math.round(device.currentLevel * 10) : 0, // Convert 0-10 to 0-100
-        supportsDimming: device.supportsDimming,
-        minLevel: device.minLevel ? device.minLevel * 10 : 0,
-        maxLevel: device.maxLevel ? device.maxLevel * 10 : 100,
-      }))
+      const ports: DevicePortInfo[] = devices.map((device: DeviceCapability) => {
+        const modeInfo = modeMap.get(device.port)
+        return {
+          port: device.port,
+          deviceType: device.type,
+          name: device.name || `Port ${device.port}`,
+          isOn: device.isOn || false,
+          level: device.currentLevel ? Math.round(device.currentLevel * 10) : 0, // Convert 0-10 to 0-100
+          supportsDimming: device.supportsDimming,
+          minLevel: device.minLevel ? device.minLevel * 10 : 0,
+          maxLevel: device.maxLevel ? device.maxLevel * 10 : 100,
+          mode: modeInfo?.mode,
+          modeSummary: modeInfo?.summary,
+        }
+      })
 
       return NextResponse.json({
         success: true,

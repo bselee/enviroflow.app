@@ -22,12 +22,35 @@ export { ModeNode } from "./nodes/ModeNode";
 export { DelayNode } from "./nodes/DelayNode";
 export { VariableNode } from "./nodes/VariableNode";
 export { DebounceNode } from "./nodes/DebounceNode";
+export { VerifiedActionNode } from "./nodes/VerifiedActionNode";
+export { PortConditionNode } from "./nodes/PortConditionNode";
 
 // Palette component
 export { NodePalette } from "./NodePalette";
 
 // Properties panel (from PropertiesPanel.tsx)
 export { PropertiesPanel } from "./PropertiesPanel";
+
+// Conflict resolution
+export { ConflictResolutionModal } from "./ConflictResolutionModal";
+
+// Delete confirmation
+export { DeleteWorkflowDialog } from "./DeleteWorkflowDialog";
+
+// Manual trigger
+export { ManualTriggerButton } from "./ManualTriggerButton";
+
+// Rate limit indicator
+export { RateLimitIndicator } from "./RateLimitIndicator";
+
+// Dry run preview
+export { DryRunPreview } from "./DryRunPreview";
+
+// Save as template
+export { SaveAsTemplateDialog } from "./SaveAsTemplateDialog";
+
+// Hysteresis visualization
+export { HysteresisViz } from "./HysteresisViz";
 
 // Type exports
 export type {
@@ -84,6 +107,13 @@ export type {
   // Debounce types
   DebounceNodeConfig,
   DebounceNodeData,
+  // Verified action types
+  VerifiedActionNodeData,
+  VerifiedActionNodeConfig,
+  // Port condition types
+  PortConditionNodeData,
+  PortConditionNodeConfig,
+  PortConditionOperator,
   // Hysteresis types
   SensorThresholdTriggerConfigWithHysteresis,
   // Workflow types

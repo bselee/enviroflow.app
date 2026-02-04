@@ -17,6 +17,15 @@ import {
   Timer,
   Variable,
   Filter,
+  ChevronRight,
+  Plug,
+  Fan,
+  Lightbulb,
+  Loader2,
+  Droplets,
+  Wind,
+  Gauge,
+  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -33,6 +42,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import type { WorkflowNodeType } from "./types";
+import { useControllerCapabilities, type DeviceCapability, type SensorCapability } from "@/hooks/use-controller-capabilities";
 
 /**
  * NodePalette - Sidebar with draggable workflow node types
@@ -387,6 +397,444 @@ const PALETTE_CATEGORIES: PaletteCategoryConfig[] = [
   },
 ];
 
+// ============================================
+// Device Tree Components
+// ============================================
+
+/** Get icon for device type */
+function getDeviceIcon(type: string): React.ComponentType<{ className?: string }> {
+  switch (type.toLowerCase()) {
+    case 'fan':
+      return Fan;
+    case 'light':
+      return Lightbulb;
+    default:
+      return Plug;
+  }
+}
+
+interface DeviceTreeItemProps {
+  device: DeviceCapability;
+  controllerId: string;
+  controllerName: string;
+  onDragStart: (event: React.DragEvent, nodeType: string, nodeData: Record<string, unknown>) => void;
+}
+
+/**
+ * Draggable device/port item in the device tree
+ */
+function DeviceTreeItem({ device, controllerId, controllerName, onDragStart }: DeviceTreeItemProps) {
+  const Icon = getDeviceIcon(device.type);
+  
+  const defaultData = {
+    label: `${device.name}`,
+    config: {
+      controllerId,
+      controllerName,
+      port: device.port,
+      portName: device.name,
+      deviceType: device.type,
+      action: "on_off",
+      turnOn: true,
+    },
+  };
+
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            className={cn(
+              "group flex cursor-grab items-center gap-2 rounded-md border border-border bg-card p-1.5 ml-4",
+              "transition-all hover:border-orange-500/50 hover:shadow-sm",
+              "active:cursor-grabbing active:scale-[0.98]"
+            )}
+            draggable
+            onDragStart={(event) => onDragStart(event, "action", defaultData)}
+          >
+            <GripVertical className="h-3 w-3 text-muted-foreground/50 group-hover:text-muted-foreground" />
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-orange-500/10">
+              <Icon className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="text-xs font-medium text-foreground truncate block">
+                {device.name}
+              </span>
+            </div>
+            <span className={cn(
+              "text-[10px] px-1.5 py-0.5 rounded",
+              device.isOn ? "bg-green-500/10 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"
+            )}>
+              {device.isOn ? `${device.level}%` : "OFF"}
+            </span>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="max-w-[200px]">
+          <p className="text-sm">Drag to add control for <strong>{device.name}</strong></p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Port {device.port} • {device.type}
+            {device.supportsDimming && " • Dimming supported"}
+          </p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+interface ControllerTreeProps {
+  controllerId: string;
+  controllerName: string;
+  devices: DeviceCapability[];
+  status: 'online' | 'offline' | 'error' | 'initializing';
+  onDragStart: (event: React.DragEvent, nodeType: string, nodeData: Record<string, unknown>) => void;
+}
+
+/**
+ * Controller with expandable list of devices/ports
+ */
+function ControllerTree({ controllerId, controllerName, devices, status, onDragStart }: ControllerTreeProps) {
+  const [isOpen, setIsOpen] = React.useState(true);
+  
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger className="flex w-full items-center gap-2 py-1.5 text-sm hover:text-primary">
+        <ChevronRight className={cn(
+          "h-4 w-4 text-muted-foreground transition-transform",
+          isOpen && "rotate-90"
+        )} />
+        <span className="flex-1 text-left font-medium truncate">{controllerName}</span>
+        <span className={cn(
+          "text-[10px] px-1.5 py-0.5 rounded",
+          status === 'online' ? "bg-green-500/10 text-green-600" : "bg-muted text-muted-foreground"
+        )}>
+          {devices.length}
+        </span>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-1 py-1">
+        {devices.map((device) => (
+          <DeviceTreeItem
+            key={`${controllerId}-${device.port}`}
+            device={device}
+            controllerId={controllerId}
+            controllerName={controllerName}
+            onDragStart={onDragStart}
+          />
+        ))}
+        {devices.length === 0 && (
+          <p className="text-xs text-muted-foreground ml-6 py-1">No devices found</p>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+interface DeviceTreeSectionProps {
+  onDragStart: (event: React.DragEvent, nodeType: string, nodeData: Record<string, unknown>) => void;
+  capabilities: ReturnType<typeof useControllerCapabilities>["capabilities"];
+  loading: boolean;
+  error: string | null;
+}
+
+/**
+ * Device Tree section showing all controllers and their ports
+ */
+function DeviceTreeSection({ onDragStart, capabilities, loading, error }: DeviceTreeSectionProps) {
+  const [isOpen, setIsOpen] = React.useState(true);
+  
+  // Convert capabilities to array for rendering
+  const controllers = React.useMemo(() => {
+    if (!capabilities) return [];
+    if (capabilities instanceof Map) {
+      return Array.from(capabilities.values());
+    }
+    return [capabilities];
+  }, [capabilities]);
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-sm font-semibold text-foreground hover:text-primary">
+        <span>My Devices</span>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 text-muted-foreground transition-transform",
+            isOpen && "rotate-180"
+          )}
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-1 pb-4">
+        {loading && (
+          <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Loading controllers...
+          </div>
+        )}
+        {error && (
+          <p className="text-xs text-destructive py-2">{error}</p>
+        )}
+        {!loading && controllers.length === 0 && (
+          <p className="text-xs text-muted-foreground py-2">
+            No controllers connected. Add a controller to see your devices here.
+          </p>
+        )}
+        {controllers.map((ctrl) => (
+          <ControllerTree
+            key={ctrl.controller_id}
+            controllerId={ctrl.controller_id}
+            controllerName={ctrl.controller_name}
+            devices={ctrl.devices}
+            status={ctrl.status}
+            onDragStart={onDragStart}
+          />
+        ))}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// ============================================
+// Sensor Tree Components
+// ============================================
+
+/** Get icon for sensor type */
+function getSensorIcon(type: string): React.ComponentType<{ className?: string }> {
+  switch (type.toLowerCase()) {
+    case 'temperature':
+      return Thermometer;
+    case 'humidity':
+      return Droplets;
+    case 'vpd':
+      return Gauge;
+    case 'co2':
+      return Wind;
+    case 'soil_moisture':
+      return Droplets;
+    case 'light':
+      return Sun;
+    default:
+      return Activity;
+  }
+}
+
+/** Get color classes for sensor type */
+function getSensorColorClasses(type: string): { bg: string; text: string } {
+  switch (type.toLowerCase()) {
+    case 'temperature':
+      return { bg: 'bg-red-500/10', text: 'text-red-600 dark:text-red-400' };
+    case 'humidity':
+      return { bg: 'bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400' };
+    case 'vpd':
+      return { bg: 'bg-purple-500/10', text: 'text-purple-600 dark:text-purple-400' };
+    case 'co2':
+      return { bg: 'bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400' };
+    case 'soil_moisture':
+      return { bg: 'bg-cyan-500/10', text: 'text-cyan-600 dark:text-cyan-400' };
+    case 'light':
+      return { bg: 'bg-amber-500/10', text: 'text-amber-600 dark:text-amber-400' };
+    default:
+      return { bg: 'bg-gray-500/10', text: 'text-gray-600 dark:text-gray-400' };
+  }
+}
+
+interface SensorTreeItemProps {
+  sensor: SensorCapability;
+  controllerId: string;
+  controllerName: string;
+  onDragStart: (event: React.DragEvent, nodeType: string, nodeData: Record<string, unknown>) => void;
+}
+
+/**
+ * Draggable sensor item in the sensor tree
+ */
+function SensorTreeItem({ sensor, controllerId, controllerName, onDragStart }: SensorTreeItemProps) {
+  const Icon = getSensorIcon(sensor.type);
+  const colors = getSensorColorClasses(sensor.type);
+  
+  // Create data for a sensor trigger node when dragged
+  const defaultData = {
+    label: `${sensor.name} Trigger`,
+    config: {
+      triggerType: "sensor_threshold",
+      controllerId,
+      controllerName,
+      sensorType: sensor.type,
+      port: sensor.port,
+      unit: sensor.unit,
+      operator: ">",
+      threshold: sensor.currentValue ?? 0,
+    },
+  };
+
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            className={cn(
+              "group flex cursor-grab items-center gap-2 rounded-md border border-border bg-card p-1.5 ml-4",
+              "transition-all hover:border-cyan-500/50 hover:shadow-sm",
+              "active:cursor-grabbing active:scale-[0.98]"
+            )}
+            draggable
+            onDragStart={(event) => onDragStart(event, "trigger", defaultData)}
+          >
+            <GripVertical className="h-3 w-3 text-muted-foreground/50 group-hover:text-muted-foreground" />
+            <div className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded", colors.bg)}>
+              <Icon className={cn("h-3.5 w-3.5", colors.text)} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="text-xs font-medium text-foreground truncate block">
+                {sensor.name}
+              </span>
+            </div>
+            {sensor.currentValue !== undefined && (
+              <span className={cn(
+                "text-[10px] px-1.5 py-0.5 rounded",
+                sensor.isStale ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" : "bg-muted text-muted-foreground"
+              )}>
+                {sensor.currentValue.toFixed(1)}{sensor.unit}
+              </span>
+            )}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="max-w-[200px]">
+          <p className="text-sm">Drag to add <strong>{sensor.name}</strong> as trigger</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {sensor.type} • {controllerName}
+            {sensor.isStale && " • Data may be stale"}
+          </p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+interface SensorControllerTreeProps {
+  controllerId: string;
+  controllerName: string;
+  sensors: SensorCapability[];
+  status: 'online' | 'offline' | 'error' | 'initializing';
+  onDragStart: (event: React.DragEvent, nodeType: string, nodeData: Record<string, unknown>) => void;
+}
+
+/**
+ * Controller with expandable list of sensors
+ */
+function SensorControllerTree({ controllerId, controllerName, sensors, status, onDragStart }: SensorControllerTreeProps) {
+  const [isOpen, setIsOpen] = React.useState(true);
+  
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger className="flex w-full items-center gap-2 py-1.5 text-sm hover:text-primary">
+        <ChevronRight className={cn(
+          "h-4 w-4 text-muted-foreground transition-transform",
+          isOpen && "rotate-90"
+        )} />
+        <span className="flex-1 text-left font-medium truncate">{controllerName}</span>
+        <span className={cn(
+          "text-[10px] px-1.5 py-0.5 rounded",
+          status === 'online' ? "bg-cyan-500/10 text-cyan-600" : "bg-muted text-muted-foreground"
+        )}>
+          {sensors.length}
+        </span>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-1 py-1">
+        {sensors.map((sensor, index) => (
+          <SensorTreeItem
+            key={`${controllerId}-${sensor.type}-${sensor.port ?? index}`}
+            sensor={sensor}
+            controllerId={controllerId}
+            controllerName={controllerName}
+            onDragStart={onDragStart}
+          />
+        ))}
+        {sensors.length === 0 && (
+          <p className="text-xs text-muted-foreground ml-6 py-1">No sensors found</p>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+interface SensorTreeSectionProps {
+  onDragStart: (event: React.DragEvent, nodeType: string, nodeData: Record<string, unknown>) => void;
+  capabilities: ReturnType<typeof useControllerCapabilities>["capabilities"];
+  loading: boolean;
+  error: string | null;
+}
+
+/**
+ * Sensor Tree section showing all controllers and their sensors
+ * Used as triggers in automation workflows
+ */
+function SensorTreeSection({ onDragStart, capabilities, loading, error }: SensorTreeSectionProps) {
+  const [isOpen, setIsOpen] = React.useState(true);
+  
+  // Convert capabilities to array and filter to only those with sensors
+  const controllersWithSensors = React.useMemo(() => {
+    if (!capabilities) return [];
+    const list = capabilities instanceof Map 
+      ? Array.from(capabilities.values())
+      : [capabilities];
+    return list.filter(ctrl => ctrl.sensors && ctrl.sensors.length > 0);
+  }, [capabilities]);
+
+  // Count total sensors across all controllers
+  const totalSensors = controllersWithSensors.reduce(
+    (sum, ctrl) => sum + (ctrl.sensors?.length || 0), 0
+  );
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-sm font-semibold text-foreground hover:text-primary">
+        <span>My Sensors</span>
+        <div className="flex items-center gap-2">
+          {totalSensors > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-600">
+              {totalSensors}
+            </span>
+          )}
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 text-muted-foreground transition-transform",
+              isOpen && "rotate-180"
+            )}
+          />
+        </div>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-1 pb-4">
+        {loading && (
+          <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Loading sensors...
+          </div>
+        )}
+        {error && (
+          <p className="text-xs text-destructive py-2">{error}</p>
+        )}
+        {!loading && controllersWithSensors.length === 0 && (
+          <p className="text-xs text-muted-foreground py-2">
+            No sensors available. Add a controller (AC Infinity, Ecowitt, MQTT) to see sensors here.
+          </p>
+        )}
+        {controllersWithSensors.map((ctrl) => (
+          <SensorControllerTree
+            key={ctrl.controller_id}
+            controllerId={ctrl.controller_id}
+            controllerName={ctrl.controller_name}
+            sensors={ctrl.sensors}
+            status={ctrl.status}
+            onDragStart={onDragStart}
+          />
+        ))}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// ============================================
+// Main Palette Components
+// ============================================
+
 interface PaletteNodeItemProps {
   node: PaletteNodeConfig;
   onDragStart: (event: React.DragEvent, nodeType: string, nodeData: Record<string, unknown>) => void;
@@ -495,6 +943,7 @@ interface NodePaletteProps {
  */
 export function NodePalette({ onDragStart, className }: NodePaletteProps) {
   const [searchQuery, setSearchQuery] = React.useState("");
+  const { capabilities, loading: capabilitiesLoading, error: capabilitiesError } = useControllerCapabilities();
 
   /**
    * Handles drag start event for nodes.
@@ -560,6 +1009,17 @@ export function NodePalette({ onDragStart, className }: NodePaletteProps) {
       {/* Node Categories */}
       <ScrollArea className="flex-1">
         <div className="p-4">
+          {/* Sensor Tree - Live sensors from all controllers (triggers) */}
+          {!searchQuery && (
+            <SensorTreeSection onDragStart={handleDragStart} capabilities={capabilities} loading={capabilitiesLoading} error={capabilitiesError} />
+          )}
+          
+          {/* Device Tree - Live controllers and controllable ports */}
+          {!searchQuery && (
+            <DeviceTreeSection onDragStart={handleDragStart} capabilities={capabilities} loading={capabilitiesLoading} error={capabilitiesError} />
+          )}
+          
+          {/* Standard node categories */}
           {filteredCategories.length > 0 ? (
             filteredCategories.map((category) => (
               <PaletteCategory

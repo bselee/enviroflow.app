@@ -20,6 +20,10 @@ export interface DeviceState {
   supportsDimming: boolean
   minLevel: number
   maxLevel: number
+  /** Current operating mode (off, on, auto, vpd, timer, cycle, schedule) */
+  mode?: string
+  /** Brief summary of mode config (e.g., "75-85°F" for auto) */
+  modeSummary?: string
 }
 
 export interface DeviceControlResult {
