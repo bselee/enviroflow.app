@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Thermometer, Droplet, Activity, TrendingUp, TrendingDown, Power } from "lucide-react";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
-import { convertTemperature, formatTemperature } from "@/lib/temperature-utils";
+import { convertTemperatureFromCelsius, formatTemperature } from "@/lib/temperature-utils";
 import {
   Select,
   SelectContent,
@@ -163,10 +163,12 @@ function formatTimeLabel(timestamp: string, range: TimeRange): string {
   const date = parseISO(timestamp);
   if (!isValid(date)) return "";
 
-  if (range === "60d" || range === "30d") return format(date, "MMM d");
-  if (range === "7d") return format(date, "EEE ha");
-  if (range === "24h" || range === "1d") return format(date, "ha");
-  return format(date, "h:mm");
+  if (range === "60d") return format(date, "MMM d");
+  if (range === "30d") return format(date, "MMM d");
+  if (range === "7d") return format(date, "EEE, MMM d");
+  if (range === "24h" || range === "1d") return format(date, "h:mm a");
+  if (range === "6h") return format(date, "h:mm a");
+  return format(date, "h:mm:ss a");
 }
 
 interface MetricStats {
@@ -194,12 +196,22 @@ function calculateMetricStats(data: TimeSeriesData[], metric: FocusMetric): Metr
   };
 }
 
-/** Compute auto-scale domain for a set of values with padding */
-function autoDomain(values: number[], padding = 0.1): [number, number] {
+/** Compute auto-scale domain for a set of values with padding and a minimum spread */
+function autoDomain(values: number[], padding = 0.1, minSpread = 5): [number, number] {
   if (values.length === 0) return [0, 100];
   const min = Math.min(...values);
   const max = Math.max(...values);
-  const range = max - min || 1;
+  const range = max - min;
+
+  // Enforce minimum spread so small variations are still visible
+  if (range < minSpread) {
+    const mid = (min + max) / 2;
+    return [
+      Math.floor((mid - minSpread / 2) * 10) / 10,
+      Math.ceil((mid + minSpread / 2) * 10) / 10,
+    ];
+  }
+
   return [
     Math.floor((min - range * padding) * 10) / 10,
     Math.ceil((max + range * padding) * 10) / 10,
@@ -516,24 +528,24 @@ export function IntelligentTimeline({
   const humStats = useMemo(() => calculateMetricStats(sortedData, "humidity"), [sortedData]);
   const vpdStats = useMemo(() => calculateMetricStats(sortedData, "vpd"), [sortedData]);
 
-  // Auto-scale Y-axis domains based on actual data
+  // Auto-scale Y-axis domains based on actual data (with minimum spread per metric)
   const tempDomain = useMemo((): [number, number] => {
     const values = sortedData.map(d => d.temperature).filter((v): v is number => v != null);
     if (values.length === 0) return tempUnit === "F" ? [60, 95] : [15, 35];
-    return autoDomain(values, 0.15);
+    return autoDomain(values, 0.15, 5); // at least 5°C spread
   }, [sortedData, tempUnit]);
 
   const humDomain = useMemo((): [number, number] => {
     const values = sortedData.map(d => d.humidity).filter((v): v is number => v != null);
     if (values.length === 0) return [30, 80];
-    const domain = autoDomain(values, 0.15);
+    const domain = autoDomain(values, 0.15, 10); // at least 10% spread
     return [Math.max(0, domain[0]), Math.min(100, domain[1])];
   }, [sortedData]);
 
   const vpdDomain = useMemo((): [number, number] => {
     const values = sortedData.map(d => d.vpd).filter((v): v is number => v != null);
     if (values.length === 0) return [0, 2.5];
-    const domain = autoDomain(values, 0.2);
+    const domain = autoDomain(values, 0.2, 0.5); // at least 0.5 kPa spread
     return [Math.max(0, domain[0]), domain[1]];
   }, [sortedData]);
 
@@ -612,7 +624,7 @@ export function IntelligentTimeline({
           stats={tempStats}
           unit={`°${tempUnit}`}
           decimals={1}
-          transformValue={(val) => convertTemperature(val, tempUnit)}
+          transformValue={(val) => convertTemperatureFromCelsius(val, tempUnit)}
         />
         <StatCard metric="humidity" stats={humStats} unit="%" decimals={1} />
         <StatCard metric="vpd" stats={vpdStats} unit=" kPa" decimals={2} />
@@ -663,9 +675,10 @@ export function IntelligentTimeline({
                   tickFormatter={(value: string) => formatTimeLabel(value, timeRange)}
                   tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
                   tickLine={false}
-                  axisLine={false}
+                  axisLine={{ stroke: "hsl(var(--border))", opacity: 0.3 }}
                   interval="preserveStartEnd"
-                  minTickGap={60}
+                  minTickGap={40}
+                  padding={{ left: 10, right: 10 }}
                 />
 
                 {/* Left Y-axis — Humidity */}
@@ -688,7 +701,7 @@ export function IntelligentTimeline({
                   axisLine={false}
                   width={38}
                   orientation="right"
-                  tickFormatter={(value: number) => `${Math.round(value)}°`}
+                  tickFormatter={(value: number) => `${Math.round(convertTemperatureFromCelsius(value, tempUnit))}°`}
                 />
 
                 {/* Far-right Y-axis — VPD */}
