@@ -24,6 +24,8 @@ export interface HistoryPoint {
   temperature: number;
   humidity: number;
   vpd: number;
+  /** Controller ID this reading belongs to (absent for legacy averaged points) */
+  controllerId?: string;
 }
 
 export interface UseLiveSensorsResult {
@@ -116,28 +118,27 @@ export function useLiveSensors(options: UseLiveSensorsOptions = {}): UseLiveSens
 
       setData(result)
 
-      // Add to history if we have valid sensor data
+      // Add per-controller history points for chart filtering
       if (result.sensors && result.sensors.length > 0) {
-        const avgTemp = result.sensors.reduce((sum, s) => sum + (s.temperature ?? 0), 0) / result.sensors.length;
-        const avgHum = result.sensors.reduce((sum, s) => sum + (s.humidity ?? 0), 0) / result.sensors.length;
-        const avgVpd = result.sensors.reduce((sum, s) => sum + (s.vpd ?? 0), 0) / result.sensors.length;
-
-        const newPoint: HistoryPoint = {
-          timestamp: new Date().toISOString(),
-          temperature: avgTemp,
-          humidity: avgHum,
-          vpd: avgVpd,
-        };
+        const now = new Date().toISOString();
+        const newPoints: HistoryPoint[] = result.sensors.map((s) => ({
+          timestamp: now,
+          temperature: s.temperature ?? 0,
+          humidity: s.humidity ?? 0,
+          vpd: s.vpd ?? 0,
+          controllerId: s.id,
+        }));
 
         setHistory((prev) => {
-          const updated = [...prev, newPoint];
-          // Keep only the last maxHistoryPoints
-          if (updated.length > maxHistoryPoints) {
-            return updated.slice(-maxHistoryPoints);
+          const updated = [...prev, ...newPoints];
+          // Keep only the last maxHistoryPoints per controller
+          const maxTotal = maxHistoryPoints * result.sensors.length;
+          if (updated.length > maxTotal) {
+            return updated.slice(-maxTotal);
           }
           return updated;
         });
-      };
+      }
       setLastUpdate(new Date());
       setError(null);
     } catch (err) {

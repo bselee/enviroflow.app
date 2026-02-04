@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { IntelligentTimeline, type TimeSeriesData } from "@/components/dashboard/IntelligentTimeline";
+import type { ControllerOption, TimeRange } from "@/components/dashboard/IntelligentTimeline";
 import { ConnectCTA } from "@/components/dashboard/DemoMode";
 import { LiveSensorDashboard } from "@/components/LiveSensorDashboard";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,28 +10,21 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { OnboardingTour } from "@/components/OnboardingTour";
 import { useDashboardData } from "@/hooks/use-dashboard-data";
 import { useLiveSensors } from "@/hooks/use-live-sensors";
-import { useSensorHistory, type AggregatedReading } from "@/hooks/use-sensor-history";
+import { useSensorHistory } from "@/hooks/use-sensor-history";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
-import type { TimeRange } from "@/components/dashboard/IntelligentTimeline";
 
 // =============================================================================
 // Constants
 // =============================================================================
 
-/**
- * Default time range for the timeline chart.
- */
 const DEFAULT_TIME_RANGE: TimeRange = "1d";
 
 // =============================================================================
 // Loading Skeletons
 // =============================================================================
 
-/**
- * Skeleton placeholder for the timeline while loading.
- */
 function TimelineSkeleton(): JSX.Element {
   return (
     <div className="w-full rounded-xl bg-card/50 backdrop-blur-sm border border-border/50 p-6">
@@ -56,15 +50,10 @@ function TimelineSkeleton(): JSX.Element {
  */
 export default function DashboardPage(): JSX.Element {
   const {
-    // Computed data for components
     rooms,
     controllers,
     timelineData,
-    // Loading states
     isLoading,
-    // Actions
-    refetch,
-    // Demo mode
     isDemoMode,
     isTransitioningFromDemo,
   } = useDashboardData();
@@ -72,53 +61,57 @@ export default function DashboardPage(): JSX.Element {
   // Live sensor data from Direct API (bypasses Supabase)
   const {
     sensors: liveSensors,
-    averages: liveAverages,
     loading: liveSensorsLoading,
     history: liveHistory,
   } = useLiveSensors({ refreshInterval: 15, maxHistoryPoints: 200 });
 
   // Timeline state
   const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
+  const [selectedControllerId, setSelectedControllerId] = useState<string | null>(null);
 
   // Determine if we need historical data from Supabase
   const needsHistory = ['7d', '30d', '60d'].includes(timeRange);
   const historyDays = timeRange === '60d' ? 60 : timeRange === '30d' ? 30 : 10;
 
-  // Historical sensor data from Supabase (only fetches when needed)
+  // Historical sensor data from Supabase - pass controllerIds for filtering
   const {
     data: historicalData,
     loading: historyLoading,
   } = useSensorHistory({
     days: historyDays as 10 | 30 | 60,
     enabled: needsHistory,
+    controllerIds: selectedControllerId ? [selectedControllerId] : undefined,
   });
 
-  // User preferences for dashboard settings
   const { preferences, getRoomPreferences } = useUserPreferences();
 
+  // Build controller options from live sensors
+  const controllerOptions = useMemo((): ControllerOption[] => {
+    return liveSensors.map(s => ({ id: s.id, name: s.name }));
+  }, [liveSensors]);
+
   /**
-   * Convert historical data from Supabase to timeline format.
-   * Groups by timestamp and combines temperature, humidity, vpd.
+   * Convert historical data to timeline format.
+   * Groups by (controller_id + timestamp) so per-controller data is preserved.
    */
   const transformedHistoricalData = useMemo((): TimeSeriesData[] => {
     if (!historicalData || historicalData.length === 0) return [];
 
-    // Group by bucket_start timestamp
-    const byTimestamp = new Map<string, TimeSeriesData>();
+    // Group by controller_id + bucket_start so each controller keeps its own data points
+    const byKey = new Map<string, TimeSeriesData>();
 
     for (const reading of historicalData) {
-      const timestamp = reading.bucket_start;
-      
-      if (!byTimestamp.has(timestamp)) {
-        byTimestamp.set(timestamp, {
-          timestamp,
+      const key = `${reading.controller_id}|${reading.bucket_start}`;
+
+      if (!byKey.has(key)) {
+        byKey.set(key, {
+          timestamp: reading.bucket_start,
           controllerId: reading.controller_id,
         });
       }
 
-      const point = byTimestamp.get(timestamp)!;
-      
-      // Map sensor_type to property
+      const point = byKey.get(key)!;
+
       switch (reading.sensor_type) {
         case 'temperature':
           point.temperature = reading.avg_value;
@@ -132,15 +125,14 @@ export default function DashboardPage(): JSX.Element {
       }
     }
 
-    // Convert to array and sort by timestamp
-    const result = Array.from(byTimestamp.values());
+    const result = Array.from(byKey.values());
     result.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     return result;
   }, [historicalData]);
 
   /**
    * Generate timeline data from the appropriate source.
-   * - Short ranges (1h-24h): Use live polling data
+   * - Short ranges (1h-24h): Use live polling data (per-controller)
    * - Long ranges (7d-60d): Use Supabase historical data
    */
   const effectiveTimelineData = useMemo((): TimeSeriesData[] => {
@@ -148,39 +140,26 @@ export default function DashboardPage(): JSX.Element {
     if (needsHistory && transformedHistoricalData.length > 0) {
       return transformedHistoricalData;
     }
-    
-    // For short ranges, use accumulated live history
+
+    // For short ranges, use accumulated live history (now per-controller)
     if (liveHistory.length > 0) {
       return liveHistory.map(point => ({
         timestamp: point.timestamp,
         temperature: point.temperature,
         humidity: point.humidity,
         vpd: point.vpd,
+        controllerId: point.controllerId,
       }));
     }
-    
+
     // If we have database timeline data from dashboard hook, use it
     if (timelineData.length > 0) {
       return timelineData;
     }
-    
-    // Fallback: create a single point from current averages
-    if (liveSensors.length > 0 && liveAverages.temperature !== null) {
-      const now = new Date().toISOString();
-      return [{
-        timestamp: now,
-        temperature: liveAverages.temperature,
-        humidity: liveAverages.humidity ?? undefined,
-        vpd: liveAverages.vpd ?? undefined,
-      }];
-    }
-    
-    return [];
-  }, [needsHistory, transformedHistoricalData, liveHistory, timelineData, liveSensors, liveAverages]);
 
-  /**
-   * Get optimal ranges from user preferences or use defaults.
-   */
+    return [];
+  }, [needsHistory, transformedHistoricalData, liveHistory, timelineData]);
+
   const optimalRanges = useMemo(() => {
     if (rooms.length > 0) {
       const firstRoomPrefs = getRoomPreferences(rooms[0].id);
@@ -190,7 +169,6 @@ export default function DashboardPage(): JSX.Element {
         humidity: firstRoomPrefs.optimalHumidity,
       };
     }
-    // Default ranges
     return {
       vpd: [0.8, 1.2] as [number, number],
       temperature: [70, 85] as [number, number],
@@ -198,33 +176,29 @@ export default function DashboardPage(): JSX.Element {
     };
   }, [rooms, getRoomPreferences]);
 
-  /**
-   * Handles time range change for the timeline.
-   */
   const handleTimeRangeChange = useCallback((range: TimeRange) => {
     setTimeRange(range);
   }, []);
 
+  const handleControllerChange = useCallback((controllerId: string | null) => {
+    setSelectedControllerId(controllerId);
+  }, []);
+
   return (
     <AppLayout>
-      {/* Onboarding Tour */}
       <OnboardingTour />
 
       <div className="min-h-screen bg-background">
-        {/* Main Content - Simplified HA-Style Layout */}
         <ErrorBoundary componentName="Dashboard" showRetry>
           <div className="p-6 lg:p-8 space-y-6">
-            {/* Connect CTA - Prominent button when in demo mode */}
             {isDemoMode && !isLoading && (
               <div className="flex justify-center">
                 <ConnectCTA />
               </div>
             )}
 
-            {/* Section 1: Live Sensor Dashboard - Controller cards with Temp/Humidity/VPD */}
             <LiveSensorDashboard />
 
-            {/* Section 2: Intelligent Timeline - Sensor trend graphs */}
             <div
               className={cn(
                 "w-full rounded-xl bg-card/50 backdrop-blur-sm border border-border/50 p-6",
@@ -238,6 +212,9 @@ export default function DashboardPage(): JSX.Element {
                 <IntelligentTimeline
                   data={effectiveTimelineData}
                   liveSensors={liveSensors}
+                  controllers={controllerOptions}
+                  selectedControllerId={selectedControllerId ?? undefined}
+                  onControllerChange={handleControllerChange}
                   focusMetric={preferences.primaryMetric === "co2" ? "vpd" : preferences.primaryMetric}
                   timeRange={timeRange}
                   onTimeRangeChange={handleTimeRangeChange}

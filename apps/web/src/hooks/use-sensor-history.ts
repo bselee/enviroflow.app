@@ -13,15 +13,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { createClient } from '@supabase/supabase-js'
-
-// Initialize Supabase client for auth token
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-
-const supabase = supabaseUrl && supabaseAnonKey 
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null
+import { createClient } from '@/lib/supabase'
 
 export interface AggregatedReading {
   controller_id: string
@@ -84,16 +76,12 @@ export function useSensorHistory(
   const fetchedRef = useRef(false)
 
   const fetchHistory = useCallback(async () => {
-    if (!supabase) {
-      setError('Supabase not configured')
-      return
-    }
-
     setLoading(true)
     setError(null)
 
     try {
-      // Get auth token
+      // Get auth token from singleton client
+      const supabase = createClient()
       const { data: { session } } = await supabase.auth.getSession()
       const token = session?.access_token
 
