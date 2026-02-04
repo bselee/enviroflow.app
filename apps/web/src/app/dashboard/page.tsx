@@ -4,7 +4,6 @@ import { useState, useCallback, useMemo } from "react";
 import { IntelligentTimeline, type TimeSeriesData } from "@/components/dashboard/IntelligentTimeline";
 import type { ControllerOption, TimeRange } from "@/components/dashboard/IntelligentTimeline";
 import { ConnectCTA } from "@/components/dashboard/DemoMode";
-import { LiveSensorDashboard } from "@/components/LiveSensorDashboard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { OnboardingTour } from "@/components/OnboardingTour";
@@ -196,8 +195,6 @@ export default function DashboardPage(): JSX.Element {
                 <ConnectCTA />
               </div>
             )}
-
-            <LiveSensorDashboard />
 
             <div
               className={cn(
