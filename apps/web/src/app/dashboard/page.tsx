@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { IntelligentTimeline, type TimeSeriesData } from "@/components/dashboard/IntelligentTimeline";
 import type { ControllerOption, TimeRange } from "@/components/dashboard/IntelligentTimeline";
 import { ConnectCTA } from "@/components/dashboard/DemoMode";
@@ -19,6 +19,7 @@ import { ErrorBoundary } from "@/components/ui/error-boundary";
 // =============================================================================
 
 const DEFAULT_TIME_RANGE: TimeRange = "1d";
+const STORAGE_KEY_CONTROLLER = "enviroflow_selected_controller";
 
 // =============================================================================
 // Loading Skeletons
@@ -66,7 +67,19 @@ export default function DashboardPage(): JSX.Element {
 
   // Timeline state
   const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
-  const [selectedControllerId, setSelectedControllerId] = useState<string | null>(null);
+  const [selectedControllerId, setSelectedControllerId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem(STORAGE_KEY_CONTROLLER);
+  });
+
+  // Auto-select first controller when sensors load and no persisted choice exists
+  useEffect(() => {
+    if (selectedControllerId) return;
+    if (liveSensors.length > 0) {
+      setSelectedControllerId(liveSensors[0].id);
+      localStorage.setItem(STORAGE_KEY_CONTROLLER, liveSensors[0].id);
+    }
+  }, [liveSensors, selectedControllerId]);
 
   // Determine if we need historical data from Supabase
   const needsHistory = ['7d', '30d', '60d'].includes(timeRange);
@@ -181,6 +194,11 @@ export default function DashboardPage(): JSX.Element {
 
   const handleControllerChange = useCallback((controllerId: string | null) => {
     setSelectedControllerId(controllerId);
+    if (controllerId) {
+      localStorage.setItem(STORAGE_KEY_CONTROLLER, controllerId);
+    } else {
+      localStorage.removeItem(STORAGE_KEY_CONTROLLER);
+    }
   }, []);
 
   return (
