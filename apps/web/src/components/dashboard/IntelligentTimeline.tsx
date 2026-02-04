@@ -503,10 +503,39 @@ export function IntelligentTimeline({
     return liveSensors.find(s => s.id === controllerId) ?? null;
   }, [liveSensors, controllerId]);
 
-  // Filter data by controller if selected
+  // Filter data by controller, or average across controllers for "All" mode
   const controllerFilteredData = useMemo(() => {
-    if (!controllerId) return data;
-    return data.filter(d => d.controllerId === controllerId);
+    if (controllerId) {
+      return data.filter(d => d.controllerId === controllerId);
+    }
+
+    // "All Controllers" mode: average values per timestamp to avoid interleaving
+    // that causes chart lines to zigzag between different controller values
+    const byTimestamp = new Map<string, { temps: number[]; hums: number[]; vpds: number[] }>();
+
+    for (const d of data) {
+      let bucket = byTimestamp.get(d.timestamp);
+      if (!bucket) {
+        bucket = { temps: [], hums: [], vpds: [] };
+        byTimestamp.set(d.timestamp, bucket);
+      }
+      if (d.temperature != null) bucket.temps.push(d.temperature);
+      if (d.humidity != null) bucket.hums.push(d.humidity);
+      if (d.vpd != null) bucket.vpds.push(d.vpd);
+    }
+
+    return Array.from(byTimestamp.entries()).map(([timestamp, bucket]) => ({
+      timestamp,
+      temperature: bucket.temps.length > 0
+        ? bucket.temps.reduce((a, b) => a + b, 0) / bucket.temps.length
+        : undefined,
+      humidity: bucket.hums.length > 0
+        ? bucket.hums.reduce((a, b) => a + b, 0) / bucket.hums.length
+        : undefined,
+      vpd: bucket.vpds.length > 0
+        ? bucket.vpds.reduce((a, b) => a + b, 0) / bucket.vpds.length
+        : undefined,
+    }));
   }, [data, controllerId]);
 
   // Filter by time range
@@ -773,7 +802,7 @@ export function IntelligentTimeline({
                 {/* Area + Line for Temperature */}
                 <Area
                   yAxisId="temp"
-                  type="natural"
+                  type="monotoneX"
                   dataKey="temperature"
                   stroke={METRIC_COLORS.temperature.stroke}
                   strokeWidth={2}
@@ -788,7 +817,7 @@ export function IntelligentTimeline({
                 {/* Area + Line for Humidity */}
                 <Area
                   yAxisId="humidity"
-                  type="natural"
+                  type="monotoneX"
                   dataKey="humidity"
                   stroke={METRIC_COLORS.humidity.stroke}
                   strokeWidth={2}
@@ -803,7 +832,7 @@ export function IntelligentTimeline({
                 {/* Area + Line for VPD */}
                 <Area
                   yAxisId="vpd"
-                  type="natural"
+                  type="monotoneX"
                   dataKey="vpd"
                   stroke={METRIC_COLORS.vpd.stroke}
                   strokeWidth={2}
