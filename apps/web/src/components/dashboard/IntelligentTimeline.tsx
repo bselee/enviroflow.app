@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import {
   Area,
   ComposedChart,
@@ -321,14 +321,15 @@ interface CustomTooltipProps {
 }
 
 function CustomTooltip({ active, payload, label, tempUnit = "C" }: CustomTooltipProps): JSX.Element | null {
-  if (!active || !payload || payload.length === 0 || !label) {
+  if (!active || !payload || payload.length === 0 || label == null) {
     return null;
   }
 
   let formattedTime = "";
   try {
-    const parsed = parseISO(label);
-    if (isValid(parsed)) formattedTime = format(parsed, "MMM d, h:mm a");
+    // label may be a numeric epoch (_ts) or an ISO string
+    const date = typeof label === "number" ? new Date(label) : parseISO(String(label));
+    if (isValid(date)) formattedTime = format(date, "MMM d, h:mm:ss a");
   } catch { /* ignore */ }
 
   const tempPayload = payload.find(p => p.dataKey === "temperature");
@@ -514,14 +515,19 @@ export function IntelligentTimeline({
     [controllerFilteredData, timeRange]
   );
 
-  // Use real data only — no synthetic generation
-  const sortedData = useMemo(
-    () =>
-      [...filteredData].sort(
-        (a, b) => parseISO(a.timestamp).getTime() - parseISO(b.timestamp).getTime()
-      ),
-    [filteredData]
-  );
+  // Sort and convert timestamps to numeric epoch for proper XAxis scale spacing
+  const sortedData = useMemo(() => {
+    const sorted = [...filteredData].sort(
+      (a, b) => parseISO(a.timestamp).getTime() - parseISO(b.timestamp).getTime()
+    );
+    return sorted.map(d => ({
+      ...d,
+      _ts: parseISO(d.timestamp).getTime(),
+    }));
+  }, [filteredData]);
+
+  // Whether to show individual dots (when fewer data points)
+  const showDots = sortedData.length > 0 && sortedData.length <= 60;
 
   // Calculate stats from real data
   const tempStats = useMemo(() => calculateMetricStats(sortedData, "temperature"), [sortedData]);
@@ -532,20 +538,20 @@ export function IntelligentTimeline({
   const tempDomain = useMemo((): [number, number] => {
     const values = sortedData.map(d => d.temperature).filter((v): v is number => v != null);
     if (values.length === 0) return tempUnit === "F" ? [60, 95] : [15, 35];
-    return autoDomain(values, 0.15, 5); // at least 5°C spread
+    return autoDomain(values, 0.15, 0.5); // at least 0.5°C spread
   }, [sortedData, tempUnit]);
 
   const humDomain = useMemo((): [number, number] => {
     const values = sortedData.map(d => d.humidity).filter((v): v is number => v != null);
     if (values.length === 0) return [30, 80];
-    const domain = autoDomain(values, 0.15, 10); // at least 10% spread
+    const domain = autoDomain(values, 0.15, 2); // at least 2% spread
     return [Math.max(0, domain[0]), Math.min(100, domain[1])];
   }, [sortedData]);
 
   const vpdDomain = useMemo((): [number, number] => {
     const values = sortedData.map(d => d.vpd).filter((v): v is number => v != null);
     if (values.length === 0) return [0, 2.5];
-    const domain = autoDomain(values, 0.2, 0.5); // at least 0.5 kPa spread
+    const domain = autoDomain(values, 0.2, 0.1); // at least 0.1 kPa spread
     return [Math.max(0, domain[0]), domain[1]];
   }, [sortedData]);
 
@@ -567,6 +573,13 @@ export function IntelligentTimeline({
   // Optimal range bounds (for shaded reference areas)
   const ranges = optimalRanges ?? DEFAULT_OPTIMAL_RANGES;
 
+  // Fade-in on mount
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
   if (isLoading) {
     return (
       <div className={cn("w-full", className)}>
@@ -576,7 +589,11 @@ export function IntelligentTimeline({
   }
 
   return (
-    <div className={cn("w-full space-y-4", className)}>
+    <div className={cn(
+      "w-full space-y-4 transition-all duration-700 ease-out",
+      visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3",
+      className
+    )}>
       {/* Header: Controller Selector + Time Range */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-2">
@@ -671,13 +688,23 @@ export function IntelligentTimeline({
                 />
 
                 <XAxis
-                  dataKey="timestamp"
-                  tickFormatter={(value: string) => formatTimeLabel(value, timeRange)}
+                  dataKey="_ts"
+                  type="number"
+                  scale="time"
+                  domain={["dataMin", "dataMax"]}
+                  tickFormatter={(value: number) => {
+                    const d = new Date(value);
+                    if (!isValid(d)) return "";
+                    if (timeRange === "60d" || timeRange === "30d") return format(d, "MMM d");
+                    if (timeRange === "7d") return format(d, "EEE, MMM d");
+                    if (timeRange === "24h" || timeRange === "1d") return format(d, "h:mm a");
+                    if (timeRange === "6h") return format(d, "h:mm a");
+                    return format(d, "h:mm:ss a");
+                  }}
                   tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
                   tickLine={false}
                   axisLine={{ stroke: "hsl(var(--border))", opacity: 0.3 }}
-                  interval="preserveStartEnd"
-                  minTickGap={40}
+                  minTickGap={50}
                   padding={{ left: 10, right: 10 }}
                 />
 
@@ -746,13 +773,13 @@ export function IntelligentTimeline({
                 {/* Area + Line for Temperature */}
                 <Area
                   yAxisId="temp"
-                  type="monotone"
+                  type="natural"
                   dataKey="temperature"
                   stroke={METRIC_COLORS.temperature.stroke}
                   strokeWidth={2}
                   fill="url(#gradTemp)"
-                  dot={false}
-                  activeDot={{ r: 4, strokeWidth: 2, stroke: "#fff", fill: METRIC_COLORS.temperature.stroke }}
+                  dot={showDots ? { r: 2.5, fill: METRIC_COLORS.temperature.stroke, strokeWidth: 0 } : false}
+                  activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff", fill: METRIC_COLORS.temperature.stroke }}
                   connectNulls={true}
                   isAnimationActive={true}
                   animationDuration={ANIMATION_DURATION}
@@ -761,13 +788,13 @@ export function IntelligentTimeline({
                 {/* Area + Line for Humidity */}
                 <Area
                   yAxisId="humidity"
-                  type="monotone"
+                  type="natural"
                   dataKey="humidity"
                   stroke={METRIC_COLORS.humidity.stroke}
                   strokeWidth={2}
                   fill="url(#gradHum)"
-                  dot={false}
-                  activeDot={{ r: 4, strokeWidth: 2, stroke: "#fff", fill: METRIC_COLORS.humidity.stroke }}
+                  dot={showDots ? { r: 2.5, fill: METRIC_COLORS.humidity.stroke, strokeWidth: 0 } : false}
+                  activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff", fill: METRIC_COLORS.humidity.stroke }}
                   connectNulls={true}
                   isAnimationActive={true}
                   animationDuration={ANIMATION_DURATION}
@@ -776,13 +803,13 @@ export function IntelligentTimeline({
                 {/* Area + Line for VPD */}
                 <Area
                   yAxisId="vpd"
-                  type="monotone"
+                  type="natural"
                   dataKey="vpd"
                   stroke={METRIC_COLORS.vpd.stroke}
                   strokeWidth={2}
                   fill="url(#gradVpd)"
-                  dot={false}
-                  activeDot={{ r: 4, strokeWidth: 2, stroke: "#fff", fill: METRIC_COLORS.vpd.stroke }}
+                  dot={showDots ? { r: 2.5, fill: METRIC_COLORS.vpd.stroke, strokeWidth: 0 } : false}
+                  activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff", fill: METRIC_COLORS.vpd.stroke }}
                   connectNulls={true}
                   isAnimationActive={true}
                   animationDuration={ANIMATION_DURATION}
