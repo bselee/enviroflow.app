@@ -4,14 +4,6 @@ import * as React from "react";
 import { Handle, Position } from "@xyflow/react";
 import {
   Zap,
-  Fan,
-  Lightbulb,
-  Flame,
-  Snowflake,
-  Droplets,
-  Wind,
-  PlugZap,
-  Pipette,
   X,
   Power,
   Gauge,
@@ -20,6 +12,7 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getPortIconConfig } from "@/config/deviceIcons";
 import type {
   ActionNodeData,
   DeviceType,
@@ -46,25 +39,16 @@ import { useControllerCapabilities } from "@/hooks/use-controller-capabilities";
  * - Has both input and output handles for chaining
  */
 
-/** Base device icon mapping - includes fallback for unknowns */
-const DEVICE_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
-  fan: Fan,
-  light: Lightbulb,
-  heater: Flame,
-  cooler: Snowflake,
-  humidifier: Droplets,
-  dehumidifier: Wind,
-  outlet: PlugZap,
-  pump: Pipette,
-  valve: Pipette,
-};
-
 /**
- * Get icon for any device type, with fallback for unknowns
+ * Get icon for any device type using centralized config
+ * Returns icon component and color for consistent styling
  */
-function getDeviceIcon(deviceType?: string): React.ComponentType<{ className?: string }> {
-  if (!deviceType) return HelpCircle;
-  return DEVICE_ICON_MAP[deviceType] || PlugZap; // Default to PlugZap for unknown types
+function getDeviceIconInfo(deviceType?: string) {
+  if (!deviceType) {
+    return { icon: HelpCircle, color: '#8896a8', bg: 'rgba(136,150,168,0.10)' };
+  }
+  const config = getPortIconConfig(deviceType);
+  return { icon: config.icon, color: config.color, bg: config.bg };
 }
 
 /**
@@ -127,7 +111,8 @@ export function ActionNode({ data, selected, id }: ActionNodeProps) {
     return { available: true, reason: "", supportsDimming: device.supportsDimming };
   }, [capabilities, config.controllerId, config.port]);
 
-  const DeviceIcon = getDeviceIcon(config.deviceType);
+  const deviceIconInfo = getDeviceIconInfo(config.deviceType);
+  const DeviceIcon = deviceIconInfo.icon;
   const ActionIcon = config.action ? ACTION_ICONS[config.action] : Power;
 
   /**
@@ -253,9 +238,17 @@ export function ActionNode({ data, selected, id }: ActionNodeProps) {
           </div>
         )}
 
-        {/* Device Type & Action Badge */}
+        {/* Device Type & Action Badge - Color coded per device type */}
         <div className="mb-2 flex items-center gap-2">
-          <DeviceIcon className="h-4 w-4 text-muted-foreground" />
+          <div
+            className="flex h-5 w-5 items-center justify-center rounded"
+            style={{ backgroundColor: deviceIconInfo.bg }}
+          >
+            <DeviceIcon
+              className="h-3.5 w-3.5"
+              style={{ color: deviceIconInfo.color }}
+            />
+          </div>
           <span className="text-xs font-medium text-muted-foreground">
             {getDeviceLabel(config.deviceType)}
             {deviceAvailable.supportsDimming && (

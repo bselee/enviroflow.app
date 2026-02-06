@@ -7,17 +7,13 @@
 
 import { useState } from 'react'
 import {
-  Fan,
-  Lightbulb,
   Power,
-  Thermometer,
-  Droplets,
   MoreVertical,
   Loader2,
   Circle,
-  Wind,
   Settings2,
 } from 'lucide-react'
+import { getPortIconConfig, iconSizes } from '@/config/deviceIcons'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -48,49 +44,11 @@ interface ConnectedDeviceCardProps {
 }
 
 // ============================================
-// Device Icon Mapping
+// Device Icon Mapping - Uses centralized config
 // ============================================
 
-function getDeviceIcon(deviceType: string) {
-  switch (deviceType.toLowerCase()) {
-    case 'fan':
-      return Fan
-    case 'light':
-      return Lightbulb
-    case 'outlet':
-      return Power
-    case 'heater':
-      return Thermometer
-    case 'humidifier':
-      return Droplets
-    case 'dehumidifier':
-      return Wind
-    case 'cooler':
-      return Wind
-    default:
-      return Power
-  }
-}
-
-function getDeviceColor(deviceType: string, isOn: boolean) {
-  if (!isOn) return 'text-muted-foreground'
-
-  switch (deviceType.toLowerCase()) {
-    case 'fan':
-      return 'text-blue-500'
-    case 'light':
-      return 'text-yellow-500'
-    case 'heater':
-      return 'text-red-500'
-    case 'cooler':
-      return 'text-cyan-500'
-    case 'humidifier':
-      return 'text-blue-400'
-    case 'dehumidifier':
-      return 'text-orange-400'
-    default:
-      return 'text-green-500'
-  }
+function getDeviceIconConfig(deviceType: string) {
+  return getPortIconConfig(deviceType)
 }
 
 function getStatusColor(isOn: boolean) {
@@ -112,8 +70,8 @@ export function ConnectedDeviceCard({
   const [localLevel, setLocalLevel] = useState(device.level)
   const [localIsOn, setLocalIsOn] = useState(device.isOn)
 
-  const Icon = getDeviceIcon(device.deviceType)
-  const iconColor = getDeviceColor(device.deviceType, localIsOn)
+  const iconConfig = getDeviceIconConfig(device.deviceType)
+  const Icon = iconConfig.icon
   const statusColor = getStatusColor(localIsOn)
 
   const handleQuickToggle = async () => {
@@ -188,15 +146,20 @@ export function ConnectedDeviceCard({
 
       <CardContent className="p-4">
         <div className="flex items-start justify-between mb-3">
-          {/* Device Icon and Info */}
+          {/* Device Icon and Info - Color coded per device type */}
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div
-              className={cn(
-                'w-10 h-10 rounded-lg flex items-center justify-center transition-all shrink-0',
-                localIsOn ? 'bg-primary/10 ring-1 ring-primary/20' : 'bg-muted'
-              )}
+              className="w-10 h-10 rounded-lg flex items-center justify-center transition-all shrink-0"
+              style={{
+                backgroundColor: localIsOn ? iconConfig.bg : undefined,
+                border: localIsOn ? `1px solid ${iconConfig.color}20` : undefined,
+              }}
             >
-              <Icon className={cn('w-5 h-5 transition-colors', iconColor)} />
+              <Icon
+                size={iconSizes.cardHeader}
+                style={{ color: localIsOn ? iconConfig.color : '#6b7280' }}
+                className="transition-colors"
+              />
             </div>
             <div className="flex-1 min-w-0">
               <h4 className="font-medium text-sm truncate">{device.name}</h4>

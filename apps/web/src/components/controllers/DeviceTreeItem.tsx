@@ -8,11 +8,12 @@
  */
 
 import { useState } from "react";
-import { Fan, Lightbulb, Power, Zap, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { getPortIconConfig, iconSizes } from "@/config/deviceIcons";
 import type { DeviceState, DeviceControlResult } from "@/hooks/use-device-control";
 
 // ============================================
@@ -29,42 +30,12 @@ interface DeviceTreeItemProps {
 // Helper Functions
 // ============================================
 
-function getDeviceIcon(deviceType: string) {
-  switch (deviceType.toLowerCase()) {
-    case "fan":
-      return Fan;
-    case "light":
-      return Lightbulb;
-    case "outlet":
-    case "heater":
-    case "cooler":
-    case "humidifier":
-    case "dehumidifier":
-      return Power;
-    default:
-      return Zap;
-  }
-}
-
-function getDeviceIconEmoji(deviceType: string): string {
-  switch (deviceType.toLowerCase()) {
-    case "fan":
-      return "🌀";
-    case "light":
-      return "💡";
-    case "outlet":
-      return "⚡";
-    case "heater":
-      return "🔥";
-    case "cooler":
-      return "❄️";
-    case "humidifier":
-      return "💨";
-    case "dehumidifier":
-      return "🌡️";
-    default:
-      return "⚡";
-  }
+/**
+ * Get icon configuration for device type using centralized config.
+ * Returns icon component, color, and background color.
+ */
+function getDeviceIconConfig(deviceType: string) {
+  return getPortIconConfig(deviceType);
 }
 
 // ============================================
@@ -76,8 +47,8 @@ export function DeviceTreeItem({ device, onControl, disabled }: DeviceTreeItemPr
   const [localLevel, setLocalLevel] = useState(device.level);
   const [localIsOn, setLocalIsOn] = useState(device.isOn);
 
-  const Icon = getDeviceIcon(device.deviceType);
-  const emoji = getDeviceIconEmoji(device.deviceType);
+  const iconConfig = getDeviceIconConfig(device.deviceType);
+  const Icon = iconConfig.icon;
 
   const handleToggle = async (checked: boolean) => {
     if (disabled || isUpdating) return;
@@ -141,20 +112,19 @@ export function DeviceTreeItem({ device, onControl, disabled }: DeviceTreeItemPr
         "hover:shadow-sm dark:hover:border-[rgba(0,212,255,0.2)]"
       )}
     >
-      {/* Device Icon */}
+      {/* Device Icon - Color coded per device type */}
       <div
-        className={cn(
-          "w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors",
-          localIsOn
-            ? "bg-[rgba(0,230,118,0.15)] dark:bg-[rgba(0,230,118,0.2)]"
-            : "bg-muted dark:bg-[rgba(255,255,255,0.05)]"
-        )}
+        className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+        style={{
+          backgroundColor: localIsOn ? iconConfig.bg : 'rgba(255,255,255,0.05)',
+        }}
       >
         <Icon
-          className={cn(
-            "w-4 h-4 transition-colors",
-            localIsOn ? "text-[#00e676]" : "text-muted-foreground dark:text-[#4a5568]"
-          )}
+          size={iconSizes.portTile}
+          style={{
+            color: localIsOn ? iconConfig.color : '#4a5568',
+          }}
+          className="transition-colors"
         />
       </div>
 

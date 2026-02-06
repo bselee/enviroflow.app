@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { RefreshCw, WifiOff, Activity, Fan, Lightbulb, Droplets, Flame, Power } from "lucide-react";
+import { RefreshCw, WifiOff, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { formatTemperatureValue } from "@/lib/temperature-utils";
+import { getPortIconConfig, iconSizes } from "@/config/deviceIcons";
 import type { LiveSensorResponse, LiveSensor, LivePort } from "@/types";
 import type { TemperatureUnit } from "@/hooks/use-user-preferences";
 
@@ -170,27 +171,31 @@ function SensorCard({ sensor, tempUnit }: { sensor: LiveSensor; tempUnit: Temper
 }
 
 /**
- * Get device type icon component based on port device type.
- * Uses outlined Lucide icons for modern, clean look.
+ * Get device type icon with proper color coding.
+ * Uses centralized icon configuration from config/deviceIcons.tsx
+ *
+ * Icon Color Rules (per UI guide):
+ * - Fans: #00d4ff (cyan)
+ * - Lights: #ffd740 (yellow)
+ * - Water/Humidity: #4fc3f7 (light blue)
+ * - Heat: #ff5252 (red)
+ * - Outlets: #ff9100 (orange)
  */
-function getDeviceIcon(deviceType: string | undefined, isOn: boolean) {
-  const iconClass = cn(
-    "w-4 h-4 shrink-0",
-    isOn ? "text-foreground dark:text-[#e8edf4]" : "text-muted-foreground dark:text-[#4a5568]"
-  );
+function getDeviceIconWithChip(deviceType: string | undefined, isOn: boolean) {
+  const config = getPortIconConfig(deviceType);
+  const Icon = config.icon;
 
-  switch (deviceType) {
-    case 'fan':
-      return <Fan className={iconClass} />;
-    case 'light':
-      return <Lightbulb className={iconClass} />;
-    case 'humidifier':
-      return <Droplets className={iconClass} />;
-    case 'heater':
-      return <Flame className={iconClass} />;
-    default:
-      return <Power className={iconClass} />;
-  }
+  return (
+    <div
+      className="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
+      style={{ backgroundColor: isOn ? config.bg : 'rgba(255,255,255,0.05)' }}
+    >
+      <Icon
+        size={iconSizes.portChip}
+        style={{ color: isOn ? config.color : '#4a5568' }}
+      />
+    </div>
+  );
 }
 
 /**
@@ -244,8 +249,8 @@ function PortTile({ port }: { port: LivePort }) {
           : "bg-muted dark:bg-[#1e2a3a]"
       )}
     >
-      {/* Device Type Icon */}
-      {getDeviceIcon(port.deviceType, port.isOn)}
+      {/* Device Type Icon with colored chip */}
+      {getDeviceIconWithChip(port.deviceType, port.isOn)}
 
       {/* Port Name + Mode Badge */}
       <div className="flex-1 min-w-0 flex items-center gap-1.5">
