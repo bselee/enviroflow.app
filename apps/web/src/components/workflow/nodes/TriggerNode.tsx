@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Handle, Position } from "@xyflow/react";
-import { Play, Clock, Thermometer, MousePointer, X, Radio } from "lucide-react";
+import { Play, Clock, Thermometer, MousePointer, X, Radio, Sun, SunDim } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TriggerNodeData, TriggerType } from "../types";
 
@@ -28,6 +28,8 @@ const TRIGGER_ICONS: Record<TriggerType, React.ComponentType<{ className?: strin
   sensor_threshold: Thermometer,
   manual: MousePointer,
   mqtt: Radio,
+  lights_on: Sun,
+  lights_off: SunDim,
 };
 
 /** Labels for trigger types */
@@ -36,6 +38,8 @@ const TRIGGER_LABELS: Record<TriggerType, string> = {
   sensor_threshold: "Sensor Threshold",
   manual: "Manual Trigger",
   mqtt: "MQTT Trigger",
+  lights_on: "Lights On",
+  lights_off: "Lights Off",
 };
 
 interface TriggerNodeProps {
@@ -92,6 +96,26 @@ export function TriggerNode({ data, selected, id }: TriggerNodeProps) {
       }
       case "manual":
         return "Click to run";
+      case "lights_on": {
+        const config = data.config;
+        if (config.controllerName && config.port !== undefined) {
+          return `When ${config.portName || `Port ${config.port}`} turns ON`;
+        }
+        if (config.controllerName) {
+          return `When light on ${config.controllerName} turns ON`;
+        }
+        return "When light turns ON";
+      }
+      case "lights_off": {
+        const config = data.config;
+        if (config.controllerName && config.port !== undefined) {
+          return `When ${config.portName || `Port ${config.port}`} turns OFF`;
+        }
+        if (config.controllerName) {
+          return `When light on ${config.controllerName} turns OFF`;
+        }
+        return "When light turns OFF";
+      }
       default:
         return "Unknown trigger";
     }

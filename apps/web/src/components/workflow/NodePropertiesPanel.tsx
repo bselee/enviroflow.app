@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { X, Play, Thermometer, GitBranch, Clock, MousePointer, AlertCircle, Timer, Variable, Filter, Radio, CheckCircle2, Zap, Settings, Sun, Bell, Sunrise, Sunset, Plus, Trash2, Info } from "lucide-react";
+import { X, Play, Thermometer, GitBranch, Clock, MousePointer, AlertCircle, Timer, Variable, Filter, Radio, CheckCircle2, Zap, Settings, Sun, SunDim, Bell, Sunrise, Sunset, Plus, Trash2, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,8 @@ import type {
   VariableValueType,
   DebounceNodeData,
   MQTTTriggerConfig,
+  LightsOnTriggerConfig,
+  LightsOffTriggerConfig,
   ModeNodeData,
   DeviceModeType,
   PortDeviceType,
@@ -199,6 +201,26 @@ function TriggerProperties({
               </div>
             </Label>
           </div>
+          <div className="flex items-center space-x-3 rounded-md border p-3 hover:bg-muted/50 border-yellow-200 dark:border-yellow-800">
+            <RadioGroupItem value="lights_on" id="lights_on" />
+            <Label htmlFor="lights_on" className="flex items-center gap-2 cursor-pointer">
+              <Sun className="h-4 w-4 text-yellow-500" />
+              <div>
+                <p className="text-sm font-medium">Lights On</p>
+                <p className="text-xs text-muted-foreground">When a light turns on</p>
+              </div>
+            </Label>
+          </div>
+          <div className="flex items-center space-x-3 rounded-md border p-3 hover:bg-muted/50 border-orange-200 dark:border-orange-800">
+            <RadioGroupItem value="lights_off" id="lights_off" />
+            <Label htmlFor="lights_off" className="flex items-center gap-2 cursor-pointer">
+              <SunDim className="h-4 w-4 text-orange-500" />
+              <div>
+                <p className="text-sm font-medium">Lights Off</p>
+                <p className="text-xs text-muted-foreground">When a light turns off</p>
+              </div>
+            </Label>
+          </div>
         </RadioGroup>
       </div>
 
@@ -266,6 +288,20 @@ function TriggerProperties({
             </p>
           </div>
         </div>
+      )}
+
+      {/* Lights On/Off Configuration */}
+      {(triggerType === "lights_on" || triggerType === "lights_off") && (
+        <LightsTriggerConfigPanel
+          config={data.config as LightsOnTriggerConfig | LightsOffTriggerConfig}
+          triggerType={triggerType}
+          onUpdate={(updates) => {
+            onUpdate(node.id, {
+              config: { ...data.config, ...updates },
+            } as Partial<TriggerNodeData>);
+          }}
+          controllers={controllers}
+        />
       )}
     </div>
   );
@@ -465,8 +501,132 @@ function MQTTTriggerConfigPanel({
       <Alert className="bg-purple-50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800">
         <Radio className="h-4 w-4 text-purple-500" />
         <AlertDescription className="text-xs">
-          MQTT triggers enable cross-manufacturer automation. Connect sensors from Inkbird, Ecowitt, 
+          MQTT triggers enable cross-manufacturer automation. Connect sensors from Inkbird, Ecowitt,
           Zigbee2MQTT, or any MQTT-compatible device to control AC Infinity equipment.
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+}
+
+/**
+ * LightsTriggerConfigPanel - Configuration for Lights On/Off triggers
+ *
+ * Allows selecting which light device to monitor for on/off state changes.
+ * These triggers fire when a light transitions between on and off states.
+ */
+function LightsTriggerConfigPanel({
+  config,
+  triggerType,
+  onUpdate,
+  controllers = [],
+}: {
+  config: LightsOnTriggerConfig | LightsOffTriggerConfig;
+  triggerType: "lights_on" | "lights_off";
+  onUpdate: (updates: Partial<LightsOnTriggerConfig | LightsOffTriggerConfig>) => void;
+  controllers?: Array<{ id: string; name: string; brand?: string }>;
+}) {
+  const { capabilities } = useControllerCapabilities();
+
+  // Get light devices from selected controller
+  const selectedControllerCapabilities = React.useMemo(() => {
+    if (!config.controllerId || !capabilities) return null;
+    if (capabilities instanceof Map) {
+      return capabilities.get(config.controllerId);
+    }
+    return capabilities.controller_id === config.controllerId ? capabilities : null;
+  }, [capabilities, config.controllerId]);
+
+  const lightDevices = React.useMemo(() => {
+    if (!selectedControllerCapabilities?.devices) return [];
+    return selectedControllerCapabilities.devices.filter(
+      (d: { type?: string; supportsDimming?: boolean }) =>
+        d.type === "light" || d.supportsDimming === true
+    );
+  }, [selectedControllerCapabilities]);
+
+  const isLightsOn = triggerType === "lights_on";
+
+  return (
+    <div className="space-y-4 pt-2">
+      {/* Controller Selection */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Controller</Label>
+        <Select
+          value={config.controllerId ?? ""}
+          onValueChange={(v) => {
+            const controller = controllers.find((c) => c.id === v);
+            onUpdate({
+              controllerId: v,
+              controllerName: controller?.name,
+              port: undefined,
+              portName: undefined,
+            });
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select a controller" />
+          </SelectTrigger>
+          <SelectContent>
+            {controllers.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Light Device Selection */}
+      {config.controllerId && (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Light Device</Label>
+          <Select
+            value={config.port?.toString() ?? ""}
+            onValueChange={(v) => {
+              const port = parseInt(v, 10);
+              const device = lightDevices.find((d: { port: number }) => d.port === port);
+              onUpdate({
+                port,
+                portName: device?.name,
+              });
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select a light" />
+            </SelectTrigger>
+            <SelectContent>
+              {lightDevices.length === 0 ? (
+                <SelectItem value="" disabled>
+                  No light devices found
+                </SelectItem>
+              ) : (
+                lightDevices.map((device: { port: number; name?: string }) => (
+                  <SelectItem key={device.port} value={String(device.port)}>
+                    Port {device.port}{device.name ? `: ${device.name}` : ""}
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {/* Help text */}
+      <Alert className={isLightsOn
+        ? "bg-yellow-50 dark:bg-yellow-950/30 border-yellow-200 dark:border-yellow-800"
+        : "bg-orange-50 dark:bg-orange-950/30 border-orange-200 dark:border-orange-800"
+      }>
+        {isLightsOn ? (
+          <Sun className="h-4 w-4 text-yellow-500" />
+        ) : (
+          <SunDim className="h-4 w-4 text-orange-500" />
+        )}
+        <AlertDescription className="text-xs">
+          {isLightsOn
+            ? "This trigger fires when the selected light turns ON (goes from 0% to any level)."
+            : "This trigger fires when the selected light turns OFF (goes from any level to 0%)."
+          }
         </AlertDescription>
       </Alert>
     </div>

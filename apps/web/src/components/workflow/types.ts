@@ -16,7 +16,7 @@ export type { SensorType };
 // ============================================================================
 
 /** Types of triggers that can initiate a workflow */
-export type TriggerType = "schedule" | "sensor_threshold" | "manual" | "mqtt";
+export type TriggerType = "schedule" | "sensor_threshold" | "manual" | "mqtt" | "lights_on" | "lights_off";
 
 /** Configuration for schedule-based triggers */
 export interface ScheduleTriggerConfig {
@@ -72,8 +72,40 @@ export interface MQTTTriggerConfig {
   lastReceivedAt?: string;
 }
 
+/** Configuration for lights on trigger - fires when a light turns on */
+export interface LightsOnTriggerConfig {
+  triggerType: "lights_on";
+  /** ID of the controller with the light */
+  controllerId?: string;
+  /** Controller name for display */
+  controllerName?: string;
+  /** Port number of the light device */
+  port?: number;
+  /** Port/device name for display */
+  portName?: string;
+}
+
+/** Configuration for lights off trigger - fires when a light turns off */
+export interface LightsOffTriggerConfig {
+  triggerType: "lights_off";
+  /** ID of the controller with the light */
+  controllerId?: string;
+  /** Controller name for display */
+  controllerName?: string;
+  /** Port number of the light device */
+  port?: number;
+  /** Port/device name for display */
+  portName?: string;
+}
+
 /** Union type for all trigger configurations */
-export type TriggerConfig = ScheduleTriggerConfig | SensorThresholdTriggerConfig | ManualTriggerConfig | MQTTTriggerConfig;
+export type TriggerConfig =
+  | ScheduleTriggerConfig
+  | SensorThresholdTriggerConfig
+  | ManualTriggerConfig
+  | MQTTTriggerConfig
+  | LightsOnTriggerConfig
+  | LightsOffTriggerConfig;
 
 /** Data payload for TriggerNode */
 export interface TriggerNodeData {
@@ -226,11 +258,13 @@ export type DimmerCurve = "linear" | "sigmoid" | "exponential" | "logarithmic";
 /**
  * Configuration for dimmer nodes - Light schedule with optional ramp
  *
+ * ON/OFF are exact start/stop times. Ramps happen WITHIN the schedule window.
+ *
  * Timeline example with onTime="06:00", offTime="22:00", sunriseMinutes=30, sunsetMinutes=30:
- * - 05:30 - Sunrise begins (ramp from minLevel)
- * - 06:00 - Fully ON (maxLevel reached)
- * - 22:00 - Sunset begins (ramp from maxLevel)
- * - 22:30 - Fully OFF (minLevel reached)
+ * - 06:00 - ON: Lights turn on at minLevel, sunrise ramp begins
+ * - 06:30 - Sunrise complete: Lights reach maxLevel
+ * - 21:30 - Sunset begins: Lights start ramping down from maxLevel
+ * - 22:00 - OFF: Lights reach minLevel, turn off
  */
 export interface DimmerNodeConfig {
   /** ID of the controller */
@@ -240,10 +274,10 @@ export interface DimmerNodeConfig {
   /** Port number on the controller */
   port?: number;
 
-  // Schedule times
-  /** Time when lights reach maxLevel (HH:MM format) */
+  // Schedule times (exact start/stop)
+  /** Time when lights turn ON (HH:MM format) - starts at minLevel */
   onTime?: string;
-  /** Time when lights start ramping to minLevel (HH:MM format) */
+  /** Time when lights turn OFF (HH:MM format) - ends at minLevel */
   offTime?: string;
 
   // Level settings (0-100%)
@@ -252,10 +286,10 @@ export interface DimmerNodeConfig {
   /** Level when fully "on" / day (0-100) */
   maxLevel?: number;
 
-  // Sunrise/Sunset ramp settings
-  /** Minutes to ramp up BEFORE onTime (sunrise simulation) */
+  // Sunrise/Sunset ramp settings (happen WITHIN the on/off window)
+  /** Minutes to ramp up AFTER onTime (sunrise simulation) */
   sunriseMinutes?: number;
-  /** Minutes to ramp down AFTER offTime (sunset simulation) */
+  /** Minutes to ramp down BEFORE offTime (sunset simulation) */
   sunsetMinutes?: number;
   /** Transition curve type */
   curve?: DimmerCurve;

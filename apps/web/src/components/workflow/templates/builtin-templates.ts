@@ -646,6 +646,128 @@ export const BUILTIN_TEMPLATES: WorkflowTemplate[] = [
       { id: "e4", source: "delay-co2", target: "co2-off", sourceHandle: "output", targetHandle: "input" },
     ],
   },
+
+  // -------------------------------------------------------------------------
+  // Lights On Routine Template
+  // -------------------------------------------------------------------------
+  {
+    id: "lights-on-routine",
+    name: "Lights On Routine",
+    description: "Sequence of actions when lights turn on: boost exhaust fan for daytime cooling, enable CO2 enrichment, adjust humidity targets.",
+    category: "lighting",
+    tags: ["lights", "on", "daytime", "sequence", "event"],
+    icon: "sunrise",
+    deviceRequirements: [
+      { placeholderId: "grow_light", label: "Grow Light", deviceType: "light" },
+      { placeholderId: "exhaust_fan", label: "Exhaust Fan", deviceType: "fan" },
+    ],
+    sensorRequirements: [],
+    nodes: [
+      {
+        id: "trigger-lights-on",
+        type: "trigger",
+        position: { x: 100, y: 200 },
+        data: {
+          label: "When Lights ON",
+          config: {
+            triggerType: "lights_on",
+            controllerId: "__PLACEHOLDER__grow_light",
+          },
+        },
+      },
+      {
+        id: "fan-daytime",
+        type: "action",
+        position: { x: 350, y: 150 },
+        data: {
+          label: "Fan to Day Mode",
+          config: {
+            controllerId: "__PLACEHOLDER__exhaust_fan",
+            action: "set_speed",
+            value: 70,
+            deviceType: "fan",
+          },
+        },
+      },
+      {
+        id: "notify-lights-on",
+        type: "notification",
+        position: { x: 350, y: 280 },
+        data: {
+          label: "Lights On Alert",
+          config: {
+            message: "Grow lights have turned ON. Daytime mode activated.",
+            priority: "low",
+          },
+        },
+      },
+    ],
+    edges: [
+      { id: "e1", source: "trigger-lights-on", target: "fan-daytime", sourceHandle: "output", targetHandle: "input" },
+      { id: "e2", source: "trigger-lights-on", target: "notify-lights-on", sourceHandle: "output", targetHandle: "input" },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // Lights Off Routine Template
+  // -------------------------------------------------------------------------
+  {
+    id: "lights-off-routine",
+    name: "Lights Off Routine",
+    description: "Sequence of actions when lights turn off: reduce exhaust fan for nighttime, disable CO2, lower humidity target to prevent mold.",
+    category: "lighting",
+    tags: ["lights", "off", "night", "sequence", "event"],
+    icon: "moon",
+    deviceRequirements: [
+      { placeholderId: "grow_light", label: "Grow Light", deviceType: "light" },
+      { placeholderId: "exhaust_fan", label: "Exhaust Fan", deviceType: "fan" },
+    ],
+    sensorRequirements: [],
+    nodes: [
+      {
+        id: "trigger-lights-off",
+        type: "trigger",
+        position: { x: 100, y: 200 },
+        data: {
+          label: "When Lights OFF",
+          config: {
+            triggerType: "lights_off",
+            controllerId: "__PLACEHOLDER__grow_light",
+          },
+        },
+      },
+      {
+        id: "fan-nighttime",
+        type: "action",
+        position: { x: 350, y: 150 },
+        data: {
+          label: "Fan to Night Mode",
+          config: {
+            controllerId: "__PLACEHOLDER__exhaust_fan",
+            action: "set_speed",
+            value: 40,
+            deviceType: "fan",
+          },
+        },
+      },
+      {
+        id: "notify-lights-off",
+        type: "notification",
+        position: { x: 350, y: 280 },
+        data: {
+          label: "Lights Off Alert",
+          config: {
+            message: "Grow lights have turned OFF. Nighttime mode activated.",
+            priority: "low",
+          },
+        },
+      },
+    ],
+    edges: [
+      { id: "e1", source: "trigger-lights-off", target: "fan-nighttime", sourceHandle: "output", targetHandle: "input" },
+      { id: "e2", source: "trigger-lights-off", target: "notify-lights-off", sourceHandle: "output", targetHandle: "input" },
+    ],
+  },
 ];
 
 // =============================================================================
