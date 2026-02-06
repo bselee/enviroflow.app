@@ -69,6 +69,14 @@ interface ACInfinityDevice {
   vpd?: number
   portInfo?: ACInfinityPort[]
   sensorInfo?: ACInfinitySensor[]
+  // AC Infinity nests actual sensor data in deviceInfo object
+  deviceInfo?: {
+    temperature?: number      // Celsius * 100 (e.g., 2181 = 21.81°C)
+    temperatureF?: number     // Fahrenheit * 100
+    humidity?: number         // Percentage * 100 (e.g., 5500 = 55.00%)
+    vpdnums?: number          // VPD * 100 (e.g., 107 = 1.07 kPa)
+    ports?: ACInfinityPort[]
+  }
 }
 
 interface ACInfinityPort {

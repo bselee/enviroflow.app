@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { IntelligentTimeline, type TimeSeriesData } from "@/components/dashboard/IntelligentTimeline";
 import type { ControllerOption, TimeRange } from "@/components/dashboard/IntelligentTimeline";
+import { LiveSensorDashboard } from "@/components/LiveSensorDashboard";
 import { ConnectCTA } from "@/components/dashboard/DemoMode";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -44,8 +45,8 @@ function TimelineSkeleton(): JSX.Element {
 /**
  * Dashboard Page Component
  *
- * Simplified Home Assistant-inspired layout:
- * 1. LiveSensorDashboard - Controller cards with Temp/Humidity/VPD
+ * AC Infinity-inspired environmental monitoring dashboard:
+ * 1. LiveSensorDashboard - Controller cards with Temp/Humidity/VPD in AC Infinity style
  * 2. IntelligentTimeline - Sensor trend graphs with time range selector
  */
 export default function DashboardPage(): JSX.Element {
@@ -212,6 +213,11 @@ export default function DashboardPage(): JSX.Element {
               <div className="flex justify-center">
                 <ConnectCTA />
               </div>
+            )}
+
+            {/* AC Infinity-style Live Sensor Cards */}
+            {!isDemoMode && (
+              <LiveSensorDashboard refreshInterval={15} />
             )}
 
             <div
