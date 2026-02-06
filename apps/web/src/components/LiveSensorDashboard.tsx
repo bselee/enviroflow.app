@@ -115,35 +115,35 @@ function SensorCard({ sensor, tempUnit }: { sensor: LiveSensor; tempUnit: Temper
         </span>
       </div>
 
-      {/* 3-Column Readings Grid */}
+      {/* 3-Column Readings Grid - Color coded: Red=Temp, Blue=Humidity, Purple=VPD */}
       <div className="grid grid-cols-3 divide-x divide-border dark:divide-[rgba(255,255,255,0.06)] border-t border-border dark:border-[rgba(255,255,255,0.06)]">
-        {/* Temperature */}
+        {/* Temperature - Red */}
         <div className="p-4 text-center">
           <div className="text-[10px] uppercase tracking-[1.5px] text-muted-foreground dark:text-[#4a5568] mb-1.5 font-semibold">
             Temperature
           </div>
-          <div className="font-mono text-[28px] font-bold leading-tight text-foreground dark:text-[#e8edf4]">
+          <div className="font-mono text-[28px] font-bold leading-tight text-[#ef4444]">
             {formatTemperatureValue(sensor.temperature, tempUnit)}
-            <span className="text-[12px] ml-0.5 font-normal text-muted-foreground dark:text-[#8896a8]">
+            <span className="text-[12px] ml-0.5 font-normal text-[#ef4444]/70">
               °{tempUnit}
             </span>
           </div>
         </div>
 
-        {/* Humidity */}
+        {/* Humidity - Blue */}
         <div className="p-4 text-center">
           <div className="text-[10px] uppercase tracking-[1.5px] text-muted-foreground dark:text-[#4a5568] mb-1.5 font-semibold">
             Humidity
           </div>
-          <div className="font-mono text-[28px] font-bold leading-tight text-foreground dark:text-[#e8edf4]">
+          <div className="font-mono text-[28px] font-bold leading-tight text-[#3b82f6]">
             {sensor.humidity.toFixed(1)}
-            <span className="text-[12px] ml-0.5 font-normal text-muted-foreground dark:text-[#8896a8]">
+            <span className="text-[12px] ml-0.5 font-normal text-[#3b82f6]/70">
               %
             </span>
           </div>
         </div>
 
-        {/* VPD - uses purple color */}
+        {/* VPD - Purple */}
         <div className="p-4 text-center">
           <div className="text-[10px] uppercase tracking-[1.5px] text-muted-foreground dark:text-[#4a5568] mb-1.5 font-semibold">
             VPD
