@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { X, Play, Thermometer, GitBranch, Clock, MousePointer, AlertCircle, Timer, Variable, Filter, Radio, CheckCircle2, Zap } from "lucide-react";
+import { X, Play, Thermometer, GitBranch, Clock, MousePointer, AlertCircle, Timer, Variable, Filter, Radio, CheckCircle2, Zap, Settings, Sun, Bell, Sunrise, Sunset, Plus, Trash2, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +33,39 @@ import type {
   VariableValueType,
   DebounceNodeData,
   MQTTTriggerConfig,
+  ModeNodeData,
+  DeviceModeType,
+  PortDeviceType,
+  ControlType,
+  AutoModeConfig,
+  VpdModeConfig,
+  TimerToOnConfig,
+  TimerToOffConfig,
+  CycleModeConfig,
+  ScheduleModeConfig,
+  DimmerNodeData,
+  DimmerCurve,
+  NotificationNodeData,
+  NotificationPriority,
+  NotificationChannel,
+} from "./types";
+import { Slider } from "@/components/ui/slider";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  MODE_LABELS,
+  PORT_DEVICE_TYPE_LABELS,
+  CONTROL_TYPE_LABELS,
+  DEVICE_SMART_DEFAULTS,
+  DIMMER_CURVE_LABELS,
+  NOTIFICATION_PRIORITY_LABELS,
+  NOTIFICATION_CHANNEL_LABELS,
+  MESSAGE_VARIABLES,
 } from "./types";
 import { useControllerCapabilities } from "@/hooks/use-controller-capabilities";
 import { HysteresisViz } from "./HysteresisViz";
@@ -1452,6 +1485,7 @@ function PortConditionProperties({
             <SelectItem value="level_equals">Level equals</SelectItem>
             <SelectItem value="level_above">Level above</SelectItem>
             <SelectItem value="level_below">Level below</SelectItem>
+            <SelectItem value="mode_equals">Mode equals</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -1470,9 +1504,1188 @@ function PortConditionProperties({
         </div>
       )}
 
+      {/* Target Mode (if mode_equals condition) */}
+      {data.config.condition === 'mode_equals' && (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Target Mode</Label>
+          <Select
+            value={data.config.targetMode ?? "auto"}
+            onValueChange={(value) => updateConfig("targetMode", value)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select mode" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="off">Off</SelectItem>
+              <SelectItem value="on">On</SelectItem>
+              <SelectItem value="auto">Auto</SelectItem>
+              <SelectItem value="vpd">VPD</SelectItem>
+              <SelectItem value="timer">Timer</SelectItem>
+              <SelectItem value="cycle">Cycle</SelectItem>
+              <SelectItem value="schedule">Schedule</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       <div className="rounded-md border border-dashed p-3 bg-amber-500/5">
         <p className="text-xs text-muted-foreground">
           Routes workflow based on current port state. Has two outputs: "true" path and "false" path.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Days of week for schedule configuration
+ */
+const SCHEDULE_DAYS = [
+  { value: 0, label: "Sun" },
+  { value: 1, label: "Mon" },
+  { value: 2, label: "Tue" },
+  { value: 3, label: "Wed" },
+  { value: 4, label: "Thu" },
+  { value: 5, label: "Fri" },
+  { value: 6, label: "Sat" },
+];
+
+/**
+ * ModeProperties - Configuration panel for AC Infinity device mode programming
+ *
+ * Implements the full mode configuration UI following AC Infinity's patterns:
+ * - Off/On: Simple on/off
+ * - Auto: Temp + Humidity triggers with level ranges
+ * - VPD: VPD triggers with level ranges
+ * - Timer: Duration on/off cycling
+ * - Cycle: Similar to timer
+ * - Schedule: Multiple time windows
+ */
+/**
+ * ModeProperties - Port Programming UI matching AC Infinity's controller model
+ * See: docs/spec/enviroflow-port-programming.md
+ *
+ * Features:
+ * - Device type selection with smart defaults
+ * - Control type (PWM 0-10 vs Outlet ON/OFF)
+ * - 8 programming modes: OFF, ON, AUTO, VPD, TIMER→ON, TIMER→OFF, CYCLE, SCHEDULE
+ * - AUTO mode: 4 climate triggers with transition (°F/step) and buffer (hysteresis)
+ * - VPD mode: 2 VPD triggers with transition and buffer
+ */
+function ModeProperties({
+  node,
+  onUpdate,
+  controllers = [],
+}: {
+  node: WorkflowNode;
+  onUpdate: NodePropertiesPanelProps["onUpdate"];
+  controllers: NodePropertiesPanelProps["controllers"];
+}) {
+  const data = node.data as ModeNodeData;
+  const { capabilities } = useControllerCapabilities();
+
+  const updateConfig = (updates: Partial<typeof data.config>) => {
+    onUpdate(node.id, {
+      config: { ...data.config, ...updates },
+    });
+  };
+
+  // Get available devices for selected controller
+  const selectedControllerCapabilities = React.useMemo(() => {
+    if (!data.config.controllerId || !capabilities) return null;
+    if (capabilities instanceof Map) {
+      return capabilities.get(data.config.controllerId);
+    }
+    return capabilities.controller_id === data.config.controllerId ? capabilities : null;
+  }, [capabilities, data.config.controllerId]);
+
+  const availableDevices = selectedControllerCapabilities?.devices || [];
+  const selectedMode = data.config.mode;
+  const controlType = data.config.controlType ?? "pwm";
+  const isOutlet = controlType === "outlet";
+
+  // Apply smart defaults when device type changes
+  const handleDeviceTypeChange = (deviceType: PortDeviceType) => {
+    const defaults = DEVICE_SMART_DEFAULTS[deviceType];
+    updateConfig({
+      deviceType,
+      ...defaults,
+    });
+  };
+
+  // Initialize mode-specific configs with spec-compliant defaults
+  const initAutoConfig = (): AutoModeConfig => ({
+    tempHighTrigger: 80,
+    tempHighEnabled: true,
+    tempLowTrigger: 65,
+    tempLowEnabled: false,
+    humidityHighTrigger: 70,
+    humidityHighEnabled: false,
+    humidityLowTrigger: 50,
+    humidityLowEnabled: false,
+    tempTransition: 2.0,
+    humidityTransition: 5.0,
+    tempBuffer: 0,
+    humidityBuffer: 0,
+  });
+
+  const initVpdConfig = (): VpdModeConfig => ({
+    vpdHighTrigger: 1.5,
+    vpdHighEnabled: true,
+    vpdLowTrigger: 0.8,
+    vpdLowEnabled: true,
+    vpdTransition: 0.1,
+    vpdBuffer: 0,
+  });
+
+  const initTimerToOnConfig = (): TimerToOnConfig => ({
+    durationMinutes: 60,
+  });
+
+  const initTimerToOffConfig = (): TimerToOffConfig => ({
+    durationMinutes: 60,
+  });
+
+  const initCycleConfig = (): CycleModeConfig => ({
+    durationOnMinutes: 15,
+    durationOffMinutes: 45,
+  });
+
+  const initScheduleConfig = (): ScheduleModeConfig => ({
+    onTime: "06:00",
+    offTime: "00:00",
+    days: [],
+  });
+
+  return (
+    <div className="space-y-4">
+      {/* Controller Selection */}
+      <div className="space-y-2">
+        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Controller</Label>
+        <Select
+          value={data.config.controllerId ?? ""}
+          onValueChange={(value) => {
+            const controller = controllers?.find(c => c.id === value);
+            updateConfig({
+              controllerId: value,
+              controllerName: controller?.name,
+            });
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select a controller" />
+          </SelectTrigger>
+          <SelectContent>
+            {controllers?.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Port Selection */}
+      {data.config.controllerId && (
+        <div className="space-y-2">
+          <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Port</Label>
+          <Select
+            value={data.config.port?.toString() ?? ""}
+            onValueChange={(value) => {
+              const port = parseInt(value, 10);
+              const device = availableDevices.find((d) => d.port === port);
+              updateConfig({
+                port,
+                portName: device?.name,
+              });
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select a port" />
+            </SelectTrigger>
+            <SelectContent>
+              {availableDevices.length === 0 ? (
+                <SelectItem value="" disabled>No ports available</SelectItem>
+              ) : (
+                availableDevices.map((device) => (
+                  <SelectItem key={device.port} value={String(device.port)}>
+                    Port {device.port}: {device.name}
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {/* Device Configuration Section */}
+      <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Device</span>
+
+        {/* Device Name */}
+        <div className="space-y-1">
+          <Label className="text-xs">Name</Label>
+          <Input
+            value={data.config.deviceName ?? ""}
+            onChange={(e) => updateConfig({ deviceName: e.target.value })}
+            placeholder="e.g., Cloudline T6"
+            className="h-8"
+          />
+        </div>
+
+        {/* Device Type */}
+        <div className="space-y-1">
+          <Label className="text-xs">Type</Label>
+          <Select
+            value={data.config.deviceType ?? ""}
+            onValueChange={(value) => handleDeviceTypeChange(value as PortDeviceType)}
+          >
+            <SelectTrigger className="h-8">
+              <SelectValue placeholder="Select device type" />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(PORT_DEVICE_TYPE_LABELS).map(([value, label]) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Control Type */}
+        <div className="space-y-1">
+          <Label className="text-xs">Control Type</Label>
+          <RadioGroup
+            value={controlType}
+            onValueChange={(value) => updateConfig({
+              controlType: value as ControlType,
+              onLevel: value === "outlet" ? 1 : (data.config.onLevel ?? 10),
+              offLevel: value === "outlet" ? 0 : (data.config.offLevel ?? 0),
+            })}
+            className="flex gap-4"
+          >
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="pwm" id="pwm" />
+              <Label htmlFor="pwm" className="text-xs">PWM (0-10)</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="outlet" id="outlet" />
+              <Label htmlFor="outlet" className="text-xs">Outlet (ON/OFF)</Label>
+            </div>
+          </RadioGroup>
+        </div>
+      </div>
+
+      {/* Level Settings */}
+      <div className="space-y-3 rounded-lg border border-[rgba(0,212,255,0.2)] bg-[rgba(0,212,255,0.05)] p-3">
+        <span className="text-xs font-semibold uppercase tracking-wider text-[#00d4ff]">Levels</span>
+
+        {isOutlet ? (
+          <p className="text-xs text-muted-foreground">
+            Outlet devices use binary ON/OFF (no variable levels)
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {/* ON Level (Max) */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">ON Level (Max)</Label>
+                <span className="font-mono text-sm font-bold text-[#00d4ff]">
+                  {data.config.onLevel ?? 10}
+                </span>
+              </div>
+              <Slider
+                value={[data.config.onLevel ?? 10]}
+                min={0}
+                max={10}
+                step={1}
+                onValueChange={([value]) => updateConfig({ onLevel: value })}
+                className="[&_[role=slider]]:bg-[#00d4ff]"
+              />
+            </div>
+
+            {/* OFF Level (Min) */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">OFF Level (Min)</Label>
+                <span className="font-mono text-sm font-bold text-muted-foreground">
+                  {data.config.offLevel ?? 0}
+                </span>
+              </div>
+              <Slider
+                value={[data.config.offLevel ?? 0]}
+                min={0}
+                max={10}
+                step={1}
+                onValueChange={([value]) => updateConfig({ offLevel: value })}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Mode Selection - 8 Mode Toggle Strip */}
+      <div className="space-y-2">
+        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Mode</Label>
+        <div className="grid grid-cols-4 gap-1">
+          {Object.entries(MODE_LABELS).map(([value, label]) => (
+            <Button
+              key={value}
+              type="button"
+              variant={selectedMode === value ? "default" : "outline"}
+              size="sm"
+              className={cn(
+                "h-8 text-xs px-2",
+                selectedMode === value && value === "vpd" && "bg-[#b388ff] hover:bg-[#b388ff]/90",
+                selectedMode === value && value === "auto" && "bg-[#00d4ff] hover:bg-[#00d4ff]/90",
+                selectedMode === value && !["vpd", "auto"].includes(value) && "bg-primary"
+              )}
+              onClick={() => {
+                const mode = value as DeviceModeType;
+                const updates: Partial<typeof data.config> = { mode };
+
+                // Initialize mode-specific config if not present
+                if (mode === "auto" && !data.config.autoConfig) {
+                  updates.autoConfig = initAutoConfig();
+                } else if (mode === "vpd" && !data.config.vpdConfig) {
+                  updates.vpdConfig = initVpdConfig();
+                } else if (mode === "timer_to_on" && !data.config.timerToOnConfig) {
+                  updates.timerToOnConfig = initTimerToOnConfig();
+                } else if (mode === "timer_to_off" && !data.config.timerToOffConfig) {
+                  updates.timerToOffConfig = initTimerToOffConfig();
+                } else if (mode === "cycle" && !data.config.cycleConfig) {
+                  updates.cycleConfig = initCycleConfig();
+                } else if (mode === "schedule" && !data.config.scheduleConfig) {
+                  updates.scheduleConfig = initScheduleConfig();
+                }
+
+                updateConfig(updates);
+              }}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {/* AUTO Mode Configuration */}
+      {selectedMode === "auto" && (
+        <div className="space-y-4 border-t pt-4">
+          <div className="flex items-center gap-2">
+            <Settings className="h-4 w-4 text-[#00d4ff]" />
+            <h4 className="text-sm font-semibold text-[#00d4ff]">AUTO MODE TRIGGERS</h4>
+          </div>
+
+          {/* Temperature Triggers */}
+          <div className="space-y-3 rounded-lg border border-[rgba(255,82,82,0.2)] bg-[rgba(255,82,82,0.05)] p-3">
+            <span className="text-xs font-semibold uppercase tracking-wider text-[#ff5252]">Temperature</span>
+
+            {/* High Temp Trigger */}
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="tempHighEnabled"
+                checked={data.config.autoConfig?.tempHighEnabled ?? false}
+                onCheckedChange={(checked) =>
+                  updateConfig({ autoConfig: { ...data.config.autoConfig!, tempHighEnabled: !!checked } })
+                }
+              />
+              <Label htmlFor="tempHighEnabled" className="flex-1 text-xs">High ≥</Label>
+              <Input
+                type="number"
+                className="h-7 w-16 text-sm font-mono"
+                value={data.config.autoConfig?.tempHighTrigger ?? 80}
+                onChange={(e) =>
+                  updateConfig({ autoConfig: { ...data.config.autoConfig!, tempHighTrigger: Number(e.target.value) } })
+                }
+                disabled={!data.config.autoConfig?.tempHighEnabled}
+              />
+              <span className="text-xs text-muted-foreground">°F</span>
+            </div>
+
+            {/* Low Temp Trigger */}
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="tempLowEnabled"
+                checked={data.config.autoConfig?.tempLowEnabled ?? false}
+                onCheckedChange={(checked) =>
+                  updateConfig({ autoConfig: { ...data.config.autoConfig!, tempLowEnabled: !!checked } })
+                }
+              />
+              <Label htmlFor="tempLowEnabled" className="flex-1 text-xs">Low ≤</Label>
+              <Input
+                type="number"
+                className="h-7 w-16 text-sm font-mono"
+                value={data.config.autoConfig?.tempLowTrigger ?? 65}
+                onChange={(e) =>
+                  updateConfig({ autoConfig: { ...data.config.autoConfig!, tempLowTrigger: Number(e.target.value) } })
+                }
+                disabled={!data.config.autoConfig?.tempLowEnabled}
+              />
+              <span className="text-xs text-muted-foreground">°F</span>
+            </div>
+
+            {/* Temp Settings Row */}
+            <div className="flex items-center gap-4 pt-2 border-t border-[rgba(255,82,82,0.1)]">
+              <div className="flex items-center gap-1">
+                <Label className="text-[10px] text-muted-foreground">Transition</Label>
+                <Input
+                  type="number"
+                  step={0.5}
+                  className="h-6 w-12 text-xs font-mono"
+                  value={data.config.autoConfig?.tempTransition ?? 2.0}
+                  onChange={(e) =>
+                    updateConfig({ autoConfig: { ...data.config.autoConfig!, tempTransition: Number(e.target.value) } })
+                  }
+                />
+                <span className="text-[10px] text-muted-foreground">°F/step</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Label className="text-[10px] text-muted-foreground">Buffer</Label>
+                <Input
+                  type="number"
+                  step={1}
+                  min={0}
+                  max={8}
+                  className="h-6 w-12 text-xs font-mono"
+                  value={data.config.autoConfig?.tempBuffer ?? 0}
+                  onChange={(e) =>
+                    updateConfig({ autoConfig: { ...data.config.autoConfig!, tempBuffer: Number(e.target.value) } })
+                  }
+                />
+                <span className="text-[10px] text-muted-foreground">°F</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Humidity Triggers */}
+          <div className="space-y-3 rounded-lg border border-[rgba(79,195,247,0.2)] bg-[rgba(79,195,247,0.05)] p-3">
+            <span className="text-xs font-semibold uppercase tracking-wider text-[#4fc3f7]">Humidity</span>
+
+            {/* High Humidity Trigger */}
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="humidityHighEnabled"
+                checked={data.config.autoConfig?.humidityHighEnabled ?? false}
+                onCheckedChange={(checked) =>
+                  updateConfig({ autoConfig: { ...data.config.autoConfig!, humidityHighEnabled: !!checked } })
+                }
+              />
+              <Label htmlFor="humidityHighEnabled" className="flex-1 text-xs">High ≥</Label>
+              <Input
+                type="number"
+                className="h-7 w-16 text-sm font-mono"
+                value={data.config.autoConfig?.humidityHighTrigger ?? 70}
+                onChange={(e) =>
+                  updateConfig({ autoConfig: { ...data.config.autoConfig!, humidityHighTrigger: Number(e.target.value) } })
+                }
+                disabled={!data.config.autoConfig?.humidityHighEnabled}
+              />
+              <span className="text-xs text-muted-foreground">%</span>
+            </div>
+
+            {/* Low Humidity Trigger */}
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="humidityLowEnabled"
+                checked={data.config.autoConfig?.humidityLowEnabled ?? false}
+                onCheckedChange={(checked) =>
+                  updateConfig({ autoConfig: { ...data.config.autoConfig!, humidityLowEnabled: !!checked } })
+                }
+              />
+              <Label htmlFor="humidityLowEnabled" className="flex-1 text-xs">Low ≤</Label>
+              <Input
+                type="number"
+                className="h-7 w-16 text-sm font-mono"
+                value={data.config.autoConfig?.humidityLowTrigger ?? 50}
+                onChange={(e) =>
+                  updateConfig({ autoConfig: { ...data.config.autoConfig!, humidityLowTrigger: Number(e.target.value) } })
+                }
+                disabled={!data.config.autoConfig?.humidityLowEnabled}
+              />
+              <span className="text-xs text-muted-foreground">%</span>
+            </div>
+
+            {/* Humidity Settings Row */}
+            <div className="flex items-center gap-4 pt-2 border-t border-[rgba(79,195,247,0.1)]">
+              <div className="flex items-center gap-1">
+                <Label className="text-[10px] text-muted-foreground">Transition</Label>
+                <Input
+                  type="number"
+                  step={1}
+                  className="h-6 w-12 text-xs font-mono"
+                  value={data.config.autoConfig?.humidityTransition ?? 5.0}
+                  onChange={(e) =>
+                    updateConfig({ autoConfig: { ...data.config.autoConfig!, humidityTransition: Number(e.target.value) } })
+                  }
+                />
+                <span className="text-[10px] text-muted-foreground">%/step</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Label className="text-[10px] text-muted-foreground">Buffer</Label>
+                <Input
+                  type="number"
+                  step={1}
+                  min={0}
+                  max={10}
+                  className="h-6 w-12 text-xs font-mono"
+                  value={data.config.autoConfig?.humidityBuffer ?? 0}
+                  onChange={(e) =>
+                    updateConfig({ autoConfig: { ...data.config.autoConfig!, humidityBuffer: Number(e.target.value) } })
+                  }
+                />
+                <span className="text-[10px] text-muted-foreground">%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VPD Mode Configuration */}
+      {selectedMode === "vpd" && (
+        <div className="space-y-4 border-t pt-4">
+          <div className="flex items-center gap-2">
+            <Settings className="h-4 w-4 text-[#b388ff]" />
+            <h4 className="text-sm font-semibold text-[#b388ff]">VPD MODE TRIGGERS</h4>
+          </div>
+
+          <div className="space-y-3 rounded-lg border border-[rgba(179,136,255,0.2)] bg-[rgba(179,136,255,0.05)] p-3">
+            {/* High VPD Trigger */}
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="vpdHighEnabled"
+                checked={data.config.vpdConfig?.vpdHighEnabled ?? true}
+                onCheckedChange={(checked) =>
+                  updateConfig({ vpdConfig: { ...data.config.vpdConfig!, vpdHighEnabled: !!checked } })
+                }
+              />
+              <Label htmlFor="vpdHighEnabled" className="flex-1 text-xs">High ≥</Label>
+              <Input
+                type="number"
+                step={0.1}
+                className="h-7 w-16 text-sm font-mono"
+                value={data.config.vpdConfig?.vpdHighTrigger ?? 1.5}
+                onChange={(e) =>
+                  updateConfig({ vpdConfig: { ...data.config.vpdConfig!, vpdHighTrigger: Number(e.target.value) } })
+                }
+                disabled={!data.config.vpdConfig?.vpdHighEnabled}
+              />
+              <span className="text-xs text-muted-foreground">kPa</span>
+            </div>
+
+            {/* Low VPD Trigger */}
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="vpdLowEnabled"
+                checked={data.config.vpdConfig?.vpdLowEnabled ?? true}
+                onCheckedChange={(checked) =>
+                  updateConfig({ vpdConfig: { ...data.config.vpdConfig!, vpdLowEnabled: !!checked } })
+                }
+              />
+              <Label htmlFor="vpdLowEnabled" className="flex-1 text-xs">Low ≤</Label>
+              <Input
+                type="number"
+                step={0.1}
+                className="h-7 w-16 text-sm font-mono"
+                value={data.config.vpdConfig?.vpdLowTrigger ?? 0.8}
+                onChange={(e) =>
+                  updateConfig({ vpdConfig: { ...data.config.vpdConfig!, vpdLowTrigger: Number(e.target.value) } })
+                }
+                disabled={!data.config.vpdConfig?.vpdLowEnabled}
+              />
+              <span className="text-xs text-muted-foreground">kPa</span>
+            </div>
+
+            {/* VPD Settings Row */}
+            <div className="flex items-center gap-4 pt-2 border-t border-[rgba(179,136,255,0.1)]">
+              <div className="flex items-center gap-1">
+                <Label className="text-[10px] text-muted-foreground">Transition</Label>
+                <Input
+                  type="number"
+                  step={0.05}
+                  className="h-6 w-14 text-xs font-mono"
+                  value={data.config.vpdConfig?.vpdTransition ?? 0.1}
+                  onChange={(e) =>
+                    updateConfig({ vpdConfig: { ...data.config.vpdConfig!, vpdTransition: Number(e.target.value) } })
+                  }
+                />
+                <span className="text-[10px] text-muted-foreground">kPa/step</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Label className="text-[10px] text-muted-foreground">Buffer</Label>
+                <Input
+                  type="number"
+                  step={0.05}
+                  min={0}
+                  max={0.5}
+                  className="h-6 w-14 text-xs font-mono"
+                  value={data.config.vpdConfig?.vpdBuffer ?? 0}
+                  onChange={(e) =>
+                    updateConfig({ vpdConfig: { ...data.config.vpdConfig!, vpdBuffer: Number(e.target.value) } })
+                  }
+                />
+                <span className="text-[10px] text-muted-foreground">kPa</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Timer To On Mode Configuration */}
+      {selectedMode === "timer_to_on" && (
+        <div className="space-y-4 border-t pt-4">
+          <div className="flex items-center gap-2">
+            <Timer className="h-4 w-4 text-[#00d4ff]" />
+            <h4 className="text-sm font-semibold text-[#00d4ff]">TIMER → ON</h4>
+          </div>
+          <p className="text-xs text-muted-foreground">Device turns ON after countdown completes</p>
+
+          <div className="space-y-2">
+            <Label className="text-xs">Countdown Duration</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                className="h-8 w-20 font-mono"
+                value={Math.floor((data.config.timerToOnConfig?.durationMinutes ?? 60) / 60)}
+                onChange={(e) => {
+                  const hours = Number(e.target.value);
+                  const mins = (data.config.timerToOnConfig?.durationMinutes ?? 60) % 60;
+                  updateConfig({ timerToOnConfig: { durationMinutes: hours * 60 + mins } });
+                }}
+              />
+              <span className="text-xs">h</span>
+              <Input
+                type="number"
+                min={0}
+                max={59}
+                className="h-8 w-16 font-mono"
+                value={(data.config.timerToOnConfig?.durationMinutes ?? 60) % 60}
+                onChange={(e) => {
+                  const hours = Math.floor((data.config.timerToOnConfig?.durationMinutes ?? 60) / 60);
+                  const mins = Number(e.target.value);
+                  updateConfig({ timerToOnConfig: { durationMinutes: hours * 60 + mins } });
+                }}
+              />
+              <span className="text-xs">m</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Timer To Off Mode Configuration */}
+      {selectedMode === "timer_to_off" && (
+        <div className="space-y-4 border-t pt-4">
+          <div className="flex items-center gap-2">
+            <Timer className="h-4 w-4 text-[#00d4ff]" />
+            <h4 className="text-sm font-semibold text-[#00d4ff]">TIMER → OFF</h4>
+          </div>
+          <p className="text-xs text-muted-foreground">Device turns OFF after countdown completes</p>
+
+          <div className="space-y-2">
+            <Label className="text-xs">Countdown Duration</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                className="h-8 w-20 font-mono"
+                value={Math.floor((data.config.timerToOffConfig?.durationMinutes ?? 60) / 60)}
+                onChange={(e) => {
+                  const hours = Number(e.target.value);
+                  const mins = (data.config.timerToOffConfig?.durationMinutes ?? 60) % 60;
+                  updateConfig({ timerToOffConfig: { durationMinutes: hours * 60 + mins } });
+                }}
+              />
+              <span className="text-xs">h</span>
+              <Input
+                type="number"
+                min={0}
+                max={59}
+                className="h-8 w-16 font-mono"
+                value={(data.config.timerToOffConfig?.durationMinutes ?? 60) % 60}
+                onChange={(e) => {
+                  const hours = Math.floor((data.config.timerToOffConfig?.durationMinutes ?? 60) / 60);
+                  const mins = Number(e.target.value);
+                  updateConfig({ timerToOffConfig: { durationMinutes: hours * 60 + mins } });
+                }}
+              />
+              <span className="text-xs">m</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cycle Mode Configuration */}
+      {selectedMode === "cycle" && (
+        <div className="space-y-4 border-t pt-4">
+          <div className="flex items-center gap-2">
+            <Timer className="h-4 w-4 text-[#00d4ff]" />
+            <h4 className="text-sm font-semibold text-[#00d4ff]">CYCLE MODE</h4>
+          </div>
+          <p className="text-xs text-muted-foreground">Repeating ON/OFF cycle</p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs text-[#00e676]">ON Duration</Label>
+              <div className="flex items-center gap-1">
+                <Input
+                  type="number"
+                  min={1}
+                  className="h-8 font-mono"
+                  value={data.config.cycleConfig?.durationOnMinutes ?? 15}
+                  onChange={(e) =>
+                    updateConfig({ cycleConfig: { ...data.config.cycleConfig!, durationOnMinutes: Number(e.target.value) } })
+                  }
+                />
+                <span className="text-xs">min</span>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">OFF Duration</Label>
+              <div className="flex items-center gap-1">
+                <Input
+                  type="number"
+                  min={1}
+                  className="h-8 font-mono"
+                  value={data.config.cycleConfig?.durationOffMinutes ?? 45}
+                  onChange={(e) =>
+                    updateConfig({ cycleConfig: { ...data.config.cycleConfig!, durationOffMinutes: Number(e.target.value) } })
+                  }
+                />
+                <span className="text-xs">min</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Schedule Mode Configuration */}
+      {selectedMode === "schedule" && (
+        <div className="space-y-4 border-t pt-4">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-[#ffd740]" />
+            <h4 className="text-sm font-semibold text-[#ffd740]">SCHEDULE MODE</h4>
+          </div>
+          <p className="text-xs text-muted-foreground">Daily ON/OFF times (24h clock)</p>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs flex items-center gap-1">
+                <Sunrise className="h-3 w-3 text-amber-500" />
+                ON Time
+              </Label>
+              <Input
+                type="time"
+                className="h-8 font-mono"
+                value={data.config.scheduleConfig?.onTime ?? "06:00"}
+                onChange={(e) =>
+                  updateConfig({ scheduleConfig: { ...data.config.scheduleConfig!, onTime: e.target.value } })
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs flex items-center gap-1">
+                <Sunset className="h-3 w-3 text-orange-500" />
+                OFF Time
+              </Label>
+              <Input
+                type="time"
+                className="h-8 font-mono"
+                value={data.config.scheduleConfig?.offTime ?? "00:00"}
+                onChange={(e) =>
+                  updateConfig({ scheduleConfig: { ...data.config.scheduleConfig!, offTime: e.target.value } })
+                }
+              />
+            </div>
+          </div>
+
+          {/* Days of Week */}
+          <div className="space-y-2">
+            <Label className="text-xs">Active Days (empty = everyday)</Label>
+            <div className="flex flex-wrap gap-1">
+              {SCHEDULE_DAYS.map((day) => (
+                <Button
+                  key={day.value}
+                  type="button"
+                  variant={(data.config.scheduleConfig?.days ?? []).includes(day.value) ? "default" : "outline"}
+                  size="sm"
+                  className={cn(
+                    "h-7 w-9 text-xs px-1",
+                    (data.config.scheduleConfig?.days ?? []).includes(day.value) && "bg-[#ffd740] text-black hover:bg-[#ffd740]/90"
+                  )}
+                  onClick={() => {
+                    const days = data.config.scheduleConfig?.days ?? [];
+                    const newDays = days.includes(day.value)
+                      ? days.filter(d => d !== day.value)
+                      : [...days, day.value].sort();
+                    updateConfig({ scheduleConfig: { ...data.config.scheduleConfig!, days: newDays } });
+                  }}
+                >
+                  {day.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Priority (for automation engine) */}
+      <div className="space-y-2 border-t pt-4">
+        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Priority</Label>
+        <Input
+          type="number"
+          min={0}
+          className="h-8 w-20 font-mono"
+          value={data.config.priority ?? 0}
+          onChange={(e) => updateConfig({ priority: parseInt(e.target.value, 10) })}
+        />
+        <p className="text-[10px] text-muted-foreground">
+          Higher priority overrides lower when multiple automations target the same port
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * DimmerProperties - Configuration panel for dimmer/sunrise-sunset schedules
+ */
+function DimmerProperties({
+  node,
+  onUpdate,
+  controllers = [],
+}: {
+  node: WorkflowNode;
+  onUpdate: NodePropertiesPanelProps["onUpdate"];
+  controllers: NodePropertiesPanelProps["controllers"];
+}) {
+  const data = node.data as DimmerNodeData;
+  const { capabilities } = useControllerCapabilities();
+
+  const updateConfig = (field: string, value: unknown) => {
+    onUpdate(node.id, {
+      config: { ...data.config, [field]: value },
+    });
+  };
+
+  const selectedControllerCapabilities = React.useMemo(() => {
+    if (!data.config.controllerId || !capabilities) return null;
+    if (capabilities instanceof Map) {
+      return capabilities.get(data.config.controllerId);
+    }
+    return capabilities.controller_id === data.config.controllerId ? capabilities : null;
+  }, [capabilities, data.config.controllerId]);
+
+  const availableDevices = selectedControllerCapabilities?.devices || [];
+
+  return (
+    <div className="space-y-4">
+      {/* Controller Selection */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Controller</Label>
+        <Select
+          value={data.config.controllerId ?? ""}
+          onValueChange={(value) => {
+            const controller = controllers?.find(c => c.id === value);
+            updateConfig("controllerId", value);
+            if (controller) {
+              updateConfig("controllerName", controller.name);
+            }
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select a controller" />
+          </SelectTrigger>
+          <SelectContent>
+            {controllers?.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Port Selection */}
+      {data.config.controllerId && (
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Light Port</Label>
+          <Select
+            value={data.config.port?.toString() ?? ""}
+            onValueChange={(value) => updateConfig("port", parseInt(value, 10))}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select a port" />
+            </SelectTrigger>
+            <SelectContent>
+              {availableDevices.filter(d => d.type === 'light' || d.supportsDimming).map((device) => (
+                <SelectItem key={device.port} value={String(device.port)}>
+                  Port {device.port}: {device.name}
+                </SelectItem>
+              ))}
+              {availableDevices.filter(d => d.type === 'light' || d.supportsDimming).length === 0 && (
+                <SelectItem value="" disabled>No dimmable devices</SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {/* Sunrise/Sunset Times */}
+      <div className="space-y-3 rounded-lg border border-[rgba(255,215,64,0.2)] bg-[rgba(255,215,64,0.05)] p-3">
+        <div className="flex items-center gap-2">
+          <Sun className="h-4 w-4 text-[#ffd740]" />
+          <span className="text-xs font-semibold uppercase tracking-wider text-[#ffd740]">Light Schedule</span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="flex items-center gap-1 text-xs">
+              <Sunrise className="h-3 w-3 text-amber-500" /> Sunrise
+            </Label>
+            <Input
+              type="time"
+              className="font-mono"
+              value={data.config.sunriseTime ?? "06:00"}
+              onChange={(e) => updateConfig("sunriseTime", e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="flex items-center gap-1 text-xs">
+              <Sunset className="h-3 w-3 text-orange-500" /> Sunset
+            </Label>
+            <Input
+              type="time"
+              className="font-mono"
+              value={data.config.sunsetTime ?? "20:00"}
+              onChange={(e) => updateConfig("sunsetTime", e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Level Range */}
+      <div className="space-y-3">
+        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Level Range</Label>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs">Min Level (night)</span>
+            <span className="font-mono text-sm">{data.config.minLevel ?? 0}%</span>
+          </div>
+          <Slider
+            value={[data.config.minLevel ?? 0]}
+            min={0}
+            max={100}
+            step={1}
+            onValueChange={([value]) => updateConfig("minLevel", value)}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs">Max Level (day)</span>
+            <span className="font-mono text-sm">{data.config.maxLevel ?? 100}%</span>
+          </div>
+          <Slider
+            value={[data.config.maxLevel ?? 100]}
+            min={0}
+            max={100}
+            step={1}
+            onValueChange={([value]) => updateConfig("maxLevel", value)}
+            className="[&_[role=slider]]:bg-[#ffd740]"
+          />
+        </div>
+      </div>
+
+      {/* Curve Selection */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Transition Curve</Label>
+        <Select
+          value={data.config.curve ?? "linear"}
+          onValueChange={(value) => updateConfig("curve", value as DimmerCurve)}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(DIMMER_CURVE_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          {data.config.curve === "linear" && "Constant rate of change throughout transition"}
+          {data.config.curve === "sigmoid" && "Slow start and end, faster in the middle (most natural)"}
+          {data.config.curve === "exponential" && "Fast start, gradual slowdown toward the end"}
+          {data.config.curve === "logarithmic" && "Slow start, accelerating toward the end"}
+        </p>
+      </div>
+
+      {/* Visual Preview */}
+      <div className="rounded-md border border-dashed p-3 bg-[rgba(255,215,64,0.05)]">
+        <p className="text-xs text-muted-foreground">
+          Light ramps from <strong>{data.config.minLevel ?? 0}%</strong> to <strong>{data.config.maxLevel ?? 100}%</strong> between{" "}
+          <strong>{data.config.sunriseTime ?? "06:00"}</strong> and midday, then back down by <strong>{data.config.sunsetTime ?? "20:00"}</strong>.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * NotificationProperties - Configuration panel for notification nodes
+ */
+function NotificationProperties({
+  node,
+  onUpdate,
+}: {
+  node: WorkflowNode;
+  onUpdate: NodePropertiesPanelProps["onUpdate"];
+}) {
+  const data = node.data as NotificationNodeData;
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  const updateConfig = (field: string, value: unknown) => {
+    onUpdate(node.id, {
+      config: { ...data.config, [field]: value },
+    });
+  };
+
+  const insertVariable = (variable: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const currentMessage = data.config.message ?? "";
+    const newMessage = currentMessage.slice(0, start) + variable + currentMessage.slice(end);
+    updateConfig("message", newMessage);
+
+    // Restore cursor position after the inserted variable
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + variable.length, start + variable.length);
+    }, 0);
+  };
+
+  const priorityColors: Record<NotificationPriority, string> = {
+    low: "text-blue-500 bg-blue-500/10",
+    normal: "text-purple-500 bg-purple-500/10",
+    high: "text-orange-500 bg-orange-500/10",
+    critical: "text-red-500 bg-red-500/10",
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Message Template */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Message</Label>
+        <Textarea
+          ref={textareaRef}
+          value={data.config.message ?? ""}
+          onChange={(e) => updateConfig("message", e.target.value)}
+          placeholder="Enter notification message..."
+          className="min-h-[80px] font-mono text-sm"
+        />
+      </div>
+
+      {/* Variable Insertion */}
+      <div className="space-y-2">
+        <Label className="text-xs text-muted-foreground flex items-center gap-1">
+          <Info className="h-3 w-3" />
+          Insert Variables
+        </Label>
+        <div className="flex flex-wrap gap-1">
+          {MESSAGE_VARIABLES.map((v) => (
+            <Button
+              key={v.variable}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-6 text-xs px-2"
+              onClick={() => insertVariable(v.variable)}
+            >
+              {v.label}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {/* Live Preview */}
+      {data.config.message && (
+        <div className="rounded-md border bg-muted/50 p-3">
+          <Label className="text-xs text-muted-foreground mb-1 block">Preview</Label>
+          <p className="text-sm">
+            {(data.config.message ?? "")
+              .replace("{{sensor.temperature}}", "75.2°F")
+              .replace("{{sensor.humidity}}", "52%")
+              .replace("{{sensor.vpd}}", "1.34 kPa")
+              .replace("{{sensor.co2}}", "800 ppm")
+              .replace("{{controller.name}}", "Grow Tent 2x2")
+              .replace("{{room.name}}", "Veg Room")
+              .replace("{{time}}", new Date().toLocaleTimeString())
+              .replace("{{date}}", new Date().toLocaleDateString())}
+          </p>
+        </div>
+      )}
+
+      {/* Priority */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Priority</Label>
+        <Select
+          value={data.config.priority ?? "normal"}
+          onValueChange={(value) => updateConfig("priority", value as NotificationPriority)}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(NOTIFICATION_PRIORITY_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                <span className={cn("px-2 py-0.5 rounded text-xs font-medium", priorityColors[value as NotificationPriority])}>
+                  {label}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Channels */}
+      <div className="space-y-3">
+        <Label className="text-sm font-medium">Channels</Label>
+        <div className="space-y-2">
+          {(Object.entries(NOTIFICATION_CHANNEL_LABELS) as [NotificationChannel, string][]).map(([channel, label]) => (
+            <div key={channel} className="flex items-center justify-between rounded-md border p-3">
+              <div className="flex items-center gap-2">
+                {channel === "push" && <Bell className="h-4 w-4 text-muted-foreground" />}
+                {channel === "email" && <span className="text-muted-foreground">✉</span>}
+                {channel === "sms" && <span className="text-muted-foreground">📱</span>}
+                <Label className="text-sm">{label}</Label>
+              </div>
+              <Switch
+                checked={(data.config.channels ?? []).includes(channel)}
+                onCheckedChange={(checked) => {
+                  const channels = data.config.channels ?? [];
+                  if (checked) {
+                    updateConfig("channels", [...channels, channel]);
+                  } else {
+                    updateConfig("channels", channels.filter((c) => c !== channel));
+                  }
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Help */}
+      <div className="rounded-md border border-dashed p-3 bg-purple-500/5">
+        <p className="text-xs text-muted-foreground">
+          Notifications are sent when the workflow reaches this node. Use variables to include dynamic sensor data.
         </p>
       </div>
     </div>
@@ -1536,6 +2749,21 @@ export function NodePropertiesPanel({
       icon = <Zap className="h-4 w-4" />;
       colorClass = "border-amber-500";
       break;
+    case "mode":
+      title = "Mode Programming";
+      icon = <Settings className="h-4 w-4" />;
+      colorClass = "border-cyan-500";
+      break;
+    case "dimmer":
+      title = "Dimmer Schedule";
+      icon = <Sun className="h-4 w-4" />;
+      colorClass = "border-yellow-500";
+      break;
+    case "notification":
+      title = "Notification";
+      icon = <Bell className="h-4 w-4" />;
+      colorClass = "border-purple-500";
+      break;
   }
 
   return (
@@ -1590,6 +2818,15 @@ export function NodePropertiesPanel({
         )}
         {nodeType === "port_condition" && (
           <PortConditionProperties node={node} onUpdate={onUpdate} controllers={controllers} />
+        )}
+        {nodeType === "mode" && (
+          <ModeProperties node={node} onUpdate={onUpdate} controllers={controllers} />
+        )}
+        {nodeType === "dimmer" && (
+          <DimmerProperties node={node} onUpdate={onUpdate} controllers={controllers} />
+        )}
+        {nodeType === "notification" && (
+          <NotificationProperties node={node} onUpdate={onUpdate} />
         )}
       </div>
     </div>

@@ -376,75 +376,131 @@ export interface PortConditionNodeData {
 }
 
 // ============================================================================
-// Mode Programming Node Types
+// Mode Programming Node Types (AC Infinity Port Programming Model)
+// See: docs/spec/enviroflow-port-programming.md
 // ============================================================================
 
-/** Device mode types for AC Infinity controllers */
-export type DeviceModeType = "off" | "on" | "auto" | "vpd" | "timer" | "cycle" | "schedule";
+/** Device mode types for AC Infinity controllers - 8 modes per port */
+export type DeviceModeType =
+  | "off"           // Device off (runs at offLevel)
+  | "on"            // Device runs continuously at onLevel
+  | "auto"          // Climate mode - reacts to temp/humidity triggers
+  | "vpd"           // Climate mode - reacts to VPD triggers
+  | "timer_to_on"   // Countdown → turns ON
+  | "timer_to_off"  // Countdown → turns OFF
+  | "cycle"         // Repeating ON/OFF durations
+  | "schedule";     // Daily ON/OFF clock times
 
-/** Configuration for Auto mode */
+/** Device types for port assignment */
+export type PortDeviceType =
+  | "inline_fan"
+  | "clip_fan"
+  | "light"
+  | "humidifier"
+  | "dehumidifier"
+  | "heater"
+  | "ac"
+  | "outlet"
+  | "heatmat"
+  | "pump";
+
+/** Control type - PWM (0-10 variable) vs Outlet (binary ON/OFF) */
+export type ControlType = "pwm" | "outlet";
+
+/**
+ * Configuration for Auto mode - The Core Climate Engine
+ * Has 4 independent triggers that can ALL fire simultaneously
+ */
 export interface AutoModeConfig {
-  tempHighTrigger: number;
+  // High Temp trigger - activates when temp >= setpoint (e.g., for cooling)
+  tempHighTrigger: number;       // °F (32-194)
   tempHighEnabled: boolean;
-  tempLowTrigger: number;
+  // Low Temp trigger - activates when temp <= setpoint (e.g., for heating)
+  tempLowTrigger: number;        // °F (32-194)
   tempLowEnabled: boolean;
-  humidityHighTrigger: number;
+  // High Humidity trigger - activates when humidity >= setpoint
+  humidityHighTrigger: number;   // % (0-100)
   humidityHighEnabled: boolean;
-  humidityLowTrigger: number;
+  // Low Humidity trigger - activates when humidity <= setpoint
+  humidityLowTrigger: number;    // % (0-100)
   humidityLowEnabled: boolean;
-  levelLow: number;
-  levelHigh: number;
-  transition: boolean;
+  // Transition settings - degrees/percent deviation per level step
+  tempTransition: number;        // °F per level step (e.g., 2.0)
+  humidityTransition: number;    // % per level step (e.g., 5.0)
+  // Buffer settings - hysteresis to prevent rapid ON/OFF cycling
+  tempBuffer: number;            // °F (0-8)
+  humidityBuffer: number;        // % (0-10)
 }
 
-/** Configuration for VPD mode */
+/**
+ * Configuration for VPD mode (PRO / PRO+ / AI+ only)
+ * Has 2 triggers for VPD-based climate control
+ */
 export interface VpdModeConfig {
-  vpdHighTrigger: number;
+  // High VPD trigger - air too dry for plant
+  vpdHighTrigger: number;        // kPa
   vpdHighEnabled: boolean;
-  vpdLowTrigger: number;
+  // Low VPD trigger - air too moist
+  vpdLowTrigger: number;         // kPa
   vpdLowEnabled: boolean;
-  levelLow: number;
-  levelHigh: number;
-  transition: boolean;
+  // Transition and buffer
+  vpdTransition: number;         // kPa per level step (e.g., 0.10)
+  vpdBuffer: number;             // kPa (0-0.5)
 }
 
-/** Configuration for Timer mode */
-export interface TimerModeConfig {
-  durationOn: number; // seconds
-  durationOff: number; // seconds
-  level: number;
+/** Configuration for Timer To On mode - countdown then turns ON */
+export interface TimerToOnConfig {
+  durationMinutes: number;       // Countdown duration (HH:MM stored as minutes)
 }
 
-/** Configuration for Cycle mode */
+/** Configuration for Timer To Off mode - countdown then turns OFF */
+export interface TimerToOffConfig {
+  durationMinutes: number;       // Countdown duration (HH:MM stored as minutes)
+}
+
+/** Configuration for Cycle mode - repeating ON/OFF durations */
 export interface CycleModeConfig {
-  durationOn: number; // seconds
-  durationOff: number; // seconds
-  level: number;
+  durationOnMinutes: number;     // ON duration in minutes
+  durationOffMinutes: number;    // OFF duration in minutes
 }
 
-/** Configuration for Schedule mode */
+/** Configuration for Schedule mode - daily ON/OFF clock times */
 export interface ScheduleModeConfig {
-  schedules: Array<{
-    startTime: string; // HH:mm
-    endTime: string; // HH:mm
-    level: number;
-    days: number[]; // 0-6 (Sun-Sat)
-  }>;
+  onTime: string;                // "HH:MM" 24h format
+  offTime: string;               // "HH:MM" 24h format
+  days: number[];                // 0-6 (Sun-Sat), empty = everyday
 }
 
-/** Configuration for Mode Programming node */
+/** Configuration for Mode Programming node - matches AC Infinity's per-port model */
 export interface ModeNodeConfig {
-  controllerId: string;
-  controllerName: string;
-  port: number;
-  portName: string;
-  mode: DeviceModeType;
+  // Controller & Port identification
+  controllerId?: string;
+  controllerName?: string;
+  port?: number;
+  portName?: string;
+
+  // Device assignment
+  deviceName?: string;           // "Cloudline T6"
+  deviceType?: PortDeviceType;   // What kind of device
+  controlType?: ControlType;     // PWM (0-10) or Outlet (ON/OFF)
+
+  // Current mode
+  mode?: DeviceModeType;
+
+  // Level settings (0-10 for PWM, 0 or 1 for outlet)
+  onLevel: number;               // Max level when triggered (default: 10)
+  offLevel: number;              // Min level / baseline (default: 0)
+
+  // Mode-specific configurations
   autoConfig?: AutoModeConfig;
   vpdConfig?: VpdModeConfig;
-  timerConfig?: TimerModeConfig;
+  timerToOnConfig?: TimerToOnConfig;
+  timerToOffConfig?: TimerToOffConfig;
   cycleConfig?: CycleModeConfig;
   scheduleConfig?: ScheduleModeConfig;
-  priority: number; // execution order for multi-port workflows
+
+  // Workflow priority
+  priority?: number;             // Higher = takes precedence
 }
 
 /** Data payload for ModeNode */
@@ -459,9 +515,173 @@ export const MODE_LABELS: Record<DeviceModeType, string> = {
   on: "On",
   auto: "Auto",
   vpd: "VPD",
-  timer: "Timer",
+  timer_to_on: "Timer → On",
+  timer_to_off: "Timer → Off",
   cycle: "Cycle",
   schedule: "Schedule",
+};
+
+/** Labels for port device types (AC Infinity port programming) */
+export const PORT_DEVICE_TYPE_LABELS: Record<PortDeviceType, string> = {
+  inline_fan: "Inline Fan",
+  clip_fan: "Clip Fan",
+  light: "Grow Light",
+  humidifier: "Humidifier",
+  dehumidifier: "Dehumidifier",
+  heater: "Heater",
+  ac: "AC Unit",
+  outlet: "Smart Outlet",
+  heatmat: "Heat Mat",
+  pump: "Water Pump",
+};
+
+/** Control type labels */
+export const CONTROL_TYPE_LABELS: Record<ControlType, string> = {
+  pwm: "PWM (0-10)",
+  outlet: "Outlet (ON/OFF)",
+};
+
+/** Smart defaults by device type - applied when device is selected */
+export const DEVICE_SMART_DEFAULTS: Record<PortDeviceType, Partial<ModeNodeConfig>> = {
+  inline_fan: {
+    controlType: "pwm",
+    mode: "auto",
+    onLevel: 10,
+    offLevel: 3,
+    autoConfig: {
+      tempHighTrigger: 80,
+      tempHighEnabled: true,
+      tempLowTrigger: 65,
+      tempLowEnabled: false,
+      humidityHighTrigger: 70,
+      humidityHighEnabled: false,
+      humidityLowTrigger: 40,
+      humidityLowEnabled: false,
+      tempTransition: 2.0,
+      humidityTransition: 5.0,
+      tempBuffer: 0,
+      humidityBuffer: 0,
+    },
+  },
+  clip_fan: {
+    controlType: "pwm",
+    mode: "on",
+    onLevel: 4,
+    offLevel: 0,
+  },
+  light: {
+    controlType: "pwm",
+    mode: "schedule",
+    onLevel: 10,
+    offLevel: 0,
+    scheduleConfig: {
+      onTime: "06:00",
+      offTime: "00:00",  // 18/6 veg default
+      days: [],
+    },
+  },
+  humidifier: {
+    controlType: "outlet",
+    mode: "auto",
+    onLevel: 1,
+    offLevel: 0,
+    autoConfig: {
+      tempHighTrigger: 85,
+      tempHighEnabled: false,
+      tempLowTrigger: 65,
+      tempLowEnabled: false,
+      humidityHighTrigger: 70,
+      humidityHighEnabled: false,
+      humidityLowTrigger: 50,
+      humidityLowEnabled: true,
+      tempTransition: 2.0,
+      humidityTransition: 5.0,
+      tempBuffer: 0,
+      humidityBuffer: 6,
+    },
+  },
+  dehumidifier: {
+    controlType: "outlet",
+    mode: "auto",
+    onLevel: 1,
+    offLevel: 0,
+    autoConfig: {
+      tempHighTrigger: 85,
+      tempHighEnabled: false,
+      tempLowTrigger: 65,
+      tempLowEnabled: false,
+      humidityHighTrigger: 60,
+      humidityHighEnabled: true,
+      humidityLowTrigger: 40,
+      humidityLowEnabled: false,
+      tempTransition: 2.0,
+      humidityTransition: 5.0,
+      tempBuffer: 0,
+      humidityBuffer: 4,
+    },
+  },
+  heater: {
+    controlType: "outlet",
+    mode: "auto",
+    onLevel: 1,
+    offLevel: 0,
+    autoConfig: {
+      tempHighTrigger: 85,
+      tempHighEnabled: false,
+      tempLowTrigger: 65,
+      tempLowEnabled: true,
+      humidityHighTrigger: 70,
+      humidityHighEnabled: false,
+      humidityLowTrigger: 40,
+      humidityLowEnabled: false,
+      tempTransition: 2.0,
+      humidityTransition: 5.0,
+      tempBuffer: 4,
+      humidityBuffer: 0,
+    },
+  },
+  ac: {
+    controlType: "outlet",
+    mode: "auto",
+    onLevel: 1,
+    offLevel: 0,
+    autoConfig: {
+      tempHighTrigger: 85,
+      tempHighEnabled: true,
+      tempLowTrigger: 65,
+      tempLowEnabled: false,
+      humidityHighTrigger: 70,
+      humidityHighEnabled: false,
+      humidityLowTrigger: 40,
+      humidityLowEnabled: false,
+      tempTransition: 2.0,
+      humidityTransition: 5.0,
+      tempBuffer: 4,
+      humidityBuffer: 0,
+    },
+  },
+  outlet: {
+    controlType: "outlet",
+    mode: "off",
+    onLevel: 1,
+    offLevel: 0,
+  },
+  heatmat: {
+    controlType: "outlet",
+    mode: "on",
+    onLevel: 1,
+    offLevel: 0,
+  },
+  pump: {
+    controlType: "outlet",
+    mode: "cycle",
+    onLevel: 1,
+    offLevel: 0,
+    cycleConfig: {
+      durationOnMinutes: 15,
+      durationOffMinutes: 45,
+    },
+  },
 };
 
 // ============================================================================
