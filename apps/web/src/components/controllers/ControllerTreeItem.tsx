@@ -282,9 +282,9 @@ export function ControllerTreeItem({
               </div>
             )}
             {(liveSensor?.humidity ?? sensorData.humidity) !== null && (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-500/10 dark:bg-[rgba(0,212,255,0.1)]">
-                <Droplets className="w-3.5 h-3.5 text-blue-500 dark:text-[#00d4ff]" />
-                <span className="tabular-nums font-medium text-blue-600 dark:text-[#00d4ff]">
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[rgba(79,195,247,0.1)]">
+                <Droplets className="w-3.5 h-3.5 text-[#4fc3f7]" />
+                <span className="tabular-nums font-medium text-[#4fc3f7]">
                   {(liveSensor?.humidity ?? sensorData.humidity)?.toFixed(1)}%
                 </span>
               </div>
@@ -366,10 +366,10 @@ export function ControllerTreeItem({
                 </div>
               )}
               {(liveSensor?.humidity ?? sensorData.humidity) !== null && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 dark:bg-[rgba(0,212,255,0.1)]">
-                  <Droplets className="w-5 h-5 text-blue-500 dark:text-[#00d4ff]" />
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[rgba(79,195,247,0.1)]">
+                  <Droplets className="w-5 h-5 text-[#4fc3f7]" />
                   <div className="text-right">
-                    <span className="text-lg font-bold tabular-nums text-blue-600 dark:text-[#00d4ff]">
+                    <span className="text-lg font-bold tabular-nums text-[#4fc3f7]">
                       {(liveSensor?.humidity ?? sensorData.humidity)?.toFixed(1)}%
                     </span>
                     <p className="text-[10px] text-muted-foreground dark:text-[#4a5568] uppercase tracking-[1px]">Humidity</p>

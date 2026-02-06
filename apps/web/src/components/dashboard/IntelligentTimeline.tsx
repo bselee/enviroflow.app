@@ -108,10 +108,10 @@ const METRIC_COLORS: Record<FocusMetric, { stroke: string; gradientId: string; l
     bgColor: "bg-red-500/10",
   },
   humidity: {
-    stroke: "#3b82f6",
+    stroke: "#4fc3f7",
     gradientId: "gradHum",
     label: "Humidity",
-    bgColor: "bg-blue-500/10",
+    bgColor: "bg-sky-400/10",
   },
   vpd: {
     stroke: "#b388ff",
@@ -704,8 +704,8 @@ export function IntelligentTimeline({
                     <stop offset="100%" stopColor="#ef4444" stopOpacity={0.02} />
                   </linearGradient>
                   <linearGradient id="gradHum" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.25} />
-                    <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
+                    <stop offset="0%" stopColor="#4fc3f7" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="#4fc3f7" stopOpacity={0.02} />
                   </linearGradient>
                   <linearGradient id="gradVpd" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#b388ff" stopOpacity={0.25} />
@@ -782,7 +782,7 @@ export function IntelligentTimeline({
                     yAxisId="humidity"
                     y1={ranges.humidity[0]}
                     y2={ranges.humidity[1]}
-                    fill="#3b82f6"
+                    fill="#4fc3f7"
                     fillOpacity={0.06}
                     strokeOpacity={0}
                   />

@@ -1202,15 +1202,15 @@ footer {
           <div class="mock-readings">
             <div class="mock-reading">
               <div class="mock-reading-label">Temperature</div>
-              <div class="mock-reading-value">75.1<span class="mock-reading-unit">°F</span></div>
+              <div class="mock-reading-value" style="color:#ff5252;">75.1<span class="mock-reading-unit">°F</span></div>
             </div>
             <div class="mock-reading">
               <div class="mock-reading-label">Humidity</div>
-              <div class="mock-reading-value">52.6<span class="mock-reading-unit">%</span></div>
+              <div class="mock-reading-value" style="color:#4fc3f7;">52.6<span class="mock-reading-unit">%</span></div>
             </div>
             <div class="mock-reading">
               <div class="mock-reading-label">VPD</div>
-              <div class="mock-reading-value" style="color: var(--accent-cyan);">1.34<span class="mock-reading-unit">kPa</span></div>
+              <div class="mock-reading-value" style="color:#b388ff;">1.34<span class="mock-reading-unit">kPa</span></div>
             </div>
           </div>
 
@@ -1238,9 +1238,13 @@ footer {
               <div class="mock-port-icon" style="background: rgba(0,212,255,0.1);">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-cyan);">
                   <circle cx="12" cy="10" r="7"/>
-                  <circle cx="12" cy="10" r="2"/>
-                  <line x1="10" y1="17" x2="8" y2="21"/>
-                  <line x1="14" y1="17" x2="16" y2="21"/>
+                  <circle cx="12" cy="10" r="1.5" fill="currentColor" opacity="0.3"/>
+                  <path d="M12 8.5C12 8.5 12.8 5 15.5 4.5C17 4.2 17 6 16.2 7.5C15.5 8.8 13 9.5 12 10"/>
+                  <path d="M13.5 10C13.5 10 17 10.8 17.5 13.5C17.8 15 16 15 14.5 14.2C13.2 13.5 12.5 11 12 10"/>
+                  <path d="M12 11.5C12 11.5 11.2 15 8.5 15.5C7 15.8 7 14 7.8 12.5C8.5 11.2 11 10.5 12 10"/>
+                  <path d="M10.5 10C10.5 10 7 9.2 6.5 6.5C6.2 5 8 5 9.5 5.8C10.8 6.5 11.5 9 12 10"/>
+                  <line x1="10" y1="17" x2="8.5" y2="21"/>
+                  <line x1="14" y1="17" x2="15.5" y2="21"/>
                 </svg>
               </div>
               <div class="mock-port-info">
@@ -1345,7 +1349,8 @@ footer {
         <span class="code-block-file">config/deviceIcons.tsx</span>
       </div>
 <pre><code><span class="cp">import</span> {
-  <span class="cf">Fan</span>,              <span class="ck">// Inline fan, clip fan, circulation</span>
+  <span class="cf">Fan</span>,              <span class="ck">// Clip fan, circulation (visible blades)</span>
+  <span class="cf">Wind</span>,             <span class="ck">// Inline fan, ducted exhaust/intake (no blades)</span>
   <span class="cf">Sun</span>,              <span class="ck">// Grow lights (LED panels, boards)</span>
   <span class="cf">Droplets</span>,         <span class="ck">// Humidifier</span>
   <span class="cf">Flame</span>,            <span class="ck">// Heater</span>
@@ -1373,7 +1378,8 @@ footer {
 
 <span class="ck">// Device type → icon + color mapping</span>
 <span class="cp">export const</span> portIconMap: <span class="cp">Record</span>&lt;<span class="cp">string</span>, { icon: <span class="cp">any</span>; color: <span class="cp">string</span>; bg: <span class="cp">string</span> }&gt; = {
-  <span class="cs">'fan'</span>:          { icon: Fan,       color: <span class="cs">'#00d4ff'</span>, bg: <span class="cs">'rgba(0,212,255,0.10)'</span> },
+  <span class="cs">'inline_fan'</span>:    { icon: Wind,      color: <span class="cs">'#00d4ff'</span>, bg: <span class="cs">'rgba(0,212,255,0.10)'</span> },
+  <span class="cs">'clip_fan'</span>:      { icon: Fan,       color: <span class="cs">'#00d4ff'</span>, bg: <span class="cs">'rgba(0,212,255,0.10)'</span> },
   <span class="cs">'light'</span>:        { icon: Sun,       color: <span class="cs">'#ffd740'</span>, bg: <span class="cs">'rgba(255,215,64,0.10)'</span> },
   <span class="cs">'humidifier'</span>:   { icon: Droplets,  color: <span class="cs">'#4fc3f7'</span>, bg: <span class="cs">'rgba(79,195,247,0.10)'</span> },
   <span class="cs">'dehumidifier'</span>:  { icon: AirVent,   color: <span class="cs">'#4fc3f7'</span>, bg: <span class="cs">'rgba(79,195,247,0.10)'</span> },
@@ -1394,8 +1400,13 @@ footer {
     <h4>Icon Color Rules</h4>
     <div class="icon-color-row">
       <div class="icon-color-chip">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><circle cx="12" cy="12" r="3"/><path d="M12 9C12 9 13 5 17 4C21 3 21 7 20 9C19 11 15 12 12 12"/></svg>
-        <span>Fans</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><ellipse cx="6" cy="12" rx="2.5" ry="5"/><ellipse cx="18" cy="12" rx="2.5" ry="5"/><line x1="6" y1="7" x2="18" y2="7"/><line x1="6" y1="17" x2="18" y2="17"/></svg>
+        <span>Inline Fans</span>
+        <span class="hex">#00D4FF</span>
+      </div>
+      <div class="icon-color-chip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><circle cx="12" cy="10" r="7"/><circle cx="12" cy="10" r="1.5" fill="currentColor" opacity="0.3"/><path d="M12 8.5C12 8.5 12.8 5 15.5 4.5C17 4.2 17 6 16.2 7.5C15.5 8.8 13 9.5 12 10"/><path d="M13.5 10C13.5 10 17 10.8 17.5 13.5C17.8 15 16 15 14.5 14.2C13.2 13.5 12.5 11 12 10"/></svg>
+        <span>Clip Fans</span>
         <span class="hex">#00D4FF</span>
       </div>
       <div class="icon-color-chip">
@@ -1436,7 +1447,7 @@ footer {
         <tr><td>Offline dot</td><td>>5min no data</td><td>Static (no animation)</td><td>None — static red</td></tr>
         <tr><td>Alarm triangle</td><td>Threshold hit</td><td>Fast blink</td><td><code>animation: blink 1s ease infinite</code></td></tr>
         <tr><td>WiFi icon</td><td>Active sync</td><td>Subtle glow pulse</td><td><code>filter: drop-shadow(0 0 Npx ...)</code></td></tr>
-        <tr><td>Fan icon</td><td>Port active</td><td>Rotate (optional, playful)</td><td><code>animation: rotate 2s linear infinite</code></td></tr>
+        <tr><td>Fan icon</td><td>Clip fan active</td><td>Rotate blades (optional)</td><td><code>animation: rotate 2s linear infinite</code></td></tr>
       </tbody>
     </table>
   </div>

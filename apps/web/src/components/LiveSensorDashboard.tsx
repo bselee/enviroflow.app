@@ -131,14 +131,14 @@ function SensorCard({ sensor, tempUnit }: { sensor: LiveSensor; tempUnit: Temper
           </div>
         </div>
 
-        {/* Humidity - Blue */}
+        {/* Humidity - Light Blue per UI guide */}
         <div className="p-4 text-center">
           <div className="text-[10px] uppercase tracking-[1.5px] text-muted-foreground dark:text-[#4a5568] mb-1.5 font-semibold">
             Humidity
           </div>
-          <div className="font-mono text-[28px] font-bold leading-tight text-[#3b82f6]">
+          <div className="font-mono text-[28px] font-bold leading-tight text-[#4fc3f7]">
             {sensor.humidity.toFixed(1)}
-            <span className="text-[12px] ml-0.5 font-normal text-[#3b82f6]/70">
+            <span className="text-[12px] ml-0.5 font-normal text-[#4fc3f7]/70">
               %
             </span>
           </div>
