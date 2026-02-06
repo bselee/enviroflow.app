@@ -217,13 +217,21 @@ export const ACTION_VARIANT_LABELS: Record<ActionVariant, string> = {
 };
 
 // ============================================================================
-// Dimmer Node Types
+// Dimmer Node Types (Light Schedule with Sunrise/Sunset Simulation)
 // ============================================================================
 
 /** Dimmer curve types for light transitions */
 export type DimmerCurve = "linear" | "sigmoid" | "exponential" | "logarithmic";
 
-/** Configuration for dimmer nodes */
+/**
+ * Configuration for dimmer nodes - Light schedule with optional ramp
+ *
+ * Timeline example with onTime="06:00", offTime="22:00", sunriseMinutes=30, sunsetMinutes=30:
+ * - 05:30 - Sunrise begins (ramp from minLevel)
+ * - 06:00 - Fully ON (maxLevel reached)
+ * - 22:00 - Sunset begins (ramp from maxLevel)
+ * - 22:30 - Fully OFF (minLevel reached)
+ */
 export interface DimmerNodeConfig {
   /** ID of the controller */
   controllerId?: string;
@@ -231,16 +239,29 @@ export interface DimmerNodeConfig {
   controllerName?: string;
   /** Port number on the controller */
   port?: number;
-  /** Sunrise time in HH:MM format */
-  sunriseTime?: string;
-  /** Sunset time in HH:MM format */
-  sunsetTime?: string;
-  /** Minimum light level (0-100) */
+
+  // Schedule times
+  /** Time when lights reach maxLevel (HH:MM format) */
+  onTime?: string;
+  /** Time when lights start ramping to minLevel (HH:MM format) */
+  offTime?: string;
+
+  // Level settings (0-100%)
+  /** Level when "off" / night (0-100) */
   minLevel?: number;
-  /** Maximum light level (0-100) */
+  /** Level when fully "on" / day (0-100) */
   maxLevel?: number;
+
+  // Sunrise/Sunset ramp settings
+  /** Minutes to ramp up BEFORE onTime (sunrise simulation) */
+  sunriseMinutes?: number;
+  /** Minutes to ramp down AFTER offTime (sunset simulation) */
+  sunsetMinutes?: number;
   /** Transition curve type */
   curve?: DimmerCurve;
+
+  // Days of week (empty = everyday)
+  days?: number[];
 }
 
 /** Data payload for DimmerNode */

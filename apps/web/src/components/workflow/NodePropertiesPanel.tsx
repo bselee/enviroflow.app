@@ -2350,6 +2350,11 @@ function ModeProperties({
 /**
  * DimmerProperties - Configuration panel for dimmer/sunrise-sunset schedules
  */
+/**
+ * DimmerProperties - Light schedule configuration with sunrise/sunset simulation
+ *
+ * Timeline: sunriseStart → onTime (fully on) → offTime → sunsetEnd (fully off)
+ */
 function DimmerProperties({
   node,
   onUpdate,
@@ -2378,11 +2383,31 @@ function DimmerProperties({
 
   const availableDevices = selectedControllerCapabilities?.devices || [];
 
+  // Calculate sunrise start time for display
+  const getSunriseStartTime = (): string => {
+    if (!data.config.onTime) return "--:--";
+    const [hours, mins] = data.config.onTime.split(":").map(Number);
+    const totalMins = hours * 60 + mins - (data.config.sunriseMinutes ?? 0);
+    const h = Math.floor(totalMins / 60) % 24;
+    const m = totalMins % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  };
+
+  // Calculate sunset end time for display
+  const getSunsetEndTime = (): string => {
+    if (!data.config.offTime) return "--:--";
+    const [hours, mins] = data.config.offTime.split(":").map(Number);
+    const totalMins = hours * 60 + mins + (data.config.sunsetMinutes ?? 0);
+    const h = Math.floor(totalMins / 60) % 24;
+    const m = totalMins % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  };
+
   return (
     <div className="space-y-4">
       {/* Controller Selection */}
       <div className="space-y-2">
-        <Label className="text-sm font-medium">Controller</Label>
+        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Controller</Label>
         <Select
           value={data.config.controllerId ?? ""}
           onValueChange={(value) => {
@@ -2409,7 +2434,7 @@ function DimmerProperties({
       {/* Port Selection */}
       {data.config.controllerId && (
         <div className="space-y-2">
-          <Label className="text-sm font-medium">Light Port</Label>
+          <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Light Port</Label>
           <Select
             value={data.config.port?.toString() ?? ""}
             onValueChange={(value) => updateConfig("port", parseInt(value, 10))}
@@ -2431,35 +2456,111 @@ function DimmerProperties({
         </div>
       )}
 
-      {/* Sunrise/Sunset Times */}
+      {/* ON/OFF Schedule */}
       <div className="space-y-3 rounded-lg border border-[rgba(255,215,64,0.2)] bg-[rgba(255,215,64,0.05)] p-3">
         <div className="flex items-center gap-2">
-          <Sun className="h-4 w-4 text-[#ffd740]" />
+          <Clock className="h-4 w-4 text-[#ffd740]" />
           <span className="text-xs font-semibold uppercase tracking-wider text-[#ffd740]">Light Schedule</span>
         </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs text-[#00e676]">ON Time</Label>
+            <Input
+              type="time"
+              className="h-8 font-mono"
+              value={data.config.onTime ?? "06:00"}
+              onChange={(e) => updateConfig("onTime", e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground">Lights reach max</p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">OFF Time</Label>
+            <Input
+              type="time"
+              className="h-8 font-mono"
+              value={data.config.offTime ?? "22:00"}
+              onChange={(e) => updateConfig("offTime", e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground">Sunset begins</p>
+          </div>
+        </div>
+
+        {/* Days of week */}
+        <div className="space-y-1 pt-2 border-t border-[rgba(255,215,64,0.1)]">
+          <Label className="text-[10px] text-muted-foreground">Days (empty = everyday)</Label>
+          <div className="flex flex-wrap gap-1">
+            {SCHEDULE_DAYS.map((day) => (
+              <Button
+                key={day.value}
+                type="button"
+                variant={(data.config.days ?? []).includes(day.value) ? "default" : "outline"}
+                size="sm"
+                className={cn(
+                  "h-6 w-8 text-xs px-1",
+                  (data.config.days ?? []).includes(day.value) && "bg-[#ffd740] text-black hover:bg-[#ffd740]/90"
+                )}
+                onClick={() => {
+                  const days = data.config.days ?? [];
+                  const newDays = days.includes(day.value)
+                    ? days.filter(d => d !== day.value)
+                    : [...days, day.value].sort();
+                  updateConfig("days", newDays);
+                }}
+              >
+                {day.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Sunrise/Sunset Ramp */}
+      <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Sunrise / Sunset Ramp</span>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label className="flex items-center gap-1 text-xs">
               <Sunrise className="h-3 w-3 text-amber-500" /> Sunrise
             </Label>
-            <Input
-              type="time"
-              className="font-mono"
-              value={data.config.sunriseTime ?? "06:00"}
-              onChange={(e) => updateConfig("sunriseTime", e.target.value)}
-            />
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                min={0}
+                max={120}
+                className="h-8 w-16 font-mono"
+                value={data.config.sunriseMinutes ?? 0}
+                onChange={(e) => updateConfig("sunriseMinutes", Number(e.target.value))}
+              />
+              <span className="text-xs text-muted-foreground">min</span>
+            </div>
+            {(data.config.sunriseMinutes ?? 0) > 0 && (
+              <p className="text-[10px] text-muted-foreground">
+                Starts at {getSunriseStartTime()}
+              </p>
+            )}
           </div>
           <div className="space-y-1">
             <Label className="flex items-center gap-1 text-xs">
               <Sunset className="h-3 w-3 text-orange-500" /> Sunset
             </Label>
-            <Input
-              type="time"
-              className="font-mono"
-              value={data.config.sunsetTime ?? "20:00"}
-              onChange={(e) => updateConfig("sunsetTime", e.target.value)}
-            />
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                min={0}
+                max={120}
+                className="h-8 w-16 font-mono"
+                value={data.config.sunsetMinutes ?? 0}
+                onChange={(e) => updateConfig("sunsetMinutes", Number(e.target.value))}
+              />
+              <span className="text-xs text-muted-foreground">min</span>
+            </div>
+            {(data.config.sunsetMinutes ?? 0) > 0 && (
+              <p className="text-[10px] text-muted-foreground">
+                Ends at {getSunsetEndTime()}
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -2485,7 +2586,7 @@ function DimmerProperties({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs">Max Level (day)</span>
-            <span className="font-mono text-sm">{data.config.maxLevel ?? 100}%</span>
+            <span className="font-mono text-sm text-[#ffd740]">{data.config.maxLevel ?? 100}%</span>
           </div>
           <Slider
             value={[data.config.maxLevel ?? 100]}
@@ -2500,12 +2601,12 @@ function DimmerProperties({
 
       {/* Curve Selection */}
       <div className="space-y-2">
-        <Label className="text-sm font-medium">Transition Curve</Label>
+        <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Transition Curve</Label>
         <Select
-          value={data.config.curve ?? "linear"}
+          value={data.config.curve ?? "sigmoid"}
           onValueChange={(value) => updateConfig("curve", value as DimmerCurve)}
         >
-          <SelectTrigger>
+          <SelectTrigger className="h-8">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -2516,19 +2617,24 @@ function DimmerProperties({
             ))}
           </SelectContent>
         </Select>
-        <p className="text-xs text-muted-foreground">
-          {data.config.curve === "linear" && "Constant rate of change throughout transition"}
-          {data.config.curve === "sigmoid" && "Slow start and end, faster in the middle (most natural)"}
-          {data.config.curve === "exponential" && "Fast start, gradual slowdown toward the end"}
-          {data.config.curve === "logarithmic" && "Slow start, accelerating toward the end"}
-        </p>
       </div>
 
-      {/* Visual Preview */}
+      {/* Timeline Preview */}
       <div className="rounded-md border border-dashed p-3 bg-[rgba(255,215,64,0.05)]">
-        <p className="text-xs text-muted-foreground">
-          Light ramps from <strong>{data.config.minLevel ?? 0}%</strong> to <strong>{data.config.maxLevel ?? 100}%</strong> between{" "}
-          <strong>{data.config.sunriseTime ?? "06:00"}</strong> and midday, then back down by <strong>{data.config.sunsetTime ?? "20:00"}</strong>.
+        <p className="text-[10px] text-muted-foreground leading-relaxed">
+          {(data.config.sunriseMinutes ?? 0) > 0 && (
+            <>
+              <strong>{getSunriseStartTime()}</strong> - Sunrise begins{" "}
+            </>
+          )}
+          <strong className="text-[#00e676]">{data.config.onTime ?? "06:00"}</strong> - Fully ON ({data.config.maxLevel ?? 100}%){" → "}
+          <strong>{data.config.offTime ?? "22:00"}</strong> - Sunset begins
+          {(data.config.sunsetMinutes ?? 0) > 0 && (
+            <>
+              {" → "}<strong>{getSunsetEndTime()}</strong> - Fully OFF
+            </>
+          )}
+          {" "}({data.config.minLevel ?? 0}%)
         </p>
       </div>
     </div>

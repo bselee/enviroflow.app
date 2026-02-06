@@ -184,7 +184,7 @@ export function ActionNode({ data, selected, id }: ActionNodeProps) {
   return (
     <div
       className={cn(
-        "min-w-[200px] rounded-lg border-2 bg-card shadow-md transition-all",
+        "group min-w-[200px] rounded-lg border-2 bg-card shadow-md transition-all",
         "border-orange-500 dark:border-orange-400",
         selected && "ring-2 ring-orange-500/50 ring-offset-2 ring-offset-background"
       )}
@@ -210,7 +210,7 @@ export function ActionNode({ data, selected, id }: ActionNodeProps) {
         </span>
         {/* Delete button visible on hover */}
         <button
-          className="hidden h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:flex group-hover:opacity-100"
+          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
           aria-label="Delete node"
           data-delete-node={id}
         >
