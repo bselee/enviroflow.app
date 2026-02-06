@@ -2348,12 +2348,13 @@ function ModeProperties({
 }
 
 /**
- * DimmerProperties - Configuration panel for dimmer/sunrise-sunset schedules
- */
-/**
  * DimmerProperties - Light schedule configuration with sunrise/sunset simulation
  *
- * Timeline: sunriseStart → onTime (fully on) → offTime → sunsetEnd (fully off)
+ * Timeline (ramps happen WITHIN the on/off window):
+ * - onTime: Lights turn on at minLevel, sunrise ramp begins
+ * - sunriseEnd (onTime + sunriseMinutes): At maxLevel
+ * - sunsetStart (offTime - sunsetMinutes): Sunset ramp begins from maxLevel
+ * - offTime: Lights at minLevel, turn off
  */
 function DimmerProperties({
   node,
@@ -2383,23 +2384,23 @@ function DimmerProperties({
 
   const availableDevices = selectedControllerCapabilities?.devices || [];
 
-  // Calculate sunrise start time for display
-  const getSunriseStartTime = (): string => {
+  // Calculate when sunrise ramp ends (reaches max level) - AFTER onTime
+  const getSunriseEndTime = (): string => {
     if (!data.config.onTime) return "--:--";
     const [hours, mins] = data.config.onTime.split(":").map(Number);
-    const totalMins = hours * 60 + mins - (data.config.sunriseMinutes ?? 0);
+    const totalMins = hours * 60 + mins + (data.config.sunriseMinutes ?? 0);
     const h = Math.floor(totalMins / 60) % 24;
     const m = totalMins % 60;
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
   };
 
-  // Calculate sunset end time for display
-  const getSunsetEndTime = (): string => {
+  // Calculate when sunset ramp starts (begins dimming) - BEFORE offTime
+  const getSunsetStartTime = (): string => {
     if (!data.config.offTime) return "--:--";
     const [hours, mins] = data.config.offTime.split(":").map(Number);
-    const totalMins = hours * 60 + mins + (data.config.sunsetMinutes ?? 0);
-    const h = Math.floor(totalMins / 60) % 24;
-    const m = totalMins % 60;
+    const totalMins = hours * 60 + mins - (data.config.sunsetMinutes ?? 0);
+    const h = Math.floor((totalMins + 1440) / 60) % 24; // Handle negative wrap
+    const m = ((totalMins % 60) + 60) % 60;
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
   };
 
@@ -2472,7 +2473,7 @@ function DimmerProperties({
               value={data.config.onTime ?? "06:00"}
               onChange={(e) => updateConfig("onTime", e.target.value)}
             />
-            <p className="text-[10px] text-muted-foreground">Lights reach max</p>
+            <p className="text-[10px] text-muted-foreground">Lights turn on, ramp up starts</p>
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">OFF Time</Label>
@@ -2482,7 +2483,7 @@ function DimmerProperties({
               value={data.config.offTime ?? "22:00"}
               onChange={(e) => updateConfig("offTime", e.target.value)}
             />
-            <p className="text-[10px] text-muted-foreground">Sunset begins</p>
+            <p className="text-[10px] text-muted-foreground">Ramp down ends, lights off</p>
           </div>
         </div>
 
@@ -2537,7 +2538,7 @@ function DimmerProperties({
             </div>
             {(data.config.sunriseMinutes ?? 0) > 0 && (
               <p className="text-[10px] text-muted-foreground">
-                Starts at {getSunriseStartTime()}
+                At max by {getSunriseEndTime()}
               </p>
             )}
           </div>
@@ -2558,7 +2559,7 @@ function DimmerProperties({
             </div>
             {(data.config.sunsetMinutes ?? 0) > 0 && (
               <p className="text-[10px] text-muted-foreground">
-                Ends at {getSunsetEndTime()}
+                Dims from {getSunsetStartTime()}
               </p>
             )}
           </div>
@@ -2622,19 +2623,18 @@ function DimmerProperties({
       {/* Timeline Preview */}
       <div className="rounded-md border border-dashed p-3 bg-[rgba(255,215,64,0.05)]">
         <p className="text-[10px] text-muted-foreground leading-relaxed">
+          <strong className="text-[#00e676]">{data.config.onTime ?? "06:00"}</strong> - ON ({data.config.minLevel ?? 0}%)
           {(data.config.sunriseMinutes ?? 0) > 0 && (
             <>
-              <strong>{getSunriseStartTime()}</strong> - Sunrise begins{" "}
+              {" → "}<strong>{getSunriseEndTime()}</strong> - Max ({data.config.maxLevel ?? 100}%)
             </>
           )}
-          <strong className="text-[#00e676]">{data.config.onTime ?? "06:00"}</strong> - Fully ON ({data.config.maxLevel ?? 100}%){" → "}
-          <strong>{data.config.offTime ?? "22:00"}</strong> - Sunset begins
           {(data.config.sunsetMinutes ?? 0) > 0 && (
             <>
-              {" → "}<strong>{getSunsetEndTime()}</strong> - Fully OFF
+              {" → "}<strong>{getSunsetStartTime()}</strong> - Dim begins
             </>
           )}
-          {" "}({data.config.minLevel ?? 0}%)
+          {" → "}<strong>{data.config.offTime ?? "22:00"}</strong> - OFF ({data.config.minLevel ?? 0}%)
         </p>
       </div>
     </div>

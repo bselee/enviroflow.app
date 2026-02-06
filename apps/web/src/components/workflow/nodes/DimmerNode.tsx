@@ -11,21 +11,24 @@ import { DIMMER_CURVE_LABELS } from "../types";
  * DimmerNode - Light schedule node with sunrise/sunset simulation
  *
  * This node configures light schedules for grow lights with optional
- * sunrise/sunset ramp periods.
+ * sunrise/sunset ramp periods that occur WITHIN the on/off window.
  *
  * Configuration:
  * - Controller and port selection
- * - ON time (when lights reach max) / OFF time (when lights start dimming)
+ * - ON time (exact start - lights begin at minLevel)
+ * - OFF time (exact end - lights reach minLevel)
  * - Min/Max levels (0-100%)
- * - Sunrise minutes (ramp up before ON time)
- * - Sunset minutes (ramp down after OFF time)
+ * - Sunrise minutes (ramp up AFTER ON time)
+ * - Sunset minutes (ramp down BEFORE OFF time)
  * - Transition curve
  *
  * Timeline example (onTime=06:00, offTime=22:00, sunrise=30min, sunset=30min):
- * - 05:30 - Sunrise begins (ramp from min)
- * - 06:00 - Fully ON (max level)
- * - 22:00 - Sunset begins (ramp from max)
- * - 22:30 - Fully OFF (min level)
+ * - 06:00 - ON time: lights turn on at minLevel, sunrise ramp begins
+ * - 06:30 - Sunrise complete: lights at maxLevel
+ * - 21:30 - Sunset begins: start ramping down from maxLevel
+ * - 22:00 - OFF time: lights at minLevel, turn off
+ *
+ * All transitions happen WITHIN the on/off window, not before or after.
  *
  * Visual Design:
  * - Yellow border to indicate "light/dimmer" semantics
@@ -41,8 +44,9 @@ interface DimmerNodeProps {
 
 /**
  * Calculates the current light level based on the schedule.
- * This is a simplified calculation for display purposes.
- * The actual calculation happens in the workflow executor.
+ * Ramps occur WITHIN the on/off window:
+ * - Sunrise ramp: starts at onTime (minLevel), ends at onTime + sunriseMinutes (maxLevel)
+ * - Sunset ramp: starts at offTime - sunsetMinutes (maxLevel), ends at offTime (minLevel)
  */
 function calculateCurrentLevel(
   onTime: string | undefined,
@@ -64,32 +68,34 @@ function calculateCurrentLevel(
 
   const onTimeMinutes = onHours * 60 + onMins;
   const offTimeMinutes = offHours * 60 + offMins;
-  const sunriseStart = onTimeMinutes - sunriseMinutes;
-  const sunsetEnd = offTimeMinutes + sunsetMinutes;
 
-  // Before sunrise: min level
-  if (currentMinutes < sunriseStart) {
+  // Ramps happen WITHIN the on/off window
+  const sunriseEnd = onTimeMinutes + sunriseMinutes;  // When max level is reached
+  const sunsetStart = offTimeMinutes - sunsetMinutes; // When dimming begins
+
+  // Before ON time: lights off (min level)
+  if (currentMinutes < onTimeMinutes) {
     return minLevel;
   }
 
-  // During sunrise ramp
-  if (currentMinutes < onTimeMinutes && sunriseMinutes > 0) {
-    const progress = (currentMinutes - sunriseStart) / sunriseMinutes;
+  // During sunrise ramp (onTime to onTime + sunriseMinutes)
+  if (currentMinutes < sunriseEnd && sunriseMinutes > 0) {
+    const progress = (currentMinutes - onTimeMinutes) / sunriseMinutes;
     return Math.round(minLevel + (maxLevel - minLevel) * progress);
   }
 
-  // During day (fully on)
-  if (currentMinutes >= onTimeMinutes && currentMinutes < offTimeMinutes) {
+  // During full brightness (after sunrise, before sunset)
+  if (currentMinutes >= sunriseEnd && currentMinutes < sunsetStart) {
     return maxLevel;
   }
 
-  // During sunset ramp
-  if (currentMinutes < sunsetEnd && sunsetMinutes > 0) {
-    const progress = (currentMinutes - offTimeMinutes) / sunsetMinutes;
+  // During sunset ramp (offTime - sunsetMinutes to offTime)
+  if (currentMinutes < offTimeMinutes && sunsetMinutes > 0) {
+    const progress = (currentMinutes - sunsetStart) / sunsetMinutes;
     return Math.round(maxLevel - (maxLevel - minLevel) * progress);
   }
 
-  // After sunset: min level
+  // After OFF time: lights off (min level)
   return minLevel;
 }
 
