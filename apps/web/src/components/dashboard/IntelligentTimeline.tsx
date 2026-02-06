@@ -114,10 +114,10 @@ const METRIC_COLORS: Record<FocusMetric, { stroke: string; gradientId: string; l
     bgColor: "bg-blue-500/10",
   },
   vpd: {
-    stroke: "#22c55e",
+    stroke: "#b388ff",
     gradientId: "gradVpd",
     label: "VPD",
-    bgColor: "bg-green-500/10",
+    bgColor: "bg-purple-500/10",
   },
 };
 
@@ -708,8 +708,8 @@ export function IntelligentTimeline({
                     <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
                   </linearGradient>
                   <linearGradient id="gradVpd" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#22c55e" stopOpacity={0.25} />
-                    <stop offset="100%" stopColor="#22c55e" stopOpacity={0.02} />
+                    <stop offset="0%" stopColor="#b388ff" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="#b388ff" stopOpacity={0.02} />
                   </linearGradient>
                 </defs>
 
@@ -792,7 +792,7 @@ export function IntelligentTimeline({
                     yAxisId="vpd"
                     y1={ranges.vpd[0]}
                     y2={ranges.vpd[1]}
-                    fill="#22c55e"
+                    fill="#b388ff"
                     fillOpacity={0.06}
                     strokeOpacity={0}
                   />
@@ -861,7 +861,7 @@ export function IntelligentTimeline({
               <div className="w-4 h-0.5 rounded-full" style={{ backgroundColor: METRIC_COLORS.temperature.stroke }} />
               <span style={{ color: METRIC_COLORS.temperature.stroke }}>Temp °{tempUnit}</span>
             </div>
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-green-500/10">
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-purple-500/10">
               <div className="w-4 h-0.5 rounded-full" style={{ backgroundColor: METRIC_COLORS.vpd.stroke }} />
               <span style={{ color: METRIC_COLORS.vpd.stroke }}>VPD kPa</span>
             </div>
