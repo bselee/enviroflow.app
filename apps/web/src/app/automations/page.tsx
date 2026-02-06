@@ -177,34 +177,40 @@ function WorkflowCard({ workflow, conflictInfo, onToggleActive, onDelete, onDupl
   return (
     <>
       <div className={cn(
-        "bg-card rounded-xl border p-5 hover:shadow-md transition-shadow",
-        hasConflict ? "border-destructive/50" : "border-border"
+        "bg-card dark:bg-[#151c26] rounded-2xl border p-5 transition-all duration-200",
+        hasConflict
+          ? "border-destructive/50 dark:border-[rgba(255,82,82,0.5)]"
+          : "border-border dark:border-[rgba(255,255,255,0.06)]",
+        "hover:shadow-lg dark:hover:shadow-[0_0_20px_rgba(0,212,255,0.1)] hover:border-border/80 dark:hover:border-[rgba(0,212,255,0.3)]"
       )}>
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-3">
             <div
               className={cn(
                 "w-10 h-10 rounded-lg flex items-center justify-center",
-                hasConflict ? "bg-destructive/10" : 
-                workflow.is_active ? "bg-success/10" : "bg-muted"
+                hasConflict
+                  ? "bg-destructive/10 dark:bg-[rgba(255,82,82,0.1)]"
+                  : workflow.is_active
+                    ? "bg-[rgba(0,230,118,0.1)]"
+                    : "bg-muted dark:bg-[#1e2a3a]"
               )}
             >
               {hasConflict ? (
-                <AlertTriangle className="w-5 h-5 text-destructive" />
+                <AlertTriangle className="w-5 h-5 text-destructive dark:text-[#ff5252]" />
               ) : (
                 <Workflow
                   className={cn(
                     "w-5 h-5",
-                    workflow.is_active ? "text-success" : "text-muted-foreground"
+                    workflow.is_active ? "text-[#00e676]" : "text-muted-foreground dark:text-[#4a5568]"
                   )}
                 />
               )}
             </div>
             <div>
-              <h3 className="font-semibold text-foreground">{workflow.name}</h3>
+              <h3 className="font-semibold text-foreground dark:text-[#e8edf4]">{workflow.name}</h3>
               <div className="flex items-center gap-2 mt-1">
                 {workflow.room && (
-                  <Badge variant="outline" className="text-xs">
+                  <Badge variant="outline" className="text-xs dark:border-[rgba(255,255,255,0.1)] dark:text-[#8896a8]">
                     {workflow.room.name}
                   </Badge>
                 )}
@@ -212,20 +218,20 @@ function WorkflowCard({ workflow, conflictInfo, onToggleActive, onDelete, onDupl
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Badge 
-                          variant="destructive" 
-                          className="text-xs cursor-pointer"
+                        <Badge
+                          variant="destructive"
+                          className="text-xs cursor-pointer dark:bg-[rgba(255,82,82,0.2)] dark:text-[#ff5252] dark:border-[rgba(255,82,82,0.3)]"
                           onClick={() => onResolveConflict(workflow, conflictInfo)}
                         >
                           Conflict
                         </Badge>
                       </TooltipTrigger>
-                      <TooltipContent className="max-w-[250px]">
-                        <p className="font-medium mb-1">Port conflict detected!</p>
-                        <p className="text-xs">
+                      <TooltipContent className="max-w-[250px] dark:bg-[#1e2a3a] dark:border-[rgba(255,255,255,0.06)]">
+                        <p className="font-medium mb-1 dark:text-[#e8edf4]">Port conflict detected!</p>
+                        <p className="text-xs dark:text-[#8896a8]">
                           Conflicts with: {conflictInfo?.conflictingWorkflows.map(w => w.name).join(", ")}
                         </p>
-                        <p className="text-xs text-muted-foreground mt-1">
+                        <p className="text-xs text-muted-foreground dark:text-[#4a5568] mt-1">
                           Click to resolve conflict.
                         </p>
                       </TooltipContent>
@@ -314,17 +320,17 @@ function WorkflowCard({ workflow, conflictInfo, onToggleActive, onDelete, onDupl
           </div>
         </div>
 
-        <p className="text-sm text-muted-foreground mb-4">
+        <p className="text-sm text-muted-foreground dark:text-[#8896a8] mb-4">
           {workflow.description || "No description"}
         </p>
 
-        <div className="flex items-center justify-between text-xs text-muted-foreground pt-3 border-t border-border">
+        <div className="flex items-center justify-between text-xs text-muted-foreground dark:text-[#4a5568] pt-3 border-t border-border dark:border-[rgba(255,255,255,0.06)]">
           <Badge
             variant="secondary"
             className={cn(
               workflow.is_active
-                ? "bg-success/10 text-success"
-                : "bg-warning/10 text-warning"
+                ? "bg-[rgba(0,230,118,0.1)] text-[#00e676] border-none"
+                : "bg-[rgba(255,145,0,0.1)] text-[#ff9100] border-none"
             )}
           >
             {workflow.is_active ? "Active" : "Paused"}
@@ -349,24 +355,24 @@ function WorkflowCard({ workflow, conflictInfo, onToggleActive, onDelete, onDupl
 
 function WorkflowCardSkeleton() {
   return (
-    <div className="bg-card rounded-xl border border-border p-5">
+    <div className="bg-card dark:bg-[#151c26] rounded-2xl border border-border dark:border-[rgba(255,255,255,0.06)] p-5">
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-3">
-          <Skeleton className="w-10 h-10 rounded-lg" />
+          <Skeleton className="w-10 h-10 rounded-lg dark:bg-[#1e2a3a]" />
           <div className="space-y-2">
-            <Skeleton className="h-5 w-32" />
-            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-5 w-32 dark:bg-[#1e2a3a]" />
+            <Skeleton className="h-4 w-24 dark:bg-[#1e2a3a]" />
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Skeleton className="h-8 w-8 rounded" />
-          <Skeleton className="h-8 w-8 rounded" />
+          <Skeleton className="h-8 w-8 rounded dark:bg-[#1e2a3a]" />
+          <Skeleton className="h-8 w-8 rounded dark:bg-[#1e2a3a]" />
         </div>
       </div>
-      <Skeleton className="h-4 w-full mb-4" />
-      <div className="flex items-center justify-between pt-3 border-t border-border">
-        <Skeleton className="h-5 w-16" />
-        <Skeleton className="h-4 w-32" />
+      <Skeleton className="h-4 w-full mb-4 dark:bg-[#1e2a3a]" />
+      <div className="flex items-center justify-between pt-3 border-t border-border dark:border-[rgba(255,255,255,0.06)]">
+        <Skeleton className="h-5 w-16 dark:bg-[#1e2a3a]" />
+        <Skeleton className="h-4 w-32 dark:bg-[#1e2a3a]" />
       </div>
     </div>
   );
@@ -711,14 +717,14 @@ export default function AutomationsPage() {
 
           {/* Conflict Warning Banner */}
           {conflictCount > 0 && (
-            <div className="mx-6 lg:mx-8 mb-4 p-4 bg-destructive/10 border border-destructive/30 rounded-lg">
+            <div className="mx-6 lg:mx-8 mb-4 p-4 bg-destructive/10 dark:bg-[rgba(255,82,82,0.1)] border border-destructive/30 dark:border-[rgba(255,82,82,0.3)] rounded-2xl">
               <div className="flex items-center gap-3">
-                <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
+                <AlertTriangle className="h-5 w-5 text-destructive dark:text-[#ff5252] shrink-0" />
                 <div>
-                  <p className="font-medium text-destructive">
+                  <p className="font-medium text-destructive dark:text-[#ff5252]">
                     {conflictCount} workflow{conflictCount > 1 ? "s have" : " has"} port conflicts
                   </p>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-muted-foreground dark:text-[#8896a8]">
                     Conflicting workflows target the same device port. Only one will execute per cron cycle.
                     Deactivate conflicting workflows or edit them to target different ports.
                   </p>
@@ -783,27 +789,27 @@ export default function AutomationsPage() {
               </div>
             ) : workflows.length > 0 ? (
               <div className="text-center py-16">
-                <Search className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
-                <h3 className="text-lg font-medium text-foreground mb-2">
+                <Search className="w-12 h-12 mx-auto text-muted-foreground/50 dark:text-[#4a5568] mb-4" />
+                <h3 className="text-lg font-medium text-foreground dark:text-[#e8edf4] mb-2">
                   No matching workflows
                 </h3>
-                <p className="text-sm text-muted-foreground mb-4">
+                <p className="text-sm text-muted-foreground dark:text-[#8896a8] mb-4">
                   Try adjusting your search or filter
                 </p>
-                <Button variant="outline" onClick={() => { setSearchQuery(""); setStatusFilter("all"); }}>
+                <Button variant="outline" onClick={() => { setSearchQuery(""); setStatusFilter("all"); }} className="dark:border-[rgba(255,255,255,0.1)] dark:text-[#8896a8] dark:hover:bg-[#1e2a3a] dark:hover:text-[#e8edf4]">
                   Clear filters
                 </Button>
               </div>
             ) : (
               <div className="text-center py-16">
-                <Workflow className="w-16 h-16 mx-auto text-muted-foreground/50 mb-4" />
-                <h3 className="text-lg font-medium text-foreground mb-2">
+                <Workflow className="w-16 h-16 mx-auto text-muted-foreground/50 dark:text-[#4a5568] mb-4" />
+                <h3 className="text-lg font-medium text-foreground dark:text-[#e8edf4] mb-2">
                   No workflows yet
                 </h3>
-                <p className="text-sm text-muted-foreground mb-6">
+                <p className="text-sm text-muted-foreground dark:text-[#8896a8] mb-6">
                   Create your first automation workflow
                 </p>
-                <Button asChild>
+                <Button asChild className="dark:bg-[#00d4ff] dark:text-[#0a0e14] dark:hover:bg-[#00d4ff]/90">
                   <Link href="/automations/builder">
                     <Plus className="h-4 w-4 mr-2" />
                     New Workflow

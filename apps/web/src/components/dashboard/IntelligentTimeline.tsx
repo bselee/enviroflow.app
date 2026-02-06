@@ -564,23 +564,27 @@ export function IntelligentTimeline({
   const vpdStats = useMemo(() => calculateMetricStats(sortedData, "vpd"), [sortedData]);
 
   // Auto-scale Y-axis domains based on actual data (with minimum spread per metric)
+  // Larger minimum spreads ensure visual variation even with stable conditions
   const tempDomain = useMemo((): [number, number] => {
     const values = sortedData.map(d => d.temperature).filter((v): v is number => v != null);
     if (values.length === 0) return tempUnit === "F" ? [60, 95] : [15, 35];
-    return autoDomain(values, 0.15, 0.5); // at least 0.5°C spread
+    // Use 5°C minimum spread for noticeable visual variation
+    return autoDomain(values, 0.2, 5);
   }, [sortedData, tempUnit]);
 
   const humDomain = useMemo((): [number, number] => {
     const values = sortedData.map(d => d.humidity).filter((v): v is number => v != null);
     if (values.length === 0) return [30, 80];
-    const domain = autoDomain(values, 0.15, 2); // at least 2% spread
+    // Use 10% minimum spread for meaningful humidity visualization
+    const domain = autoDomain(values, 0.2, 10);
     return [Math.max(0, domain[0]), Math.min(100, domain[1])];
   }, [sortedData]);
 
   const vpdDomain = useMemo((): [number, number] => {
     const values = sortedData.map(d => d.vpd).filter((v): v is number => v != null);
     if (values.length === 0) return [0, 2.5];
-    const domain = autoDomain(values, 0.2, 0.1); // at least 0.1 kPa spread
+    // Use 0.5 kPa minimum spread for VPD (typical range is 0.4-1.6 kPa)
+    const domain = autoDomain(values, 0.25, 0.5);
     return [Math.max(0, domain[0]), domain[1]];
   }, [sortedData]);
 

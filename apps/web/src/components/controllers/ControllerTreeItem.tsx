@@ -207,13 +207,13 @@ export function ControllerTreeItem({
     <Collapsible
       open={isExpanded}
       onOpenChange={handleToggle}
-      className="border rounded-lg overflow-hidden transition-all"
+      className="bg-card dark:bg-[#151c26] rounded-2xl border border-border dark:border-[rgba(255,255,255,0.06)] overflow-hidden transition-all duration-200 hover:border-border/80 dark:hover:border-[rgba(0,212,255,0.3)] hover:shadow-lg dark:hover:shadow-[0_0_20px_rgba(0,212,255,0.1)]"
     >
       {/* Controller Header */}
       <div
         className={cn(
-          "flex items-center gap-3 px-4 py-3 bg-card",
-          isExpanded && "border-b"
+          "flex items-center gap-3 px-4 py-3 bg-card dark:bg-[#151c26]",
+          isExpanded && "border-b border-border dark:border-[rgba(255,255,255,0.06)]"
         )}
       >
         {/* Expand/Collapse Button */}
@@ -231,36 +231,40 @@ export function ControllerTreeItem({
         <div
           className={cn(
             "w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0",
-            isOnline ? "bg-success/10" : "bg-muted"
+            isOnline
+              ? "bg-[rgba(0,230,118,0.1)] dark:bg-[rgba(0,230,118,0.1)]"
+              : "bg-muted dark:bg-[#1e2a3a]"
           )}
         >
           {isOnline ? (
-            <Wifi className="w-5 h-5 text-success" />
+            <Wifi className="w-5 h-5 text-[#00e676]" />
           ) : (
-            <WifiOff className="w-5 h-5 text-muted-foreground" />
+            <WifiOff className="w-5 h-5 text-muted-foreground dark:text-[#4a5568]" />
           )}
         </div>
 
         {/* Controller Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-semibold text-foreground truncate">{controller.name}</h3>
+            <h3 className="font-semibold text-foreground dark:text-[#e8edf4] truncate">{controller.name}</h3>
             <Badge
               variant="secondary"
               className={cn(
                 "text-xs",
-                isOnline ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"
+                isOnline
+                  ? "bg-[rgba(0,230,118,0.1)] text-[#00e676] border-none"
+                  : "bg-muted dark:bg-[#1e2a3a] text-muted-foreground dark:text-[#4a5568]"
               )}
             >
               {isOnline ? "Online" : "Offline"}
             </Badge>
             {controller.room && (
-              <Badge variant="outline" className="text-xs">
+              <Badge variant="outline" className="text-xs dark:border-[rgba(255,255,255,0.1)] dark:text-[#8896a8]">
                 {controller.room.name}
               </Badge>
             )}
           </div>
-          <p className="text-xs text-muted-foreground capitalize mt-0.5">
+          <p className="text-xs text-muted-foreground dark:text-[#4a5568] capitalize mt-0.5">
             {controller.brand.replace("_", " ")}
             {controller.model && ` • ${controller.model}`}
           </p>
@@ -270,25 +274,25 @@ export function ControllerTreeItem({
         {!isExpanded && (liveSensor || hasSensorData) && (
           <div className="hidden md:flex items-center gap-3 text-sm flex-shrink-0">
             {(liveSensor?.temperature ?? sensorData.temperature) !== null && (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-500/10">
-                <Thermometer className="w-3.5 h-3.5 text-red-500" />
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-500/10 dark:bg-[rgba(255,82,82,0.1)]">
+                <Thermometer className="w-3.5 h-3.5 text-red-500 dark:text-[#ff5252]" />
                 <span className="tabular-nums font-medium text-red-600 dark:text-red-400">
                   {formatTemperature(liveSensor?.temperature ?? sensorData.temperature, tempUnit)}
                 </span>
               </div>
             )}
             {(liveSensor?.humidity ?? sensorData.humidity) !== null && (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-500/10">
-                <Droplets className="w-3.5 h-3.5 text-blue-500" />
-                <span className="tabular-nums font-medium text-blue-600 dark:text-blue-400">
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-500/10 dark:bg-[rgba(0,212,255,0.1)]">
+                <Droplets className="w-3.5 h-3.5 text-blue-500 dark:text-[#00d4ff]" />
+                <span className="tabular-nums font-medium text-blue-600 dark:text-[#00d4ff]">
                   {(liveSensor?.humidity ?? sensorData.humidity)?.toFixed(1)}%
                 </span>
               </div>
             )}
             {(liveSensor?.vpd ?? sensorData.vpd) !== null && (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-green-500/10">
-                <Gauge className="w-3.5 h-3.5 text-green-500" />
-                <span className="tabular-nums font-medium text-green-600 dark:text-green-400">
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[rgba(179,136,255,0.1)]">
+                <Gauge className="w-3.5 h-3.5 text-[#b388ff]" />
+                <span className="tabular-nums font-medium text-[#b388ff]">
                   {(liveSensor?.vpd ?? sensorData.vpd)?.toFixed(2)}
                 </span>
               </div>
@@ -297,7 +301,7 @@ export function ControllerTreeItem({
         )}
 
         {/* Last Seen */}
-        <div className="hidden sm:block text-xs text-muted-foreground flex-shrink-0">
+        <div className="hidden sm:block text-xs text-muted-foreground dark:text-[#4a5568] flex-shrink-0">
           {formatRelativeTime(controller.last_seen)}
         </div>
 
@@ -346,46 +350,47 @@ export function ControllerTreeItem({
 
       {/* Expanded Content */}
       <CollapsibleContent>
-        <div className="bg-muted/10 px-4 py-4">
+        <div className="bg-muted/10 dark:bg-[#1e2a3a] px-4 py-4">
           {/* Live Sensor Data Section */}
           {(liveSensor || hasSensorData) && (
-            <div className="flex flex-wrap items-center gap-4 mb-4 pb-3 border-b border-border/50">
+            <div className="flex flex-wrap items-center gap-4 mb-4 pb-3 border-b border-border/50 dark:border-[rgba(255,255,255,0.06)]">
               {(liveSensor?.temperature ?? sensorData.temperature) !== null && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10">
-                  <Thermometer className="w-5 h-5 text-red-500" />
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 dark:bg-[rgba(255,82,82,0.1)]">
+                  <Thermometer className="w-5 h-5 text-red-500 dark:text-[#ff5252]" />
                   <div className="text-right">
                     <span className="text-lg font-bold tabular-nums text-red-600 dark:text-red-400">
                       {formatTemperature(liveSensor?.temperature ?? sensorData.temperature, tempUnit)}
                     </span>
-                    <p className="text-[10px] text-muted-foreground">Temperature</p>
+                    <p className="text-[10px] text-muted-foreground dark:text-[#4a5568] uppercase tracking-[1px]">Temperature</p>
                   </div>
                 </div>
               )}
               {(liveSensor?.humidity ?? sensorData.humidity) !== null && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10">
-                  <Droplets className="w-5 h-5 text-blue-500" />
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 dark:bg-[rgba(0,212,255,0.1)]">
+                  <Droplets className="w-5 h-5 text-blue-500 dark:text-[#00d4ff]" />
                   <div className="text-right">
-                    <span className="text-lg font-bold tabular-nums text-blue-600 dark:text-blue-400">
+                    <span className="text-lg font-bold tabular-nums text-blue-600 dark:text-[#00d4ff]">
                       {(liveSensor?.humidity ?? sensorData.humidity)?.toFixed(1)}%
                     </span>
-                    <p className="text-[10px] text-muted-foreground">Humidity</p>
+                    <p className="text-[10px] text-muted-foreground dark:text-[#4a5568] uppercase tracking-[1px]">Humidity</p>
                   </div>
                 </div>
               )}
               {(liveSensor?.vpd ?? sensorData.vpd) !== null && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-500/10">
-                  <Gauge className="w-5 h-5 text-green-500" />
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[rgba(179,136,255,0.1)]">
+                  <Gauge className="w-5 h-5 text-[#b388ff]" />
                   <div className="text-right">
-                    <span className="text-lg font-bold tabular-nums text-green-600 dark:text-green-400">
+                    <span className="text-lg font-bold tabular-nums text-[#b388ff]">
                       {(liveSensor?.vpd ?? sensorData.vpd)?.toFixed(2)}
                     </span>
-                    <p className="text-[10px] text-muted-foreground">VPD (kPa)</p>
+                    <p className="text-[10px] text-muted-foreground dark:text-[#4a5568] uppercase tracking-[1px]">VPD (kPa)</p>
                   </div>
                 </div>
               )}
               {liveSensor && (
-                <Badge variant="outline" className="text-[10px] text-green-600 border-green-600/30">
-                  ● Live
+                <Badge variant="outline" className="text-[10px] text-[#00e676] border-[#00e676]/30 dark:bg-[rgba(0,230,118,0.1)]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#00e676] mr-1.5 shadow-[0_0_4px_rgba(0,230,118,0.5)]"></span>
+                  Live
                 </Badge>
               )}
             </div>
@@ -393,10 +398,10 @@ export function ControllerTreeItem({
 
           {/* Offline Warning */}
           {!isOnline && (controller.last_error || offlineForLong) && (
-            <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-900">
+            <div className="mb-4 p-3 bg-amber-50 dark:bg-[rgba(255,145,0,0.1)] rounded-lg border border-amber-200 dark:border-[rgba(255,145,0,0.3)]">
               <div className="flex items-start gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
-                <div className="text-xs text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-[#ff9100] mt-0.5 flex-shrink-0" />
+                <div className="text-xs text-amber-700 dark:text-[#ff9100]">
                   {controller.last_error ? (
                     <p>{controller.last_error}</p>
                   ) : offlineForLong ? (
@@ -409,28 +414,28 @@ export function ControllerTreeItem({
 
           {/* Devices/Ports Section */}
           <div className="space-y-2">
-            <div className="text-xs font-semibold text-foreground mb-3">
-              Ports {hasLivePorts && <Badge variant="outline" className="text-[10px] text-green-600 border-green-600/30 ml-1">Live</Badge>}
+            <div className="text-[10px] font-semibold text-foreground dark:text-[#8896a8] uppercase tracking-[1.5px] mb-3">
+              Ports {hasLivePorts && <Badge variant="outline" className="text-[10px] text-[#00e676] border-[#00e676]/30 dark:bg-[rgba(0,230,118,0.1)] ml-1 normal-case tracking-normal">Live</Badge>}
             </div>
 
             {isLoadingDevices && !hasLivePorts ? (
               <div className="flex items-center justify-center py-6">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                <span className="ml-2 text-sm text-muted-foreground">Loading devices from {controller.brand.replace("_", " ")}...</span>
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground dark:text-[#00d4ff]" />
+                <span className="ml-2 text-sm text-muted-foreground dark:text-[#8896a8]">Loading devices from {controller.brand.replace("_", " ")}...</span>
               </div>
             ) : devicesError && !hasLivePorts ? (
               <div className="text-center py-4">
-                <p className="text-sm text-destructive mb-1">{devicesError}</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-destructive dark:text-[#ff5252] mb-1">{devicesError}</p>
+                <p className="text-xs text-muted-foreground dark:text-[#4a5568]">
                   Check Vercel logs for details. Common issues: rate limiting, expired credentials.
                 </p>
               </div>
             ) : devices.length === 0 ? (
-              <div className="text-center py-4 text-sm text-muted-foreground">
+              <div className="text-center py-4 text-sm text-muted-foreground dark:text-[#4a5568]">
                 No devices found. The controller may be offline or have no connected devices.
               </div>
             ) : (
-              <div className="space-y-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {devices.map((device) => (
                   <DeviceTreeItem
                     key={device.port}
@@ -444,11 +449,14 @@ export function ControllerTreeItem({
           </div>
 
           {/* Footer Info - Cleaner display */}
-          <div className="mt-4 pt-3 border-t border-border/50 text-[10px] text-muted-foreground/70">
+          <div className="mt-4 pt-3 border-t border-border/50 dark:border-[rgba(255,255,255,0.06)] text-[10px] text-muted-foreground/70 dark:text-[#4a5568]">
             <div className="flex justify-between items-center">
               <span className="font-mono">ID: {controller.controller_id.slice(0, 8)}...</span>
               {liveSensor ? (
-                <span className="text-green-600">Live • Updated {formatRelativeTime(liveSensor.lastUpdate)}</span>
+                <span className="text-[#00e676]">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#00e676] mr-1 shadow-[0_0_4px_rgba(0,230,118,0.5)]"></span>
+                  Live • Updated {formatRelativeTime(liveSensor.lastUpdate)}
+                </span>
               ) : (
                 <span>Last seen: {formatRelativeTime(controller.last_seen)}</span>
               )}

@@ -83,7 +83,8 @@ export default function DashboardPage(): JSX.Element {
   }, [liveSensors, selectedControllerId]);
 
   // Determine if we need historical data from Supabase
-  const needsHistory = ['7d', '30d', '60d'].includes(timeRange);
+  // Include 24h/1d since live polling only has ~50 minutes of data
+  const needsHistory = ['24h', '1d', '7d', '30d', '60d'].includes(timeRange);
   const historyDays = timeRange === '60d' ? 60 : timeRange === '30d' ? 30 : 10;
 
   // Historical sensor data from Supabase - pass controllerIds for filtering
