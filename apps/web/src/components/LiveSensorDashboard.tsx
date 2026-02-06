@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { RefreshCw, WifiOff, Activity } from "lucide-react";
+import { RefreshCw, WifiOff, Activity, Fan, Lightbulb, Droplets, Flame, Power } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -170,25 +170,95 @@ function SensorCard({ sensor, tempUnit }: { sensor: LiveSensor; tempUnit: Temper
 }
 
 /**
+ * Get device type icon component based on port device type.
+ * Uses outlined Lucide icons for modern, clean look.
+ */
+function getDeviceIcon(deviceType: string | undefined, isOn: boolean) {
+  const iconClass = cn(
+    "w-4 h-4 shrink-0",
+    isOn ? "text-foreground dark:text-[#e8edf4]" : "text-muted-foreground dark:text-[#4a5568]"
+  );
+
+  switch (deviceType) {
+    case 'fan':
+      return <Fan className={iconClass} />;
+    case 'light':
+      return <Lightbulb className={iconClass} />;
+    case 'humidifier':
+      return <Droplets className={iconClass} />;
+    case 'heater':
+      return <Flame className={iconClass} />;
+    default:
+      return <Power className={iconClass} />;
+  }
+}
+
+/**
+ * Get mode badge label and styling.
+ */
+function getModeBadge(mode: string | undefined, isOn: boolean) {
+  if (!mode || mode === 'off' || mode === 'on') return null;
+
+  const modeLabels: Record<string, string> = {
+    auto: 'AUTO',
+    vpd: 'VPD',
+    timer: 'TIMER',
+    cycle: 'CYCLE',
+    schedule: 'SCHED',
+    advance: 'ADV',
+  };
+
+  const label = modeLabels[mode];
+  if (!label) return null;
+
+  // VPD mode gets purple styling, others get cyan
+  const isPurple = mode === 'vpd';
+
+  return (
+    <span
+      className={cn(
+        "text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded",
+        isPurple
+          ? "bg-[#b388ff]/20 text-[#b388ff]"
+          : "bg-[#00d4ff]/20 text-[#00d4ff]"
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
+/**
  * Port tile component for the port grid.
- * Shows port name and speed level with appropriate styling.
+ * Shows device type icon, port name, mode badge, and speed level.
  */
 function PortTile({ port }: { port: LivePort }) {
+  const modeBadge = getModeBadge(port.mode, port.isOn);
+
   return (
     <div
       className={cn(
-        "flex items-center justify-between p-2.5 rounded-lg text-[12px] transition-colors",
+        "flex items-center gap-2 p-2.5 rounded-lg text-[12px] transition-colors",
         port.isOn
           ? "bg-[rgba(0,230,118,0.08)] dark:bg-[rgba(0,230,118,0.1)]"
           : "bg-muted dark:bg-[#1e2a3a]"
       )}
     >
-      <span className="text-muted-foreground dark:text-[#8896a8] truncate font-medium">
-        {port.name}
-      </span>
+      {/* Device Type Icon */}
+      {getDeviceIcon(port.deviceType, port.isOn)}
+
+      {/* Port Name + Mode Badge */}
+      <div className="flex-1 min-w-0 flex items-center gap-1.5">
+        <span className="text-muted-foreground dark:text-[#8896a8] truncate font-medium">
+          {port.name}
+        </span>
+        {modeBadge}
+      </div>
+
+      {/* Speed Level */}
       <span
         className={cn(
-          "font-mono font-bold text-[16px] shrink-0 ml-2",
+          "font-mono font-bold text-[16px] shrink-0",
           port.isOn
             ? "text-cyan-500 dark:text-[#00d4ff]"
             : "text-muted-foreground dark:text-[#4a5568]"

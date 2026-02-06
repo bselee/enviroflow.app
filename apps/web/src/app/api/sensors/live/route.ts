@@ -41,11 +41,16 @@ interface LiveSensor {
   ports?: LivePort[]
 }
 
+type PortDeviceType = 'fan' | 'light' | 'outlet' | 'humidifier' | 'heater'
+type PortMode = 'off' | 'on' | 'auto' | 'vpd' | 'timer' | 'cycle' | 'schedule' | 'advance'
+
 interface LivePort {
   portId: number
   name: string
   speed: number // 0-100 percentage (converted from AC Infinity's 0-10 scale)
   isOn: boolean
+  deviceType?: PortDeviceType  // Device type (fan, light, humidifier, etc.)
+  mode?: PortMode              // Operating mode (auto, vpd, timer, etc.)
 }
 
 interface LiveSensorResponse {
@@ -80,11 +85,15 @@ interface ACInfinityDevice {
 }
 
 interface ACInfinityPort {
+  port?: number
   portId: number
   portName?: string
-  loadType?: number
-  speak?: number // Speed 0-10
-  surplus?: number // On/off state
+  loadType?: number   // Device type: 0/6=fan, 2=humidifier, 128=light
+  speak?: number      // Speed 0-10
+  surplus?: number    // On/off state
+  online?: number     // Online status
+  loadState?: number  // Load state (1=on)
+  curMode?: number    // Current mode: 1=on, 2=auto, 3=timer, 4=cycle, 5=schedule, 6=vpd, 7=advance
 }
 
 interface ACInfinitySensor {
@@ -200,6 +209,38 @@ function extractSensorData(device: ACInfinityDevice): {
 }
 
 /**
+ * Map AC Infinity loadType to device type string
+ * loadType: 0/6=fan, 2=humidifier, 128=light
+ */
+function mapLoadTypeToDeviceType(loadType: number | undefined): PortDeviceType {
+  if (loadType === undefined) return 'outlet'
+  if (loadType === 0 || loadType === 6) return 'fan'
+  if (loadType === 2) return 'humidifier'
+  if (loadType === 128) return 'light'
+  if (loadType === 3) return 'heater'
+  return 'outlet'
+}
+
+/**
+ * Map AC Infinity curMode to mode string
+ * curMode: 0=off, 1=on, 2=auto, 3=timer, 4=cycle, 5=schedule, 6=vpd, 7=advance
+ */
+function mapCurModeToMode(curMode: number | undefined, isOn: boolean): PortMode {
+  if (curMode === undefined) return isOn ? 'on' : 'off'
+  switch (curMode) {
+    case 0: return 'off'
+    case 1: return 'on'
+    case 2: return 'auto'
+    case 3: return 'timer'
+    case 4: return 'cycle'
+    case 5: return 'schedule'
+    case 6: return 'vpd'
+    case 7: return 'advance'
+    default: return isOn ? 'on' : 'off'
+  }
+}
+
+/**
  * Extract port information from device.
  * Note: AC Infinity uses 0-10 scale for speed, convert to 0-100 percentage
  */
@@ -211,12 +252,17 @@ function extractPorts(device: ACInfinityDevice): LivePort[] {
   }
 
   return ports
-    .map((port: ACInfinityPort) => ({
-      portId: port.port || port.portId,
-      name: port.portName || `Port ${port.port || port.portId}`,
-      speed: (port.speak ?? 0) * 10, // Convert 0-10 scale to 0-100 percentage
-      isOn: port.loadState === 1 || (port.surplus ?? 0) > 0 || port.online === 1,
-    }))
+    .map((port: ACInfinityPort) => {
+      const isOn = port.loadState === 1 || (port.surplus ?? 0) > 0 || port.online === 1
+      return {
+        portId: port.port || port.portId,
+        name: port.portName || `Port ${port.port || port.portId}`,
+        speed: (port.speak ?? 0) * 10, // Convert 0-10 scale to 0-100 percentage
+        isOn,
+        deviceType: mapLoadTypeToDeviceType(port.loadType),
+        mode: mapCurModeToMode(port.curMode, isOn),
+      }
+    })
     .filter((port) => port.portId > 0) // Only include valid ports
 }
 

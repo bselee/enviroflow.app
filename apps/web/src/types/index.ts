@@ -1129,6 +1129,16 @@ export interface LiveSensor {
 }
 
 /**
+ * Device type for AC Infinity ports
+ */
+export type PortDeviceType = 'fan' | 'light' | 'outlet' | 'humidifier' | 'heater';
+
+/**
+ * Operating mode for AC Infinity ports
+ */
+export type PortMode = 'off' | 'on' | 'auto' | 'vpd' | 'timer' | 'cycle' | 'schedule' | 'advance';
+
+/**
  * Live port status from AC Infinity device
  */
 export interface LivePort {
@@ -1136,6 +1146,8 @@ export interface LivePort {
   name: string;
   speed: number;  // 0-100 percentage (converted from AC Infinity's 0-10 scale)
   isOn: boolean;
+  deviceType?: PortDeviceType;  // Device type (fan, light, humidifier, etc.)
+  mode?: PortMode;              // Operating mode (auto, vpd, timer, etc.)
 }
 
 /**
