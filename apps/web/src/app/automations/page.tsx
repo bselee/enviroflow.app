@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Play, Pause, MoreVertical, Workflow, AlertTriangle, LayoutTemplate, Zap, Search, Copy, Download, Upload, BookMarked } from "lucide-react";
+import { Plus, Play, Pause, MoreVertical, Workflow, AlertTriangle, LayoutTemplate, Zap, Search, Copy, Download, Upload, BookMarked, FileText, Sparkles } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +23,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Tooltip,
   TooltipContent,
@@ -385,6 +392,7 @@ export default function AutomationsPage() {
   const { conflicts, refresh: refreshConflicts } = useWorkflowConflicts();
   const { toast } = useToast();
   const [templateGalleryOpen, setTemplateGalleryOpen] = React.useState(false);
+  const [newWorkflowDialogOpen, setNewWorkflowDialogOpen] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Filter state
@@ -697,15 +705,64 @@ export default function AutomationsPage() {
                   className="hidden"
                   onChange={handleImport}
                 />
-                <Button asChild>
-                  <Link href="/automations/builder">
-                    <Plus className="h-4 w-4 mr-2" />
-                    New Workflow
-                  </Link>
+                <Button onClick={() => setNewWorkflowDialogOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  New Workflow
                 </Button>
               </div>
             }
           />
+
+          {/* New Workflow Dialog - Ask template or scratch */}
+          <Dialog open={newWorkflowDialogOpen} onOpenChange={setNewWorkflowDialogOpen}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Create New Workflow</DialogTitle>
+                <DialogDescription>
+                  Choose how you want to start your automation
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <button
+                  onClick={() => {
+                    setNewWorkflowDialogOpen(false);
+                    setTemplateGalleryOpen(true);
+                  }}
+                  className="flex items-start gap-4 p-4 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-all text-left group"
+                >
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 group-hover:bg-primary/20 transition-colors">
+                    <Sparkles className="h-6 w-6 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-foreground">Use a Template</h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Start with a pre-configured workflow for common grow scenarios like VPD control, humidity management, or light schedules.
+                    </p>
+                    <Badge variant="secondary" className="mt-2 text-xs">
+                      Recommended
+                    </Badge>
+                  </div>
+                </button>
+                <button
+                  onClick={() => {
+                    setNewWorkflowDialogOpen(false);
+                    router.push("/automations/builder");
+                  }}
+                  className="flex items-start gap-4 p-4 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-all text-left group"
+                >
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-muted group-hover:bg-muted/80 transition-colors">
+                    <FileText className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-foreground">Start from Scratch</h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Build a custom workflow from the ground up with full control over triggers, conditions, and actions.
+                    </p>
+                  </div>
+                </button>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* Template Gallery Modal */}
           <TemplateGallery
@@ -809,11 +866,12 @@ export default function AutomationsPage() {
                 <p className="text-sm text-muted-foreground dark:text-[#8896a8] mb-6">
                   Create your first automation workflow
                 </p>
-                <Button asChild className="dark:bg-[#00d4ff] dark:text-[#0a0e14] dark:hover:bg-[#00d4ff]/90">
-                  <Link href="/automations/builder">
-                    <Plus className="h-4 w-4 mr-2" />
-                    New Workflow
-                  </Link>
+                <Button
+                  onClick={() => setNewWorkflowDialogOpen(true)}
+                  className="dark:bg-[#00d4ff] dark:text-[#0a0e14] dark:hover:bg-[#00d4ff]/90"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  New Workflow
                 </Button>
               </div>
             )}
