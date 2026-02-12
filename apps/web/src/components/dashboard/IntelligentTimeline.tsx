@@ -393,19 +393,44 @@ export function IntelligentTimeline({
   }, []);
 
   // Chart container width via ResizeObserver for SVG chart sizing
-  const chartContainerRef = useRef<HTMLDivElement>(null);
   const [chartWidth, setChartWidth] = useState(0);
+  const observerRef = useRef<ResizeObserver | null>(null);
 
-  useEffect(() => {
-    const el = chartContainerRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver((entries) => {
+  // Ref callback - fires immediately when element mounts, before effects
+  const chartContainerRef = useCallback((node: HTMLDivElement | null) => {
+    // Clean up previous observer
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+
+    if (!node) return;
+
+    // Immediately measure width on mount
+    const initialWidth = node.getBoundingClientRect().width;
+    if (initialWidth > 0) {
+      setChartWidth(Math.floor(initialWidth));
+    }
+
+    // Set up ResizeObserver for dynamic resizing
+    observerRef.current = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        setChartWidth(Math.floor(entry.contentRect.width));
+        const width = Math.floor(entry.contentRect.width);
+        if (width > 0) {
+          setChartWidth(width);
+        }
       }
     });
-    observer.observe(el);
-    return () => observer.disconnect();
+    observerRef.current.observe(node);
+  }, []);
+
+  // Clean up observer on unmount
+  useEffect(() => {
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
   }, []);
 
   // Device activity visibility
@@ -643,10 +668,11 @@ export function IntelligentTimeline({
           <div
             ref={chartContainerRef}
             className="w-full relative rounded-xl overflow-hidden"
+            style={{ minHeight: CHART_HEIGHT }}
             role="img"
             aria-label={`Sensor data chart for the last ${TIME_RANGE_LABELS[timeRange]}`}
           >
-            {chartWidth > 0 && (
+            {chartWidth > 0 ? (
               <EnviroSensorChart
                 data={sortedData}
                 width={chartWidth}
@@ -658,6 +684,16 @@ export function IntelligentTimeline({
                 tempUnit={tempUnit}
                 convertTemp={(v) => convertTemperatureFromCelsius(v, tempUnit)}
               />
+            ) : (
+              <div
+                className="flex items-center justify-center bg-muted/20 rounded-lg"
+                style={{ height: CHART_HEIGHT }}
+              >
+                <div className="text-center">
+                  <div className="w-6 h-6 mx-auto border-2 border-primary/30 border-t-primary rounded-full animate-spin mb-2" />
+                  <span className="text-xs text-muted-foreground">Loading chart...</span>
+                </div>
+              </div>
             )}
           </div>
 

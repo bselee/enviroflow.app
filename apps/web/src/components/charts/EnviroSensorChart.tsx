@@ -147,13 +147,18 @@ export const EnviroSensorChart = memo(function EnviroSensorChart({
 
   // ── Data geometry ──────────────────────────────────────────────────────────
   const chart = useMemo(() => {
-    if (data.length < 2 || cw <= 0 || ch <= 0) return null;
+    if (data.length === 0 || cw <= 0 || ch <= 0) return null;
     const t0 = data[0]._ts;
     const t1 = data[data.length - 1]._ts;
     const dur = t1 - t0;
-    if (dur === 0) return null;
 
-    const xS = (t: number) => P.left + ((t - t0) / dur) * cw;
+    // Handle single-point or zero-duration: show a 1-hour window centred on the point
+    const singlePoint = dur === 0;
+    const effectiveT0 = singlePoint ? t0 - 1_800_000 : t0;  // 30min before
+    const effectiveT1 = singlePoint ? t1 + 1_800_000 : t1;  // 30min after
+    const effectiveDur = effectiveT1 - effectiveT0;
+
+    const xS = (t: number) => P.left + ((t - effectiveT0) / effectiveDur) * cw;
 
     type MetricEntry = {
       key: string;
@@ -173,7 +178,7 @@ export const EnviroSensorChart = memo(function EnviroSensorChart({
         const v = d[key];
         if (v != null) raw.push({ ts: d._ts, v });
       }
-      if (raw.length < 2) continue;
+      if (raw.length === 0) continue;
 
       const vals = raw.map((r) => r.v);
       const ms = key === "vpd" ? 0.5 : key === "humidity" ? 10 : 5;
@@ -204,17 +209,17 @@ export const EnviroSensorChart = memo(function EnviroSensorChart({
     const tCount = Math.min(7, Math.max(3, Math.floor(cw / 100)));
     const tLabels: { x: number; text: string }[] = [];
     for (let i = 0; i <= tCount; i++) {
-      const t = t0 + (dur * i) / tCount;
+      const t = effectiveT0 + (effectiveDur * i) / tCount;
       const d = new Date(t);
       if (!isValid(d)) continue;
       let text: string;
-      if (dur <= 86_400_000) text = format(d, "h:mm a");
-      else if (dur <= 604_800_000) text = format(d, "EEE ha");
+      if (effectiveDur <= 86_400_000) text = format(d, "h:mm a");
+      else if (effectiveDur <= 604_800_000) text = format(d, "EEE ha");
       else text = format(d, "MMM d");
       tLabels.push({ x: P.left + (cw * i) / tCount, text });
     }
 
-    return { entries, t0, t1, dur, xS, tLabels };
+    return { entries, t0: effectiveT0, t1: effectiveT1, dur: effectiveDur, xS, tLabels };
   }, [data, visible, cw, ch, P]);
 
   // ── Hover index ────────────────────────────────────────────────────────────
@@ -246,7 +251,18 @@ export const EnviroSensorChart = memo(function EnviroSensorChart({
   const handleLeave = useCallback(() => onHoverChange(null), [onHoverChange]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
-  if (!chart || cw <= 0 || ch <= 0) return null;
+  // Debug logging for chart rendering issues
+  if (!chart || cw <= 0 || ch <= 0) {
+    console.warn('[EnviroSensorChart] Cannot render:', {
+      hasChart: !!chart,
+      dataLength: data.length,
+      width,
+      height,
+      cw,
+      ch,
+    });
+    return null;
+  }
 
   const { entries, xS, tLabels } = chart;
   const keys = Object.keys(entries);
@@ -401,6 +417,54 @@ export const EnviroSensorChart = memo(function EnviroSensorChart({
             opacity={0.88}
           />
         ))}
+
+        {/* ── Single-point dots (when only 1 data point per metric) ── */}
+        {keys.map((k) => {
+          const e = entries[k];
+          if (e.pts.length !== 1) return null;
+          return (
+            <g key={`sp-${k}`}>
+              <circle
+                cx={e.pts[0].x}
+                cy={e.pts[0].y}
+                r={6}
+                fill={METRICS[k].color}
+                opacity={0.2}
+              />
+              <circle
+                cx={e.pts[0].x}
+                cy={e.pts[0].y}
+                r={4}
+                fill="hsl(var(--background))"
+                stroke={METRICS[k].color}
+                strokeWidth={2}
+              />
+              {/* Pulsing ring for single point */}
+              <circle
+                cx={e.pts[0].x}
+                cy={e.pts[0].y}
+                r={8}
+                fill="none"
+                stroke={METRICS[k].color}
+                strokeWidth={1}
+                opacity={0.4}
+              >
+                <animate
+                  attributeName="r"
+                  values="4;12"
+                  dur="2s"
+                  repeatCount="indefinite"
+                />
+                <animate
+                  attributeName="opacity"
+                  values="0.5;0"
+                  dur="2s"
+                  repeatCount="indefinite"
+                />
+              </circle>
+            </g>
+          );
+        })}
 
         {/* ── Left Y-axis labels ── */}
         {yLeft.map((l, i) => (

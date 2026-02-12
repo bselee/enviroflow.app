@@ -83,56 +83,32 @@ export default function DashboardPage(): JSX.Element {
     }
   }, [liveSensors, selectedControllerId]);
 
-  // Build controller ID mapping: AC Infinity device ID → Supabase UUID
-  // This is needed because liveSensors use AC Infinity device IDs, but
-  // the sensors/data API expects Supabase controller UUIDs
-  const controllerIdMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const controller of controllers) {
-      // controller.controller_id is the AC Infinity device ID
-      // controller.id is the Supabase UUID
-      if (controller.controller_id && controller.id) {
-        map.set(controller.controller_id, controller.id);
-      }
-    }
-    return map;
-  }, [controllers]);
-
-  // Convert selected AC Infinity ID to Supabase UUID for API calls
-  const selectedSupabaseId = useMemo(() => {
-    if (!selectedControllerId) return null;
-    // Check if selectedControllerId is already a Supabase UUID (36 chars with dashes)
-    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(selectedControllerId);
-    if (isUUID) return selectedControllerId;
-    // Otherwise, look up the mapping
-    return controllerIdMap.get(selectedControllerId) ?? null;
-  }, [selectedControllerId, controllerIdMap]);
+  // Both /api/sensors/data and /api/sensors/history now accept AC Infinity
+  // device IDs (controller_id column) directly — no UUID mapping needed.
 
   // Determine if we need historical data from Supabase
   // Include 24h/1d since live polling only has ~50 minutes of data
   const needsHistory = ['24h', '1d', '7d', '30d', '60d'].includes(timeRange);
   const historyDays = timeRange === '60d' ? 60 : timeRange === '30d' ? 30 : 10;
 
-  // Historical sensor data from Supabase - pass controllerIds for filtering
-  // Uses Supabase UUID (selectedSupabaseId), not AC Infinity device ID
+  // Historical sensor data from Supabase - pass controller device IDs for filtering
   const {
     data: historicalData,
     loading: historyLoading,
   } = useSensorHistory({
     days: historyDays as 10 | 30 | 60,
     enabled: needsHistory,
-    controllerIds: selectedSupabaseId ? [selectedSupabaseId] : undefined,
+    controllerIds: selectedControllerId ? [selectedControllerId] : undefined,
   });
 
   // New unified sensor data hook - fetches data with server-side aggregation
   // Also fetches device state data for the waveform chart
-  // Uses Supabase UUID (selectedSupabaseId), not AC Infinity device ID
   const {
     sensorData: unifiedSensorData,
     deviceStateData,
     loading: sensorDataLoading,
   } = useSensorData({
-    controllerId: selectedSupabaseId,
+    controllerId: selectedControllerId,
     timeRange,
     includeDeviceState: true,
     enabled: true,
@@ -144,6 +120,75 @@ export default function DashboardPage(): JSX.Element {
   const controllerOptions = useMemo((): ControllerOption[] => {
     return liveSensors.map(s => ({ id: s.id, name: s.name }));
   }, [liveSensors]);
+
+  /**
+   * Merge historical device state data with current live port states.
+   * This ensures the waveform chart shows current device states even if
+   * no historical state changes are logged in the database.
+   *
+   * For devices without historical data, we assume they've been in their
+   * current state for the entire visible time range (creates flat line).
+   */
+  const enrichedDeviceStateData = useMemo(() => {
+    const now = new Date();
+    const nowISO = now.toISOString();
+
+    // Calculate start of time range based on current timeRange setting
+    const hoursMap: Record<string, number> = {
+      '1h': 1, '6h': 6, '24h': 24, '1d': 24, '7d': 168, '30d': 720, '60d': 1440
+    };
+    const hours = hoursMap[timeRange] || 24;
+    const rangeStart = new Date(now.getTime() - hours * 60 * 60 * 1000);
+    const rangeStartISO = rangeStart.toISOString();
+
+    const result: Record<string, Array<{ timestamp: string; state: boolean; speed: number }>> = {};
+
+    // First, copy historical data
+    if (deviceStateData) {
+      for (const [deviceName, points] of Object.entries(deviceStateData)) {
+        result[deviceName] = [...points];
+      }
+    }
+
+    // Then, inject current live port states from the selected controller
+    const selectedSensor = selectedControllerId
+      ? liveSensors.find(s => s.id === selectedControllerId)
+      : liveSensors[0];
+
+    if (selectedSensor?.ports) {
+      for (const port of selectedSensor.ports) {
+        const deviceName = port.name || `Port ${port.portId}`;
+        const existingPoints = result[deviceName] || [];
+
+        // If no historical data exists, add a point at the START of the range
+        // This creates a flat line showing the assumed state for the entire period
+        if (existingPoints.length === 0) {
+          result[deviceName] = [
+            {
+              timestamp: rangeStartISO,
+              state: port.isOn,
+              speed: port.speed,
+            },
+          ];
+        }
+
+        // Add current state as the latest point
+        const points = result[deviceName];
+        const lastPoint = points[points.length - 1];
+
+        // Only add if state differs OR if we need a closing point
+        if (!lastPoint || lastPoint.state !== port.isOn || lastPoint.speed !== port.speed || points.length === 1) {
+          result[deviceName].push({
+            timestamp: nowISO,
+            state: port.isOn,
+            speed: port.speed,
+          });
+        }
+      }
+    }
+
+    return result;
+  }, [deviceStateData, liveSensors, selectedControllerId, timeRange]);
 
   /**
    * Convert historical data to timeline format.
@@ -186,41 +231,75 @@ export default function DashboardPage(): JSX.Element {
   }, [historicalData]);
 
   /**
-   * Generate timeline data from the appropriate source.
-   * Priority:
-   * 1. Unified sensor data (from useSensorData hook - handles all time ranges with proper aggregation)
-   * 2. Historical data from Supabase (fallback for long ranges)
-   * 3. Live polling data (for short ranges when unified data is loading)
+   * Generate timeline data by MERGING all available sources.
+   *
+   * Instead of choosing one source, we merge and deduplicate so the chart
+   * always has the maximum number of data points — critical for the chart
+   * which needs ≥1 point to render.
+   *
+   * Sources (all merged, deduped by rounded timestamp):
+   * 1. Unified sensor data (from /api/sensors/data with server-side aggregation)
+   * 2. Historical data from Supabase (for long ranges)
+   * 3. Live polling data (accumulated every 15s from the direct API)
    * 4. Dashboard timeline data (final fallback)
    */
   const effectiveTimelineData = useMemo((): TimeSeriesData[] => {
-    // Prefer unified sensor data when available (properly aggregated for time range)
+    const byKey = new Map<string, TimeSeriesData>();
+
+    const addPoint = (p: TimeSeriesData) => {
+      // Round to nearest minute for dedup key
+      const d = new Date(p.timestamp);
+      d.setSeconds(0, 0);
+      const key = `${p.controllerId ?? 'all'}|${d.getTime()}`;
+      const existing = byKey.get(key);
+      if (!existing) {
+        byKey.set(key, { ...p, timestamp: d.toISOString() });
+      } else {
+        // Merge: prefer non-null values
+        if (p.temperature != null && existing.temperature == null) existing.temperature = p.temperature;
+        if (p.humidity != null && existing.humidity == null) existing.humidity = p.humidity;
+        if (p.vpd != null && existing.vpd == null) existing.vpd = p.vpd;
+      }
+    };
+
+    // 1. Unified sensor data (highest quality — server-aggregated)
     if (unifiedSensorData && unifiedSensorData.length > 0) {
-      return toTimeSeriesData(unifiedSensorData, selectedControllerId ?? undefined);
+      for (const point of toTimeSeriesData(unifiedSensorData, selectedControllerId ?? undefined)) {
+        addPoint(point);
+      }
     }
 
-    // For long ranges, use historical data from Supabase
+    // 2. Historical data from Supabase (for long ranges)
     if (needsHistory && transformedHistoricalData.length > 0) {
-      return transformedHistoricalData;
+      for (const point of transformedHistoricalData) {
+        addPoint(point);
+      }
     }
 
-    // For short ranges, use accumulated live history (now per-controller)
+    // 3. Live polling history (accumulated in-memory from direct API)
     if (liveHistory.length > 0) {
-      return liveHistory.map(point => ({
-        timestamp: point.timestamp,
-        temperature: point.temperature,
-        humidity: point.humidity,
-        vpd: point.vpd,
-        controllerId: point.controllerId,
-      }));
+      for (const point of liveHistory) {
+        addPoint({
+          timestamp: point.timestamp,
+          temperature: point.temperature,
+          humidity: point.humidity,
+          vpd: point.vpd,
+          controllerId: point.controllerId,
+        });
+      }
     }
 
-    // If we have database timeline data from dashboard hook, use it
-    if (timelineData.length > 0) {
-      return timelineData;
+    // 4. Dashboard timeline data (fallback)
+    if (byKey.size === 0 && timelineData.length > 0) {
+      for (const point of timelineData) {
+        addPoint(point);
+      }
     }
 
-    return [];
+    // Sort chronologically
+    const result = Array.from(byKey.values());
+    result.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    return result;
   }, [unifiedSensorData, selectedControllerId, needsHistory, transformedHistoricalData, liveHistory, timelineData]);
 
   const optimalRanges = useMemo(() => {
@@ -291,7 +370,7 @@ export default function DashboardPage(): JSX.Element {
                   onTimeRangeChange={handleTimeRangeChange}
                   optimalRanges={optimalRanges}
                   isLoading={needsHistory && historyLoading}
-                  deviceStateData={deviceStateData}
+                  deviceStateData={enrichedDeviceStateData}
                   isSensorDataLoading={sensorDataLoading}
                 />
               )}
