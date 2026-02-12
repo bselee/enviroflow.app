@@ -182,12 +182,31 @@ export async function GET(request: NextRequest): Promise<NextResponse<SensorData
     // Verify controller ownership if controllerId provided
     let validControllerId: string | null = null
     if (controllerId) {
-      const { data: controller, error: controllerError } = await supabase
+      // The frontend sends the AC Infinity devId (controller_id column),
+      // not the database UUID (id column). Try controller_id first, fall back to id.
+      let controller: { id: string } | null = null
+      let controllerError: unknown = null
+
+      const { data: byExtId, error: extErr } = await supabase
         .from('controllers')
         .select('id')
-        .eq('id', controllerId)
+        .eq('controller_id', controllerId)
         .eq('user_id', userId)
-        .single()
+        .maybeSingle()
+
+      if (byExtId) {
+        controller = byExtId
+      } else {
+        // Fallback: try matching by UUID id column
+        const { data: byId, error: idErr } = await supabase
+          .from('controllers')
+          .select('id')
+          .eq('id', controllerId)
+          .eq('user_id', userId)
+          .maybeSingle()
+        controller = byId
+        controllerError = idErr
+      }
 
       if (controllerError || !controller) {
         return NextResponse.json(

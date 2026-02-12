@@ -83,29 +83,56 @@ export default function DashboardPage(): JSX.Element {
     }
   }, [liveSensors, selectedControllerId]);
 
+  // Build controller ID mapping: AC Infinity device ID → Supabase UUID
+  // This is needed because liveSensors use AC Infinity device IDs, but
+  // the sensors/data API expects Supabase controller UUIDs
+  const controllerIdMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const controller of controllers) {
+      // controller.controller_id is the AC Infinity device ID
+      // controller.id is the Supabase UUID
+      if (controller.controller_id && controller.id) {
+        map.set(controller.controller_id, controller.id);
+      }
+    }
+    return map;
+  }, [controllers]);
+
+  // Convert selected AC Infinity ID to Supabase UUID for API calls
+  const selectedSupabaseId = useMemo(() => {
+    if (!selectedControllerId) return null;
+    // Check if selectedControllerId is already a Supabase UUID (36 chars with dashes)
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(selectedControllerId);
+    if (isUUID) return selectedControllerId;
+    // Otherwise, look up the mapping
+    return controllerIdMap.get(selectedControllerId) ?? null;
+  }, [selectedControllerId, controllerIdMap]);
+
   // Determine if we need historical data from Supabase
   // Include 24h/1d since live polling only has ~50 minutes of data
   const needsHistory = ['24h', '1d', '7d', '30d', '60d'].includes(timeRange);
   const historyDays = timeRange === '60d' ? 60 : timeRange === '30d' ? 30 : 10;
 
   // Historical sensor data from Supabase - pass controllerIds for filtering
+  // Uses Supabase UUID (selectedSupabaseId), not AC Infinity device ID
   const {
     data: historicalData,
     loading: historyLoading,
   } = useSensorHistory({
     days: historyDays as 10 | 30 | 60,
     enabled: needsHistory,
-    controllerIds: selectedControllerId ? [selectedControllerId] : undefined,
+    controllerIds: selectedSupabaseId ? [selectedSupabaseId] : undefined,
   });
 
   // New unified sensor data hook - fetches data with server-side aggregation
   // Also fetches device state data for the waveform chart
+  // Uses Supabase UUID (selectedSupabaseId), not AC Infinity device ID
   const {
     sensorData: unifiedSensorData,
     deviceStateData,
     loading: sensorDataLoading,
   } = useSensorData({
-    controllerId: selectedControllerId,
+    controllerId: selectedSupabaseId,
     timeRange,
     includeDeviceState: true,
     enabled: true,

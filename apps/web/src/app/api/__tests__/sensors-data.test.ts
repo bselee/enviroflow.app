@@ -43,10 +43,11 @@ function setupAuth(userId = 'user-123') {
   })
 }
 
-// Helper for chaining: from(table).select().eq().eq().single()
+// Helper for chaining: from(table).select().eq().eq().single() or .maybeSingle()
 function singleChain(result: { data: unknown; error: unknown }) {
   const mockSingle = jest.fn().mockResolvedValue(result)
-  const mockEq2 = jest.fn().mockReturnValue({ single: mockSingle })
+  const mockMaybeSingle = jest.fn().mockResolvedValue(result)
+  const mockEq2 = jest.fn().mockReturnValue({ single: mockSingle, maybeSingle: mockMaybeSingle })
   const mockEq1 = jest.fn().mockReturnValue({ eq: mockEq2 })
   const mockSelect = jest.fn().mockReturnValue({ eq: mockEq1 })
   return { select: mockSelect }
@@ -99,8 +100,17 @@ describe('GET /api/sensors/data', () => {
 
   it('returns 404 when controller not found', async () => {
     setupAuth()
+    // The route does two lookups: first by controller_id, then by id (UUID fallback).
+    // Both must return null for a 404.
+    let callCount = 0
     mockFrom.mockImplementation((table: string) => {
       if (table === 'controllers') {
+        callCount++
+        if (callCount === 1) {
+          // First call: lookup by controller_id — not found
+          return singleChain({ data: null, error: null })
+        }
+        // Second call: fallback lookup by id — also not found
         return singleChain({ data: null, error: { code: 'PGRST116' } })
       }
       return {}

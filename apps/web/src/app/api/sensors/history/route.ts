@@ -140,7 +140,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     if (controllerIdsParam) {
       const controllerIds = controllerIdsParam.split(',').filter(Boolean)
-      controllerQuery = controllerQuery.in('id', controllerIds)
+      // The frontend sends AC Infinity devIds (controller_id column),
+      // not database UUIDs (id column). Use controller_id for filtering.
+      controllerQuery = controllerQuery.in('controller_id', controllerIds)
     }
 
     const { data: controllers, error: controllerError } = await controllerQuery
