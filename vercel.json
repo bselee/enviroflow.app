@@ -11,7 +11,7 @@
     },
     {
       "path": "/api/cron/poll-sensors",
-      "schedule": "*/2 * * * *"
+      "schedule": "* * * * *"
     },
     {
       "path": "/api/cron/check-alerts",

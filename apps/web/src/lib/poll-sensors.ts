@@ -98,23 +98,42 @@ function validateSensorReading(reading: SensorReading): boolean {
 }
 
 // ============================================
-// Port Storage
+// Port Storage with State Change Detection
 // ============================================
 
 async function storeControllerPorts(
   supabase: SupabaseClient,
   dbControllerId: string,
   ports: PortState[]
-): Promise<{ success: boolean; count: number; error?: string }> {
+): Promise<{ success: boolean; count: number; stateChanges: number; error?: string }> {
   if (ports.length === 0) {
-    return { success: true, count: 0 }
+    return { success: true, count: 0, stateChanges: 0 }
   }
 
   console.log(`[storeControllerPorts] Storing ${ports.length} ports for ${dbControllerId}`)
 
   const now = new Date().toISOString()
+  let stateChangesLogged = 0
 
-  // Upsert ports (update if exists, insert if not)
+  // First, fetch previous port states to detect changes
+  const { data: previousPorts } = await supabase
+    .from('controller_ports')
+    .select('port_number, is_on, power_level, port_name')
+    .eq('controller_id', dbControllerId)
+
+  // Create a map of previous states for quick lookup
+  const previousStateMap = new Map<number, { isOn: boolean; powerLevel: number; portName: string }>()
+  if (previousPorts) {
+    for (const prev of previousPorts) {
+      previousStateMap.set(prev.port_number, {
+        isOn: prev.is_on ?? false,
+        powerLevel: prev.power_level ?? 0,
+        portName: prev.port_name || `Port ${prev.port_number}`
+      })
+    }
+  }
+
+  // Upsert ports and detect state changes
   for (const port of ports) {
     const portData = {
       controller_id: dbControllerId,
@@ -146,9 +165,47 @@ async function storeControllerPorts(
     if (error) {
       console.error(`[storeControllerPorts] Error upserting port ${port.port}:`, error.message)
     }
+
+    // Detect state change and log to device_state_log
+    const previous = previousStateMap.get(port.port)
+    const currentIsOn = port.isOn ?? false
+    const currentPowerLevel = port.powerLevel ?? 0
+    const currentSpeed = currentPowerLevel * 10 // Convert 0-10 to 0-100%
+
+    // Log if: state changed OR this is a new port (no previous state)
+    const stateChanged = !previous ||
+                         previous.isOn !== currentIsOn ||
+                         previous.powerLevel !== currentPowerLevel
+
+    if (stateChanged) {
+      const deviceName = port.portName || `Port ${port.port}`
+      console.log(`[storeControllerPorts] State change detected: ${deviceName} -> ${currentIsOn ? 'ON' : 'OFF'} (${currentSpeed}%)`)
+
+      try {
+        await supabase
+          .from('device_state_log')
+          .insert({
+            controller_id: dbControllerId,
+            port_number: port.port,
+            device_name: deviceName,
+            state: currentIsOn,
+            speed: currentSpeed,
+            trigger: 'system', // Detected during sensor poll (system-level detection)
+            recorded_at: now,
+          })
+        stateChangesLogged++
+      } catch (stateLogError) {
+        // Table may not exist yet - log but don't fail
+        console.warn(`[storeControllerPorts] Failed to log state change:`, stateLogError)
+      }
+    }
   }
 
-  return { success: true, count: ports.length }
+  if (stateChangesLogged > 0) {
+    console.log(`[storeControllerPorts] Logged ${stateChangesLogged} state changes to device_state_log`)
+  }
+
+  return { success: true, count: ports.length, stateChanges: stateChangesLogged }
 }
 
 // ============================================

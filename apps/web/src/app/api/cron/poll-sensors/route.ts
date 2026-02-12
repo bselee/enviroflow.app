@@ -7,17 +7,18 @@
  * {
  *   "crons": [{
  *     "path": "/api/cron/poll-sensors",
- *     "schedule": "0,5,10,15,20,25,30,35,40,45,50,55 * * * *"
+ *     "schedule": "* * * * *"
  *   }]
  * }
- * (Runs every 5 minutes)
+ * (Runs every minute for responsive state change detection)
  *
  * This endpoint:
  * 1. Fetches all controllers with status 'online' or recently seen
  * 2. For each controller, connects via the adapter and reads sensors
  * 3. Stores readings in sensor_readings table
- * 4. Updates controller last_seen and status
- * 5. Handles errors gracefully with circuit breaker pattern
+ * 4. Detects device state changes and logs to device_state_log
+ * 5. Updates controller last_seen and status
+ * 6. Handles errors gracefully with circuit breaker pattern
  */
 
 import { createClient } from '@supabase/supabase-js'

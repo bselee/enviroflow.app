@@ -300,8 +300,10 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
   const hoverX = useMemo(() => {
     if (!hoverTimestamp || dur === 0) return null;
     const ts = new Date(hoverTimestamp).getTime();
-    if (ts < t0 || ts > t1) return null;
-    return P.left + ((ts - t0) / dur) * chartW;
+    // Clamp to visible range instead of rejecting - allows crosshair sync
+    // even when sensor chart has slightly different time bounds
+    const clampedTs = Math.max(t0, Math.min(t1, ts));
+    return P.left + ((clampedTs - t0) / dur) * chartW;
   }, [hoverTimestamp, t0, t1, dur, chartW, P.left]);
 
   // ── Mouse handlers ─────────────────────────────────────────────────────────
@@ -405,28 +407,38 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
         {/* ── Device waveform rows ── */}
         {deviceWaves.map((dw, idx) => (
           <g key={dw.name}>
-            {/* Device name label */}
+            {/* Device name label - more visible */}
             <text
               x={P.left + 4}
-              y={dw.yBase + 1}
+              y={dw.yBase + 2}
               fill={dw.color}
-              fontSize="9"
+              fontSize="10"
               fontFamily="ui-monospace, monospace"
-              fontWeight="600"
-              opacity={0.72}
+              fontWeight="700"
+              opacity={0.9}
             >
               {dw.name.toUpperCase()}
             </text>
 
-            {/* ON / OFF reference dashes */}
+            {/* Row background stripe for visibility - BOLDER */}
+            <rect
+              x={P.left}
+              y={dw.yBase}
+              width={chartW}
+              height={WAVE_H}
+              fill={idx % 2 === 0 ? "hsl(var(--muted))" : "transparent"}
+              opacity={0.25}
+            />
+
+            {/* ON / OFF reference lines - more visible */}
             <line
               x1={P.left}
               y1={dw.onY}
               x2={P.left + chartW}
               y2={dw.onY}
               stroke="hsl(var(--border))"
-              strokeOpacity={0.18}
-              strokeDasharray="2 4"
+              strokeOpacity={0.3}
+              strokeDasharray="4 4"
             />
             <line
               x1={P.left}
@@ -434,19 +446,20 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
               x2={P.left + chartW}
               y2={dw.offY}
               stroke="hsl(var(--border))"
-              strokeOpacity={0.18}
-              strokeDasharray="2 4"
+              strokeOpacity={0.3}
+              strokeDasharray="4 4"
             />
 
-            {/* ON / OFF labels */}
+            {/* ON / OFF labels - BOLD and visible */}
             <text
               x={P.left - 5}
               y={dw.onY + 3}
-              fill="hsl(var(--muted-foreground))"
-              fontSize="7"
+              fill="#22c55e"
+              fontSize="9"
               textAnchor="end"
               fontFamily="ui-monospace, monospace"
-              opacity={0.4}
+              fontWeight="700"
+              opacity={0.9}
             >
               ON
             </text>
@@ -454,27 +467,28 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
               x={P.left - 5}
               y={dw.offY + 3}
               fill="hsl(var(--muted-foreground))"
-              fontSize="7"
+              fontSize="9"
               textAnchor="end"
               fontFamily="ui-monospace, monospace"
-              opacity={0.4}
+              fontWeight="700"
+              opacity={0.8}
             >
               OFF
             </text>
 
-            {/* Semi-transparent fill under waveform */}
+            {/* Solid fill under waveform - BOLD AC Infinity style */}
             {dw.fPath && (
-              <path d={dw.fPath} fill={dw.color} opacity={0.1} />
+              <path d={dw.fPath} fill={dw.color} opacity={0.6} />
             )}
 
-            {/* Step waveform line */}
+            {/* Step waveform line - THICK and highly visible */}
             {dw.wPath && (
               <path
                 d={dw.wPath}
                 fill="none"
                 stroke={dw.color}
-                strokeWidth={1.5}
-                opacity={0.8}
+                strokeWidth={3}
+                opacity={1}
               />
             )}
 
@@ -490,26 +504,32 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
               />
             )}
 
-            {/* Hover state indicator (right side) */}
-            {dw.hoverState && hoverX !== null && (
-              <text
-                x={P.left + chartW + 8}
-                y={dw.yBase + WAVE_H / 2 + 3}
-                fill={
-                  dw.hoverState.on
-                    ? "#22c55e"
-                    : "hsl(var(--muted-foreground))"
-                }
-                fontSize="9"
-                fontFamily="ui-monospace, monospace"
-                fontWeight="600"
-                opacity={dw.hoverState.on ? 0.9 : 0.4}
-              >
-                {dw.hoverState.on
-                  ? `${dw.hoverState.speed}%`
-                  : "OFF"}
-              </text>
-            )}
+            {/* Current state indicator (right side) - always visible */}
+            {(() => {
+              // Get current state (last point in the device state array)
+              const devicePoints = deviceStateData[dw.name] || [];
+              const lastPoint = devicePoints[devicePoints.length - 1];
+              const currentOn = lastPoint?.state ?? false;
+              const currentSpeed = lastPoint?.speed ?? 0;
+
+              // Show hovered state if hovering, otherwise show current state
+              const displayOn = dw.hoverState ? dw.hoverState.on : currentOn;
+              const displaySpeed = dw.hoverState ? dw.hoverState.speed : currentSpeed;
+
+              return (
+                <text
+                  x={P.left + chartW + 8}
+                  y={dw.yBase + WAVE_H / 2 + 3}
+                  fill={displayOn ? "#22c55e" : "hsl(var(--muted-foreground))"}
+                  fontSize="10"
+                  fontFamily="ui-monospace, monospace"
+                  fontWeight="600"
+                  opacity={displayOn ? 1 : 0.5}
+                >
+                  {displayOn ? `${displaySpeed}%` : "OFF"}
+                </text>
+              );
+            })()}
           </g>
         ))}
 
