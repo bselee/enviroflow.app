@@ -151,7 +151,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const sensors = (data || []) as SensorWithRoom[]
+    const sensors = (data || []) as unknown as SensorWithRoom[]
 
     return NextResponse.json({
       sensors,
@@ -282,7 +282,7 @@ export async function POST(request: NextRequest) {
       // Check if config has password field
       if ('password' in connection_config && connection_config.password) {
         try {
-          encryptedConfig = encryptCredentials(connection_config)
+          encryptedConfig = encryptCredentials(connection_config as Record<string, unknown>)
         } catch (error) {
           if (error instanceof EncryptionError) {
             console.error('[Sensors POST] Encryption configuration error:', error.message)

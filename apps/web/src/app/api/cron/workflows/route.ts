@@ -769,7 +769,7 @@ async function executeFromNodes(
           user_id,
           workflow_id: id,
           action_type: 'variable_operation',
-          action_data: varConfig,
+          action_data: varConfig as unknown as Record<string, unknown>,
           result: 'failed',
           error_message: err instanceof Error ? err.message : 'Unknown error'
         })
@@ -794,7 +794,7 @@ async function executeFromNodes(
             user_id,
             workflow_id: id,
             action_type: 'debounce_blocked',
-            action_data: debounceConfig,
+            action_data: debounceConfig as unknown as Record<string, unknown>,
             result: 'skipped'
           })
           
@@ -806,7 +806,7 @@ async function executeFromNodes(
           user_id,
           workflow_id: id,
           action_type: 'debounce_passed',
-          action_data: debounceConfig,
+          action_data: debounceConfig as unknown as Record<string, unknown>,
           result: 'success'
         })
       } catch (err) {
@@ -1364,7 +1364,7 @@ async function executeAction(
       }
 
       if (dimmerData) {
-        await executeDimmerNode(supabase, userId, dimmerData, context)
+        await executeDimmerNode(supabase, userId, dimmerData as DimmerNodeConfig, context)
       }
       break
     }

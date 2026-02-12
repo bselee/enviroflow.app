@@ -25,6 +25,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { LiveSensor, LivePort } from "@/types";
+import { DeviceWaveformChart } from "@/components/charts/DeviceWaveformChart";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 // =============================================================================
 // Type Definitions
@@ -70,6 +72,15 @@ export interface OptimalRanges {
   humidity?: OptimalRange;
 }
 
+/** Device state data for waveform chart */
+export interface DeviceStateData {
+  [deviceName: string]: Array<{
+    timestamp: string;
+    state: boolean;
+    speed: number;
+  }>;
+}
+
 export interface IntelligentTimelineProps {
   data: TimeSeriesData[];
   automationEvents?: AutomationEvent[];
@@ -85,6 +96,14 @@ export interface IntelligentTimelineProps {
   optimalRanges?: OptimalRanges;
   isLoading?: boolean;
   className?: string;
+  /** Device state data for activity waveform chart */
+  deviceStateData?: DeviceStateData;
+  /** Whether to show device activity section (default: true when deviceStateData provided) */
+  showDeviceActivity?: boolean;
+  /** Callback when toggling device activity visibility */
+  onToggleDeviceActivity?: () => void;
+  /** Loading state for sensor data (shows loading indicator in chart) */
+  isSensorDataLoading?: boolean;
 }
 
 // =============================================================================
@@ -457,12 +476,32 @@ export function IntelligentTimeline({
   optimalRanges = DEFAULT_OPTIMAL_RANGES,
   isLoading = false,
   className,
+  deviceStateData,
+  showDeviceActivity: controlledShowDeviceActivity,
+  onToggleDeviceActivity,
+  isSensorDataLoading = false,
 }: IntelligentTimelineProps): JSX.Element {
   const { preferences } = useUserPreferences();
   const tempUnit = preferences.temperatureUnit;
 
   const [internalTimeRange, setInternalTimeRange] = useState<TimeRange>("24h");
   const [internalControllerId, setInternalControllerId] = useState<string | null>(null);
+  const [internalShowDeviceActivity, setInternalShowDeviceActivity] = useState(true);
+
+  // Shared hover state for crosshair synchronization between charts
+  const [hoverTimestamp, setHoverTimestamp] = useState<string | null>(null);
+
+  // Device activity visibility
+  const showDeviceActivity = controlledShowDeviceActivity ?? internalShowDeviceActivity;
+  const hasDeviceData = deviceStateData && Object.keys(deviceStateData).length > 0;
+
+  const handleToggleDeviceActivity = useCallback(() => {
+    if (onToggleDeviceActivity) {
+      onToggleDeviceActivity();
+    } else {
+      setInternalShowDeviceActivity((prev) => !prev);
+    }
+  }, [onToggleDeviceActivity]);
 
   const timeRange = controlledTimeRange ?? internalTimeRange;
   const controllerId = selectedControllerId ?? internalControllerId;
@@ -696,6 +735,12 @@ export function IntelligentTimeline({
               <ComposedChart
                 data={sortedData}
                 margin={{ top: 10, right: 50, left: -5, bottom: 5 }}
+                onMouseMove={(state: { activePayload?: Array<{ payload?: { timestamp?: string } }> }) => {
+                  if (state?.activePayload?.[0]?.payload?.timestamp) {
+                    setHoverTimestamp(state.activePayload[0].payload.timestamp);
+                  }
+                }}
+                onMouseLeave={() => setHoverTimestamp(null)}
               >
                 {/* Gradient Definitions */}
                 <defs>
@@ -881,6 +926,54 @@ export function IntelligentTimeline({
             ports={selectedPorts}
             controllerName={selectedControllerName}
           />
+        </div>
+      )}
+
+      {/* Device Activity Waveform Section */}
+      {hasDeviceData && (
+        <div className="border-t border-border pt-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Device Activity
+              </span>
+              {isSensorDataLoading && showDeviceActivity && (
+                <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+              )}
+            </div>
+            <button
+              onClick={handleToggleDeviceActivity}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted/50"
+            >
+              {showDeviceActivity ? (
+                <>
+                  <ChevronUp className="w-3.5 h-3.5" />
+                  <span>Collapse</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-3.5 h-3.5" />
+                  <span>Expand</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {showDeviceActivity && deviceStateData && (
+            <DeviceWaveformChart
+              deviceStateData={deviceStateData}
+              sensorData={sortedData.map((d) => ({
+                timestamp: d.timestamp,
+                temperature: d.temperature ?? null,
+                humidity: d.humidity ?? null,
+                vpd: d.vpd ?? null,
+              }))}
+              hoverTimestamp={hoverTimestamp}
+              onHover={setHoverTimestamp}
+              showSensorOverlay={true}
+              className="mt-2"
+            />
+          )}
         </div>
       )}
     </div>

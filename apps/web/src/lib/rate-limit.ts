@@ -1,29 +1,17 @@
 /**
- * Simple in-memory rate limiter for API endpoints
+ * Rate limiter with Upstash Redis backend and in-memory fallback
  *
- * Uses a sliding window algorithm to track requests per user.
- * For production deployments with multiple instances, consider using
- * Redis or Upstash for distributed rate limiting.
+ * When UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are set,
+ * uses Upstash Redis for distributed rate limiting across multiple instances.
+ * Otherwise falls back to an in-memory sliding window (single-instance only).
  */
 
-interface RateLimitEntry {
-  count: number
-  resetAt: number
-}
+import { Ratelimit } from '@upstash/ratelimit'
+import { Redis } from '@upstash/redis'
 
-const rateLimitStore = new Map<string, RateLimitEntry>()
-
-// Cleanup old entries every 5 minutes
-setInterval(() => {
-  const now = Date.now()
-  const keysToDelete: string[] = []
-  rateLimitStore.forEach((entry, key) => {
-    if (entry.resetAt < now) {
-      keysToDelete.push(key)
-    }
-  })
-  keysToDelete.forEach(key => rateLimitStore.delete(key))
-}, 5 * 60 * 1000)
+// =============================================================================
+// Types (unchanged public API)
+// =============================================================================
 
 export interface RateLimitConfig {
   /**
@@ -49,14 +37,75 @@ export interface RateLimitResult {
   reset: number
 }
 
+// =============================================================================
+// Upstash Redis backend
+// =============================================================================
+
+let redis: Redis | null = null
+
+function getRedis(): Redis | null {
+  if (redis) return redis
+  const url = process.env.UPSTASH_REDIS_REST_URL
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN
+  if (url && token) {
+    redis = new Redis({ url, token })
+    return redis
+  }
+  return null
+}
+
 /**
- * Check if a request is within rate limits
- *
- * @param identifier - Unique identifier (typically user ID)
- * @param config - Rate limit configuration
- * @returns Rate limit result with success status and metadata
+ * Cache of Ratelimit instances keyed by "maxRequests:windowMs"
+ * so we reuse the same limiter for identical configs.
  */
-export function checkRateLimit(
+const upstashLimiters = new Map<string, Ratelimit>()
+
+function getUpstashLimiter(config: RateLimitConfig): Ratelimit | null {
+  const r = getRedis()
+  if (!r) return null
+
+  const cacheKey = `${config.maxRequests}:${config.windowMs}`
+  let limiter = upstashLimiters.get(cacheKey)
+  if (!limiter) {
+    // Convert ms to Upstash duration string
+    const windowSec = Math.max(1, Math.round(config.windowMs / 1000))
+    limiter = new Ratelimit({
+      redis: r,
+      limiter: Ratelimit.slidingWindow(config.maxRequests, `${windowSec} s`),
+      prefix: 'enviroflow:rl',
+      ephemeralCache: new Map(),
+    })
+    upstashLimiters.set(cacheKey, limiter)
+  }
+  return limiter
+}
+
+// =============================================================================
+// In-memory fallback (for local dev / single instance)
+// =============================================================================
+
+interface RateLimitEntry {
+  count: number
+  resetAt: number
+}
+
+const rateLimitStore = new Map<string, RateLimitEntry>()
+
+// Cleanup old entries every 5 minutes
+if (typeof setInterval !== 'undefined') {
+  setInterval(() => {
+    const now = Date.now()
+    const keysToDelete: string[] = []
+    rateLimitStore.forEach((entry, key) => {
+      if (entry.resetAt < now) {
+        keysToDelete.push(key)
+      }
+    })
+    keysToDelete.forEach(key => rateLimitStore.delete(key))
+  }, 5 * 60 * 1000)
+}
+
+function inMemoryCheck(
   identifier: string,
   config: RateLimitConfig
 ): RateLimitResult {
@@ -102,6 +151,44 @@ export function checkRateLimit(
   }
 }
 
+// =============================================================================
+// Public API
+// =============================================================================
+
+/**
+ * Check if a request is within rate limits.
+ *
+ * Uses Upstash Redis when UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN
+ * are set, otherwise falls back to in-memory.
+ *
+ * @param identifier - Unique identifier (typically user ID)
+ * @param config - Rate limit configuration
+ * @returns Rate limit result with success status and metadata
+ */
+export async function checkRateLimit(
+  identifier: string,
+  config: RateLimitConfig
+): Promise<RateLimitResult> {
+  const limiter = getUpstashLimiter(config)
+  if (limiter) {
+    const key = config.keyPrefix ? `${config.keyPrefix}:${identifier}` : identifier
+    try {
+      const result = await limiter.limit(key)
+      return {
+        success: result.success,
+        limit: result.limit,
+        remaining: result.remaining,
+        reset: result.reset,
+      }
+    } catch (err) {
+      // On Redis failure, fall back to in-memory so the app stays available
+      console.warn('[rate-limit] Upstash Redis error, falling back to in-memory:', err)
+      return inMemoryCheck(identifier, config)
+    }
+  }
+  return inMemoryCheck(identifier, config)
+}
+
 /**
  * Create rate limit response headers
  *
@@ -123,9 +210,21 @@ export function createRateLimitHeaders(result: RateLimitResult): HeadersInit {
  * @param identifier - Unique identifier to reset
  * @param keyPrefix - Optional key prefix
  */
-export function resetRateLimit(identifier: string, keyPrefix?: string): void {
+export async function resetRateLimit(identifier: string, keyPrefix?: string): Promise<void> {
   const key = keyPrefix ? `${keyPrefix}:${identifier}` : identifier
+
+  // Clear in-memory
   rateLimitStore.delete(key)
+
+  // Clear Redis if available
+  const r = getRedis()
+  if (r) {
+    try {
+      await r.del(`enviroflow:rl:${key}`)
+    } catch {
+      // Ignore Redis errors on reset
+    }
+  }
 }
 
 /**

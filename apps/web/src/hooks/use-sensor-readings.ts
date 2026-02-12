@@ -396,7 +396,7 @@ export function useSensorReadings(options: SensorReadingsOptionsExtended = {}): 
    */
   const handleNewReading = useCallback((newReading: SensorReading) => {
     // Only add if it's for one of our controllers
-    if (!controllerIds.includes(newReading.controller_id)) return;
+    if (!newReading.controller_id || !controllerIds.includes(newReading.controller_id)) return;
 
     // Batch updates with debouncing to prevent rapid re-renders (shaking)
     pendingReadingsRef.current.push(newReading);

@@ -206,7 +206,7 @@ export class MQTTAdapter implements ControllerAdapter, DiscoverableAdapter {
       }
 
       // Build MQTT connection URL
-      const protocol = this.determineProtocol(brokerUrl, useTls)
+      const protocol = this.determineProtocol(brokerUrl, useTls ?? false)
       const host = this.extractHost(brokerUrl)
       const connectionUrl = `${protocol}://${host}:${port}`
 
@@ -848,6 +848,7 @@ export class MQTTAdapter implements ControllerAdapter, DiscoverableAdapter {
       type: 'mqtt',
       brokerUrl: email, // Using email field as broker URL (hack for discovery flow)
       port: 1883, // Default MQTT port
+      topic: '#', // Wildcard to discover all topics
       topicPrefix: '#', // Wildcard to discover all topics
       useTls: false,
       username: undefined,
@@ -859,7 +860,7 @@ export class MQTTAdapter implements ControllerAdapter, DiscoverableAdapter {
 
     try {
       // Build connection URL
-      const protocol = this.determineProtocol(mqttCreds.brokerUrl, mqttCreds.useTls)
+      const protocol = this.determineProtocol(mqttCreds.brokerUrl, mqttCreds.useTls ?? false)
       const host = this.extractHost(mqttCreds.brokerUrl)
       const port = mqttCreds.port
       const connectionUrl = `${protocol}://${host}:${port}`

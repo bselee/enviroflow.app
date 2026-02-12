@@ -174,7 +174,7 @@ export async function POST(
     }
 
     // Rate limiting: 10 commands per minute per user
-    const rateLimitResult = checkRateLimit(userId, {
+    const rateLimitResult = await checkRateLimit(userId, {
       maxRequests: 10,
       windowMs: 60 * 1000,
       keyPrefix: 'device-control'

@@ -31,7 +31,9 @@ import {
   calculateSunrise,
   calculateSunset,
 } from '@/lib/dimming-curves'
-import { parseExpression } from 'cron-parser'
+// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+const cronParserModule = require('cron-parser')
+const parseExpression = cronParserModule.parseExpression ?? cronParserModule.default?.parseExpression ?? cronParserModule
 
 // ============================================
 // Types

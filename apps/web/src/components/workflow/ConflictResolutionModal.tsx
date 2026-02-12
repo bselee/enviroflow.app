@@ -204,7 +204,7 @@ export function ConflictResolutionModal({
             <p className="text-sm">
               <span className="font-medium">Resolution:</span>{" "}
               <span className="text-success">
-                "{allWorkflows.find(w => w.id === selectedWorkflowId)?.name}"
+                &ldquo;{allWorkflows.find(w => w.id === selectedWorkflowId)?.name}&rdquo;
               </span>{" "}
               will remain active.{" "}
               <span className="text-muted-foreground">

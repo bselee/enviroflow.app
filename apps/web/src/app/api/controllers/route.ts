@@ -845,7 +845,6 @@ export async function POST(request: NextRequest) {
           status: data.status,
           last_seen: data.last_seen,
           last_error: data.last_error,
-          room_id: data.room_id,
         })
         console.log('[Controllers POST] Initial poll result:', pollResult.status)
       } catch (pollError) {

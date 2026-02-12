@@ -477,11 +477,11 @@ export function CorrelationScatter({
               name="Readings"
               data={points}
               fill="#3b82f6"
-              shape={(props: { cx: number; cy: number; payload: CorrelationPoint }) => {
+              shape={((props: { cx: number; cy: number; payload: CorrelationPoint }) => {
                 const { cx, cy, payload } = props;
                 const color = getHourColor(payload.hour);
                 return <circle cx={cx} cy={cy} r={4} fill={color} stroke={isDark ? "#1f2937" : "#ffffff"} strokeWidth={1} />;
-              }}
+              }) as unknown as React.ReactElement}
             />
           </ScatterChart>
         </ResponsiveContainer>

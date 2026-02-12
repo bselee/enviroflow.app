@@ -111,7 +111,7 @@ export function createErrorResponse(
     ...(options?.errorType && { errorType: options.errorType }),
     ...(options?.message && { message: options.message }),
     ...(options?.guidance && { guidance: options.guidance }),
-    ...(options?.details && { details: options.details }),
+    ...(options?.details ? { details: options.details } : {}),
     ...(options?.brand && { brand: options.brand }),
     timestamp: new Date().toISOString(),
   };

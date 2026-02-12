@@ -14,6 +14,9 @@ import {
   Filter,
   Plus,
   Trash2,
+  Clock,
+  Variable,
+  Timer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -126,6 +129,21 @@ const NODE_TYPE_CONFIG: Record<
     label: "Port Condition",
     icon: Filter,
     colorClass: "text-pink-500",
+  },
+  delay: {
+    label: "Delay",
+    icon: Clock,
+    colorClass: "text-slate-500",
+  },
+  variable: {
+    label: "Variable",
+    icon: Variable,
+    colorClass: "text-teal-500",
+  },
+  debounce: {
+    label: "Debounce",
+    icon: Timer,
+    colorClass: "text-amber-500",
   },
 };
 
@@ -340,12 +358,12 @@ export function PropertiesPanel({
             }
           }
         } else if (mode === "schedule") {
-          const schedules = getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', []);
+          const schedules = getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', []) ?? [];
           if (schedules.length === 0) {
             newErrors["config.scheduleConfig.schedules"] = "At least one schedule entry is required";
           } else {
             // Validate each schedule entry
-            schedules.forEach((schedule, index) => {
+            schedules.forEach((schedule: { days: number[]; startTime?: string; endTime?: string }, index: number) => {
               // Check for at least one day selected
               if (schedule.days.length === 0) {
                 newErrors[`config.scheduleConfig.schedules.${index}.days`] = `Schedule ${index + 1}: At least one day must be selected`;
@@ -1654,7 +1672,7 @@ function ModeFields({ getField, updateField, errors }: FieldsProps) {
               variant="outline"
               size="sm"
               onClick={() => {
-                const currentSchedules = getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', []);
+                const currentSchedules = getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', []) ?? [];
                 if (currentSchedules.length < 4) {
                   updateField('config.scheduleConfig.schedules', [
                     ...currentSchedules,
@@ -1678,7 +1696,7 @@ function ModeFields({ getField, updateField, errors }: FieldsProps) {
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    const schedules = [...getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', [])];
+                    const schedules = [...(getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', []) ?? [])];
                     schedules.splice(index, 1);
                     updateField('config.scheduleConfig.schedules', schedules);
                   }}
@@ -1695,7 +1713,7 @@ function ModeFields({ getField, updateField, errors }: FieldsProps) {
                     type="time"
                     value={schedule.startTime}
                     onChange={(e) => {
-                      const schedules = [...getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', [])];
+                      const schedules = [...(getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', []) ?? [])];
                       schedules[index] = { ...schedules[index], startTime: e.target.value };
                       updateField('config.scheduleConfig.schedules', schedules);
                     }}
@@ -1707,7 +1725,7 @@ function ModeFields({ getField, updateField, errors }: FieldsProps) {
                     type="time"
                     value={schedule.endTime}
                     onChange={(e) => {
-                      const schedules = [...getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', [])];
+                      const schedules = [...(getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', []) ?? [])];
                       schedules[index] = { ...schedules[index], endTime: e.target.value };
                       updateField('config.scheduleConfig.schedules', schedules);
                     }}
@@ -1717,14 +1735,14 @@ function ModeFields({ getField, updateField, errors }: FieldsProps) {
 
               {/* Level slider */}
               <div>
-                <Label className="text-xs">Level: {schedule.level}</Label>
+                <Label className="text-xs">Level: {schedule.level ?? 5}</Label>
                 <Slider
-                  value={[schedule.level]}
+                  value={[schedule.level ?? 5]}
                   min={0}
                   max={10}
                   step={1}
                   onValueChange={([value]) => {
-                    const schedules = [...getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', [])];
+                    const schedules = [...(getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', []) ?? [])];
                     schedules[index] = { ...schedules[index], level: value };
                     updateField('config.scheduleConfig.schedules', schedules);
                   }}
@@ -1745,10 +1763,10 @@ function ModeFields({ getField, updateField, errors }: FieldsProps) {
                           : 'bg-muted text-muted-foreground'
                       }`}
                       onClick={() => {
-                        const schedules = [...getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', [])];
+                        const schedules = [...(getField<ScheduleModeConfig['schedules']>('config.scheduleConfig.schedules', []) ?? [])];
                         const currentDays = schedules[index].days;
                         const newDays = currentDays.includes(dayIndex)
-                          ? currentDays.filter(d => d !== dayIndex)
+                          ? currentDays.filter((d: number) => d !== dayIndex)
                           : [...currentDays, dayIndex].sort();
                         schedules[index] = { ...schedules[index], days: newDays };
                         updateField('config.scheduleConfig.schedules', schedules);

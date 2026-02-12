@@ -16,6 +16,7 @@ import { InkbirdAdapter } from './InkbirdAdapter'
 import { CSVUploadAdapter, generateCSVTemplate, validateCSVHeaders } from './CSVUploadAdapter'
 import { MQTTAdapter, handleMQTTMessage, clearMessageStore } from './MQTTAdapter'
 import { EcowittAdapter } from './EcowittAdapter'
+import { GoveeAdapter } from './GoveeAdapter'
 import type {
   ControllerAdapter,
   ControllerBrand,
@@ -246,6 +247,7 @@ export { InkbirdAdapter } from './InkbirdAdapter'
 export { CSVUploadAdapter, generateCSVTemplate, validateCSVHeaders } from './CSVUploadAdapter'
 export { MQTTAdapter, handleMQTTMessage, clearMessageStore } from './MQTTAdapter'
 export { EcowittAdapter } from './EcowittAdapter'
+export { GoveeAdapter } from './GoveeAdapter'
 
 // Retry utilities
 export {

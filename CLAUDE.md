@@ -9,7 +9,13 @@ EnviroFlow is a universal environmental automation platform for monitoring senso
 **Domain:** enviroflow.app
 **Supabase:** vhlnnfmuhttjpwyobklu.supabase.co
 **Status:** MVP Complete
-**Spec:** See [docs/spec/EnviroFlow_MVP_Spec_v2.0.md](docs/spec/EnviroFlow_MVP_Spec_v2.0.md)
+
+### Key Documentation
+- **MVP Spec:** [docs/spec/EnviroFlow_MVP_Spec_v2.0.md](docs/spec/EnviroFlow_MVP_Spec_v2.0.md)
+- **Port Programming:** [docs/spec/enviroflow-port-programming.md](docs/spec/enviroflow-port-programming.md) — AC Infinity controller model mapping
+- **Visual Automation:** [docs/spec/visual-automation-prd-ux-spec.md](docs/spec/visual-automation-prd-ux-spec.md) — Workflow builder UX spec
+- **UI Guide:** [docs/spec/enviroflow_ui_guide.md](docs/spec/enviroflow_ui_guide.md) — Design system and components
+- **Sprint Status:** [.agent-memory/project-status.md](.agent-memory/project-status.md) — Current feature progress
 
 ## Common Commands
 
@@ -42,7 +48,8 @@ npm run test:e2e:report     # Show Playwright HTML report
 # Performance & Bundle Analysis
 npm run perf-test           # Performance benchmarking
 npm run perf-test:quick     # Quick performance test
-ANALYZE=true npm run build  # Webpack bundle analyzer
+npm run analyze             # Webpack bundle analyzer (shortcut)
+npm run lighthouse          # Lighthouse audit (requires dev server running)
 
 # Database migrations (run in Supabase SQL Editor)
 # https://supabase.com/dashboard/project/vhlnnfmuhttjpwyobklu/sql
@@ -59,11 +66,13 @@ ANALYZE=true npm run build  # Webpack bundle analyzer
 **Live Sensor Data**: Direct API Polling (like Home Assistant)
 - Browser → Next.js API Route → AC Infinity Cloud API → Response
 - Poll every 10-30 seconds using `setInterval` + `fetch`
-- **NEVER use Supabase Realtime subscriptions for sensor data** (causes "data appears then disappears" bug)
+- **⚠️ NEVER use Supabase Realtime subscriptions for sensor data** — causes "data appears then disappears" bug due to RLS policy failures in Realtime context
 
 **Configuration Data**: Supabase Storage Only
 - Rooms, controller credentials, historical readings
 - Standard CRUD operations, NOT real-time subscriptions
+
+**Temperature Data**: AC Infinity API returns Celsius. Use `formatTemperature()` from `lib/temperature-utils.ts` with user preference from `useUserPreferences()` hook.
 
 ### Monorepo Structure
 
@@ -95,7 +104,7 @@ Path alias: `@/*` maps to `apps/web/src/*`
 ThemeProvider → TooltipProviderWrapper → AuthProvider → DragDropProvider → {children}
 ```
 
-localStorage keys: `enviroflow-theme`, `enviroflow-card-order`, `enviroflow_user_preferences`
+localStorage keys: `enviroflow-theme`, `enviroflow-card-order`, `enviroflow_user_preferences`, `enviroflow-sidebar-collapsed`
 
 ### Route Protection (middleware.ts)
 
@@ -119,6 +128,8 @@ interface ControllerAdapter {
 ```
 
 Implemented adapters: `ACInfinityAdapter`, `InkbirdAdapter`, `EcowittAdapter`, `GoveeAdapter`, `MQTTAdapter`, `CSVUploadAdapter`
+
+**AC Infinity Native Programming**: Device modes (OFF, ON, AUTO, VPD, TIMER, CYCLE, SCHEDULE) are stored in AC Infinity cloud and can be read/written via API. Access via Controllers page → Device card → Three-dot menu → "Program Mode". See `DeviceModeProgramming.tsx`.
 
 ### Vercel Cron Jobs
 
@@ -178,7 +189,7 @@ Key preferences: `temperatureUnit` (F/C), `viewMode`, `primaryMetric`, `timeline
 ### Workflow Builder
 
 Visual workflow builder using `@xyflow/react`. Node types in `components/workflow/nodes/`:
-- `TriggerNode` - Schedule or event-based triggers
+- `TriggerNode` - Schedule, sensor threshold, or MQTT triggers
 - `SensorNode` - Sensor reading conditions
 - `ConditionNode` - Logical conditions (and/or)
 - `PortConditionNode` - Device port state conditions
@@ -190,6 +201,10 @@ Visual workflow builder using `@xyflow/react`. Node types in `components/workflo
 - `DebounceNode` - Debounce triggers
 - `ModeNode` - Device mode changes
 - `NotificationNode` - Push/email notifications
+
+### Workflow Templates
+
+Built-in templates in `components/workflow/templates/builtin-templates.ts` (VPD Control, Lights Out, Heat Spike, Humidity Control, Sunrise Wake-up, CO2 Enrichment). Template Gallery UI with 3-step wizard: Browse → Preview → Device Mapping. Templates strip device-specific IDs for reusability.
 
 ### Testing
 
@@ -221,6 +236,8 @@ API routes are in `apps/web/src/app/api/`. Key patterns:
 | `/api/cron/**` | Vercel cron jobs (see Cron Jobs table above) |
 | `/api/analyze` | AI analysis via Grok |
 | `/api/export` | Export data (CSV/JSON) |
+| `/api/mqtt/test` | Validate MQTT broker connection and topic syntax |
+| `/api/debug/**` | Development diagnostics (ac-infinity-raw, connection-test, cron-check) |
 
 ## Build Configuration Notes
 
@@ -237,7 +254,7 @@ Required in `apps/web/.env.local`:
 NEXT_PUBLIC_SUPABASE_URL=https://vhlnnfmuhttjpwyobklu.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
-XAI_API_KEY=xai-...  # AI analysis (GROK_API_KEY also supported)
+XAI_API_KEY=xai-...  # AI analysis (alternative env var: GROK_API_KEY)
 NEXT_PUBLIC_APP_URL=https://enviroflow.app
 
 # REQUIRED: 32-byte encryption key (64 hex chars)

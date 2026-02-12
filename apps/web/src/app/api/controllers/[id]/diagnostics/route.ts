@@ -189,7 +189,7 @@ export async function POST(
     }
 
     // Calculate sync lag
-    const syncLag = calculateSyncLag(controller.last_seen)
+    const syncLag = calculateSyncLag(controller.last_seen as string | null)
 
     // Calculate success rate from activity logs (last 24 hours)
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
@@ -239,7 +239,7 @@ export async function POST(
 
     try {
       // Decrypt credentials
-      const decryptResult = decryptCredentials(controller.credentials)
+      const decryptResult = decryptCredentials(controller.credentials as string | Record<string, unknown>)
 
       if (!decryptResult.success) {
         console.error('[Diagnostics] Credential decryption failed:', decryptResult.error)
@@ -288,7 +288,7 @@ export async function POST(
         // Connection failed - all attempts count as failed
         failedAttempts = attempts
       } else {
-        const activeControllerId = connectionResult.controllerId || controller.controller_id
+        const activeControllerId = connectionResult.controllerId || (controller.controller_id as string)
         connectedControllerId = activeControllerId
 
         // Run multiple status checks to calculate packet loss
@@ -456,7 +456,8 @@ export async function GET(
 
     // Transform logs into history points
     const history: DiagnosticHistoryPoint[] = (diagnosticLogs || []).map((log) => {
-      const metrics = log.action_data?.metrics as DiagnosticMetrics | undefined
+      const actionData = log.action_data as Record<string, unknown> | null
+      const metrics = actionData?.metrics as DiagnosticMetrics | undefined
 
       return {
         timestamp: log.timestamp,

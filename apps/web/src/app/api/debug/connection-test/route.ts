@@ -16,7 +16,8 @@ import {
   type ACInfinityCredentials,
 } from '@enviroflow/automation-engine/adapters'
 
-type SupabaseClient = ReturnType<typeof createClient<never>>
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SupabaseClient = ReturnType<typeof createClient<any>>
 
 let supabase: SupabaseClient | null = null
 

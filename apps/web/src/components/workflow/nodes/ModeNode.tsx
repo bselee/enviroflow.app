@@ -68,12 +68,12 @@ export function ModeNode({ data, selected, id }: ModeNodeProps) {
         if (ac.humidityHighEnabled || ac.humidityLowEnabled) {
           const humRange = [];
           if (ac.humidityLowEnabled) humRange.push(`${ac.humidityLowTrigger}%`);
-          if (ac.humidityHighEnabled) humRange.push(`${ac.humidityHighEnabled}%`);
+          if (ac.humidityHighEnabled) humRange.push(`${ac.humidityHighTrigger}%`);
           parts.push(`Humidity: ${humRange.join("-")}`);
         }
 
-        parts.push(`Levels: ${ac.levelLow}-${ac.levelHigh}`);
-        if (ac.transition) parts.push("Transition: ON");
+        parts.push(`Levels: ${config.offLevel}-${config.onLevel}`);
+        if (ac.tempTransition > 0) parts.push("Transition: ON");
 
         return parts.join(" | ");
       }
@@ -90,18 +90,24 @@ export function ModeNode({ data, selected, id }: ModeNodeProps) {
         if (vc.vpdHighEnabled) vpdRange.push(`${vc.vpdHighTrigger}`);
         parts.push(`VPD: ${vpdRange.join("-")} kPa`);
 
-        parts.push(`Levels: ${vc.levelLow}-${vc.levelHigh}`);
-        if (vc.transition) parts.push("Transition: ON");
+        parts.push(`Levels: ${config.offLevel}-${config.onLevel}`);
+        if (vc.vpdTransition > 0) parts.push("Transition: ON");
 
         return parts.join(" | ");
       }
 
-      case "timer": {
-        if (!config.timerConfig) {
-          return "Timer mode (not configured)";
+      case "timer_to_on": {
+        if (!config.timerToOnConfig) {
+          return "Timer-to-On mode (not configured)";
         }
-        const tc = config.timerConfig;
-        return `On: ${tc.durationOn}s | Off: ${tc.durationOff}s | Level: ${tc.level}`;
+        return `Countdown: ${config.timerToOnConfig.durationMinutes} min → ON`;
+      }
+
+      case "timer_to_off": {
+        if (!config.timerToOffConfig) {
+          return "Timer-to-Off mode (not configured)";
+        }
+        return `Countdown: ${config.timerToOffConfig.durationMinutes} min → OFF`;
       }
 
       case "cycle": {
@@ -109,15 +115,14 @@ export function ModeNode({ data, selected, id }: ModeNodeProps) {
           return "Cycle mode (not configured)";
         }
         const cc = config.cycleConfig;
-        return `On: ${cc.durationOn}s | Off: ${cc.durationOff}s | Level: ${cc.level}`;
+        return `On: ${cc.durationOnMinutes}m | Off: ${cc.durationOffMinutes}m`;
       }
 
       case "schedule": {
-        if (!config.scheduleConfig || !config.scheduleConfig.schedules.length) {
+        if (!config.scheduleConfig) {
           return "Schedule mode (not configured)";
         }
-        const schedCount = config.scheduleConfig.schedules.length;
-        return `${schedCount} schedule${schedCount !== 1 ? "s" : ""} configured`;
+        return `ON: ${config.scheduleConfig.onTime} | OFF: ${config.scheduleConfig.offTime}`;
       }
 
       default:

@@ -46,7 +46,11 @@ import * as Sentry from '@sentry/nextjs';
  * Check if Sentry is initialized and available
  */
 export function isSentryEnabled(): boolean {
-  return !!Sentry.getCurrentHub().getClient();
+  try {
+    return !!(Sentry.getClient?.() ?? (Sentry as any).getCurrentHub?.()?.getClient?.());
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -182,12 +186,12 @@ export function setContext(name: string, context: Record<string, any>): void {
 export function startTransaction(
   name: string,
   op: string
-): Sentry.Transaction | undefined {
+): Sentry.Span | undefined {
   if (!isSentryEnabled()) {
     return undefined;
   }
 
-  return Sentry.startTransaction({
+  return Sentry.startInactiveSpan({
     name,
     op,
   });

@@ -653,7 +653,7 @@ export function useDashboardData(
       }
       // Controller ports are non-critical, don't throw on error
       if (portsResult.error) {
-        console.warn("[Dashboard] Failed to fetch controller ports:", portsResult.error.message);
+        console.warn("[Dashboard] Failed to fetch controller ports:", (portsResult.error as { message?: string })?.message);
       }
 
       // If sensor readings are empty but we have controllers, try to fetch cached readings
@@ -664,7 +664,7 @@ export function useDashboardData(
       const { data: authData } = await supabase.auth.getSession();
       console.log('[useDashboardData] Sensor readings query result:', {
         count: finalSensorReadings.length,
-        error: sensorsResult.error?.message,
+        error: (sensorsResult as unknown as { error?: { message?: string } }).error?.message,
         startTime: startTime.toISOString(),
         sampleReading: finalSensorReadings[0],
         isAuthenticated: !!authData?.session,

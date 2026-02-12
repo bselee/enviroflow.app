@@ -159,7 +159,7 @@ export async function GET(
     }
 
     // Rate limiting: 30 requests per minute per user
-    const rateLimitResult = checkRateLimit(userId, {
+    const rateLimitResult = await checkRateLimit(userId, {
       maxRequests: 30,
       windowMs: 60 * 1000,
       keyPrefix: 'capabilities'

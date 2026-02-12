@@ -303,7 +303,7 @@ export async function GET(
 
     // Rate limiting: 30 requests per minute per user
     // Allows ~10 requests per controller with 3 controllers
-    const rateLimitResult = checkRateLimit(userId, {
+    const rateLimitResult = await checkRateLimit(userId, {
       maxRequests: 30,
       windowMs: 60 * 1000, // 1 minute
       keyPrefix: 'sensor-read'
@@ -507,7 +507,7 @@ export async function GET(
           value: r.value,
           unit: r.unit,
           timestamp: r.timestamp instanceof Date ? r.timestamp.toISOString() : String(r.timestamp),
-          port: r.port,
+          port: r.port ?? undefined,
           isStale: r.isStale,
         }))
       } catch (readError) {
@@ -540,7 +540,7 @@ export async function GET(
               value: r.value,
               unit: r.unit,
               timestamp: r.timestamp instanceof Date ? r.timestamp.toISOString() : String(r.timestamp),
-              port: r.port,
+              port: r.port ?? undefined,
               isStale: r.isStale,
             }))
 
@@ -615,14 +615,16 @@ export async function GET(
 
       if (!hasVPD && tempReading && humidityReading) {
         const calculatedVPD = calculateVPD(tempReading.value, humidityReading.value)
-        readings.push({
-          port: 0, // Calculated, no physical port
-          type: 'vpd',
-          value: calculatedVPD,
-          unit: 'kPa',
-          timestamp: new Date().toISOString(),
-          isStale: false,
-        })
+        if (calculatedVPD !== null) {
+          readings.push({
+            port: 0, // Calculated, no physical port
+            type: 'vpd',
+            value: calculatedVPD,
+            unit: 'kPa',
+            timestamp: new Date().toISOString(),
+            isStale: false,
+          })
+        }
         warnings.push('VPD calculated from temperature and humidity readings')
       }
     }

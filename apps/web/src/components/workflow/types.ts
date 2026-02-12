@@ -16,7 +16,7 @@ export type { SensorType };
 // ============================================================================
 
 /** Types of triggers that can initiate a workflow */
-export type TriggerType = "schedule" | "sensor_threshold" | "manual" | "mqtt" | "lights_on" | "lights_off";
+export type TriggerType = "schedule" | "sensor_threshold" | "manual" | "mqtt";
 
 /** Configuration for schedule-based triggers */
 export interface ScheduleTriggerConfig {
@@ -72,40 +72,8 @@ export interface MQTTTriggerConfig {
   lastReceivedAt?: string;
 }
 
-/** Configuration for lights on trigger - fires when a light turns on */
-export interface LightsOnTriggerConfig {
-  triggerType: "lights_on";
-  /** ID of the controller with the light */
-  controllerId?: string;
-  /** Controller name for display */
-  controllerName?: string;
-  /** Port number of the light device */
-  port?: number;
-  /** Port/device name for display */
-  portName?: string;
-}
-
-/** Configuration for lights off trigger - fires when a light turns off */
-export interface LightsOffTriggerConfig {
-  triggerType: "lights_off";
-  /** ID of the controller with the light */
-  controllerId?: string;
-  /** Controller name for display */
-  controllerName?: string;
-  /** Port number of the light device */
-  port?: number;
-  /** Port/device name for display */
-  portName?: string;
-}
-
 /** Union type for all trigger configurations */
-export type TriggerConfig =
-  | ScheduleTriggerConfig
-  | SensorThresholdTriggerConfig
-  | ManualTriggerConfig
-  | MQTTTriggerConfig
-  | LightsOnTriggerConfig
-  | LightsOffTriggerConfig;
+export type TriggerConfig = ScheduleTriggerConfig | SensorThresholdTriggerConfig | ManualTriggerConfig | MQTTTriggerConfig;
 
 /** Data payload for TriggerNode */
 export interface TriggerNodeData {
@@ -441,6 +409,7 @@ export type DeviceModeType =
   | "on"            // Device runs continuously at onLevel
   | "auto"          // Climate mode - reacts to temp/humidity triggers
   | "vpd"           // Climate mode - reacts to VPD triggers
+  | "timer"         // Legacy timer mode (UI compat)
   | "timer_to_on"   // Countdown → turns ON
   | "timer_to_off"  // Countdown → turns OFF
   | "cycle"         // Repeating ON/OFF durations
@@ -513,10 +482,31 @@ export interface TimerToOffConfig {
   durationMinutes: number;       // Countdown duration (HH:MM stored as minutes)
 }
 
+/** Configuration for Timer mode (legacy / UI compat) */
+export interface TimerModeConfig {
+  durationOn?: number;           // ON duration seconds (UI compat)
+  durationOff?: number;          // OFF duration seconds (UI compat)
+  level?: number;                // Level setting (UI compat)
+  timerType?: string;            // Timer sub-type
+  timerDuration?: number;        // Duration
+}
+
 /** Configuration for Cycle mode - repeating ON/OFF durations */
 export interface CycleModeConfig {
   durationOnMinutes: number;     // ON duration in minutes
   durationOffMinutes: number;    // OFF duration in minutes
+  // Legacy UI compat
+  durationOn?: number;           // ON duration seconds (UI compat)
+  durationOff?: number;          // OFF duration seconds (UI compat)
+  level?: number;                // Level setting (UI compat)
+}
+
+/** Schedule slot for multi-schedule support (UI compat) */
+export interface ScheduleSlot {
+  startTime: string;             // "HH:MM" format
+  endTime: string;               // "HH:MM" format
+  days: number[];                // 0-6 (Sun-Sat)
+  level?: number;                // Optional level
 }
 
 /** Configuration for Schedule mode - daily ON/OFF clock times */
@@ -524,6 +514,7 @@ export interface ScheduleModeConfig {
   onTime: string;                // "HH:MM" 24h format
   offTime: string;               // "HH:MM" 24h format
   days: number[];                // 0-6 (Sun-Sat), empty = everyday
+  schedules?: ScheduleSlot[];    // Multi-schedule entries (UI compat)
 }
 
 /** Configuration for Mode Programming node - matches AC Infinity's per-port model */
@@ -551,6 +542,7 @@ export interface ModeNodeConfig {
   vpdConfig?: VpdModeConfig;
   timerToOnConfig?: TimerToOnConfig;
   timerToOffConfig?: TimerToOffConfig;
+  timerConfig?: TimerModeConfig;    // Legacy timer config (UI compat)
   cycleConfig?: CycleModeConfig;
   scheduleConfig?: ScheduleModeConfig;
 
@@ -570,6 +562,7 @@ export const MODE_LABELS: Record<DeviceModeType, string> = {
   on: "On",
   auto: "Auto",
   vpd: "VPD",
+  timer: "Timer",
   timer_to_on: "Timer → On",
   timer_to_off: "Timer → Off",
   cycle: "Cycle",

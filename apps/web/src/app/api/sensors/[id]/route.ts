@@ -246,7 +246,7 @@ export async function PATCH(
       if (connection_config && Object.keys(connection_config).length > 0) {
         if ('password' in connection_config && connection_config.password) {
           try {
-            updates.connection_config = encryptCredentials(connection_config)
+            updates.connection_config = encryptCredentials(connection_config as Record<string, unknown>)
           } catch (error) {
             if (error instanceof EncryptionError) {
               console.error('[Sensors PATCH] Encryption configuration error:', error.message)

@@ -183,7 +183,7 @@ export async function GET(
     }
 
     // Rate limiting: 20 requests per minute per user
-    const rateLimitResult = checkRateLimit(userId, {
+    const rateLimitResult = await checkRateLimit(userId, {
       maxRequests: 20,
       windowMs: 60 * 1000,
       keyPrefix: 'device-list'
@@ -325,12 +325,12 @@ export async function GET(
       console.log('[Devices GET] Devices found:', devices.length)
 
       // Try to fetch mode information for AC Infinity controllers
-      let modeMap: Map<number, { mode: string; summary: string }> = new Map()
+      const modeMap: Map<number, { mode: string; summary: string }> = new Map()
       
       if (brand === 'ac_infinity') {
         try {
           const controllerId = connectionResult.controllerId || id
-          const modes = await (adapter as { getDeviceModes: (id: string) => Promise<Array<{ port: number; modeId?: number; mode?: number; [key: string]: unknown }>> }).getDeviceModes(controllerId)
+          const modes = await (adapter as unknown as { getDeviceModes: (id: string) => Promise<Array<{ port: number; modeId?: number; mode?: number; [key: string]: unknown }>> }).getDeviceModes(controllerId)
           
           const modeNames: Record<number, string> = {
             0: 'off',

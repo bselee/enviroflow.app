@@ -358,7 +358,7 @@ export async function fetchWithRetry<T>(
 
         // Try to get error message from response body
         try {
-          const errorBody = await response.json()
+          const errorBody: any = await response.json()
           if (errorBody.message || errorBody.error || errorBody.msg) {
             lastError.message = errorBody.message || errorBody.error || errorBody.msg
           }

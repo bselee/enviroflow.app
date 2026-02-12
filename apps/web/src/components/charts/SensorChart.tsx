@@ -574,9 +574,8 @@ export function SensorChart({
           content={({ active, payload, label }) => (
             <ChartTooltip
               active={active}
-              payload={payload as TooltipPayload}
+              payload={payload as unknown as TooltipPayload}
               label={label}
-              isDark={isDark}
               optimalRanges={optimalRanges}
             />
           )}

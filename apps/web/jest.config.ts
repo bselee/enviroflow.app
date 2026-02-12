@@ -32,6 +32,10 @@ const config: Config = {
     '/.next/',
     '/e2e/',
   ],
+  // Allow Jest to transform ESM packages that ship untranspiled code
+  transformIgnorePatterns: [
+    '/node_modules/(?!(@upstash|uncrypto)/)',
+  ],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
 };
 

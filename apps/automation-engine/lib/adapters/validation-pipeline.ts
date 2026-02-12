@@ -564,15 +564,13 @@ export function validateReadings(
           field: 'value',
           rawValue: reading.value,
           sensorType: 0,
+          apiTimestamp: new Date(),
           source: 'sensorData',
         },
         transformations: [],
         validationResult: {
           passed: true,
           failedChecks: result.failedChecks,
-          qualityScore: result.qualityScore,
-          confidence: result.confidence,
-          warnings: result.warnings,
         },
       }
       valid.push(validated)

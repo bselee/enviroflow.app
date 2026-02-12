@@ -909,23 +909,22 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
           port: portNum,
           portName: portName,
           portType: loadType,
-          deviceType: loadType,
+          deviceType: loadTypeStr,
 
           isConnected: true,
           isOn: powerLevel > 0,
           isOnline: isOnline,
 
           powerLevel: powerLevel,
+          supportsDimming: loadType === 0 || loadType === 6 || loadType === 128,
 
-          loadType: loadTypeStr,
-          devType: String(loadType),
+          loadType: loadType,
+          devType: loadType,
 
           surplus: port.surplus,
           speak: powerLevel,
           externalPort: port.externalPort,
-
-          updatedAt: now
-        })
+        } satisfies PortState)
 
         log('info', `Port ${portNum}: ${portName}, power=${powerLevel}, online=${isOnline}, loadType=${loadType}`)
       }

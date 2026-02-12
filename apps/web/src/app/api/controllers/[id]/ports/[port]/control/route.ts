@@ -170,7 +170,7 @@ export async function POST(
     }
 
     // Rate limiting: 30 control requests per minute per user
-    const rateLimitResult = checkRateLimit(userId, {
+    const rateLimitResult = await checkRateLimit(userId, {
       maxRequests: 30,
       windowMs: 60 * 1000,
       keyPrefix: 'port-control'
@@ -407,6 +407,73 @@ export async function POST(
       } catch (historyError) {
         // Table may not exist yet - log but don't fail the request
         safeError('[Control] Failed to store command history:', historyError)
+      }
+
+      // Log to device_state_log for waveform chart visualization
+      // This is in addition to command_history for the activity chart
+      try {
+        // Determine new state based on action
+        let newState = false
+        let newSpeed = 0
+
+        if (body.action === 'turn_on') {
+          newState = true
+          newSpeed = 100
+        } else if (body.action === 'turn_off') {
+          newState = false
+          newSpeed = 0
+        } else if (body.action === 'set_level') {
+          newState = (body.value ?? 0) > 0
+          newSpeed = body.value ?? 0
+        } else if (body.action === 'toggle') {
+          // For toggle, try to read current state from stateAfter verification result
+          if (stateAfter && typeof stateAfter === 'object' && 'sensors' in stateAfter) {
+            const sensors = stateAfter.sensors as Array<{ is_on?: boolean; power_level?: number }>
+            if (sensors.length > 0 && sensors[0]) {
+              newState = sensors[0].is_on ?? false
+              newSpeed = (sensors[0].power_level ?? 0) * 10
+            }
+          } else {
+            // Fallback: assume we're turning on if no state info available
+            newState = true
+            newSpeed = 100
+          }
+        }
+
+        // Get port name from controller_ports if available
+        const { data: portData } = await (client as unknown as {
+          from: (table: string) => {
+            select: (cols: string) => {
+              eq: (col: string, val: unknown) => {
+                eq: (col: string, val: unknown) => {
+                  single: () => Promise<{ data: { port_name?: string } | null }>
+                }
+              }
+            }
+          }
+        })
+          .from('controller_ports')
+          .select('port_name')
+          .eq('controller_id', id)
+          .eq('port_number', port)
+          .single()
+
+        const portName = portData?.port_name || `Port ${port}`
+
+        await (client as unknown as { from: (table: string) => { insert: (data: Record<string, unknown>) => Promise<unknown> } })
+          .from('device_state_log')
+          .insert({
+            controller_id: id,
+            port_number: port,
+            device_name: portName,
+            state: newState,
+            speed: newSpeed,
+            trigger: 'manual',
+            recorded_at: new Date().toISOString(),
+          })
+      } catch (stateLogError) {
+        // Table may not exist yet - log but don't fail the request
+        safeError('[Control] Failed to log device state:', stateLogError)
       }
 
       return NextResponse.json({

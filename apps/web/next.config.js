@@ -11,15 +11,14 @@ try {
 const nextConfig = {
   reactStrictMode: true,
 
-  // ESLint runs separately in CI - skip during build to allow warnings
+  // ESLint runs in separate CI job 
   eslint: {
-    ignoreDuringBuilds: true,
+    ignoreDuringBuilds: false,
   },
 
-  // Temporarily ignore TypeScript errors during build for deployment
-  // TODO: Fix type errors in generated code
+  // TypeScript checking enforced in CI
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
 
   // Performance optimizations

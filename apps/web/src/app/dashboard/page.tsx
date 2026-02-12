@@ -11,6 +11,7 @@ import { OnboardingTour } from "@/components/OnboardingTour";
 import { useDashboardData } from "@/hooks/use-dashboard-data";
 import { useLiveSensors } from "@/hooks/use-live-sensors";
 import { useSensorHistory } from "@/hooks/use-sensor-history";
+import { useSensorData, toTimeSeriesData } from "@/hooks/use-sensor-data";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
@@ -97,6 +98,19 @@ export default function DashboardPage(): JSX.Element {
     controllerIds: selectedControllerId ? [selectedControllerId] : undefined,
   });
 
+  // New unified sensor data hook - fetches data with server-side aggregation
+  // Also fetches device state data for the waveform chart
+  const {
+    sensorData: unifiedSensorData,
+    deviceStateData,
+    loading: sensorDataLoading,
+  } = useSensorData({
+    controllerId: selectedControllerId,
+    timeRange,
+    includeDeviceState: true,
+    enabled: true,
+  });
+
   const { preferences, getRoomPreferences } = useUserPreferences();
 
   // Build controller options from live sensors
@@ -146,10 +160,18 @@ export default function DashboardPage(): JSX.Element {
 
   /**
    * Generate timeline data from the appropriate source.
-   * - Short ranges (1h-24h): Use live polling data (per-controller)
-   * - Long ranges (7d-60d): Use Supabase historical data
+   * Priority:
+   * 1. Unified sensor data (from useSensorData hook - handles all time ranges with proper aggregation)
+   * 2. Historical data from Supabase (fallback for long ranges)
+   * 3. Live polling data (for short ranges when unified data is loading)
+   * 4. Dashboard timeline data (final fallback)
    */
   const effectiveTimelineData = useMemo((): TimeSeriesData[] => {
+    // Prefer unified sensor data when available (properly aggregated for time range)
+    if (unifiedSensorData && unifiedSensorData.length > 0) {
+      return toTimeSeriesData(unifiedSensorData, selectedControllerId ?? undefined);
+    }
+
     // For long ranges, use historical data from Supabase
     if (needsHistory && transformedHistoricalData.length > 0) {
       return transformedHistoricalData;
@@ -172,7 +194,7 @@ export default function DashboardPage(): JSX.Element {
     }
 
     return [];
-  }, [needsHistory, transformedHistoricalData, liveHistory, timelineData]);
+  }, [unifiedSensorData, selectedControllerId, needsHistory, transformedHistoricalData, liveHistory, timelineData]);
 
   const optimalRanges = useMemo(() => {
     if (rooms.length > 0) {
@@ -242,6 +264,8 @@ export default function DashboardPage(): JSX.Element {
                   onTimeRangeChange={handleTimeRangeChange}
                   optimalRanges={optimalRanges}
                   isLoading={needsHistory && historyLoading}
+                  deviceStateData={deviceStateData}
+                  isSensorDataLoading={sensorDataLoading}
                 />
               )}
             </div>

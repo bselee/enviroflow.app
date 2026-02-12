@@ -248,7 +248,7 @@ export async function GET(
     }
 
     // Rate limiting: 20 requests per minute per user
-    const rateLimitResult = checkRateLimit(userId, {
+    const rateLimitResult = await checkRateLimit(userId, {
       maxRequests: 20,
       windowMs: 60 * 1000,
       keyPrefix: 'modes-read'
@@ -342,7 +342,7 @@ export async function GET(
 
       // Get device modes using adapter's existing method
       // Note: ACInfinityAdapter already has getDeviceModes method
-      const modes = await (adapter as { getDeviceModes: (id: string) => Promise<Array<{ port: number; [key: string]: unknown }>> }).getDeviceModes(controllerId)
+      const modes = await (adapter as unknown as { getDeviceModes: (id: string) => Promise<Array<{ port: number; [key: string]: unknown }>> }).getDeviceModes(controllerId)
 
       // Get capabilities to map ports to devices
       const capabilities = connectionResult.metadata.capabilities
@@ -423,7 +423,7 @@ export async function POST(
     }
 
     // Rate limiting: 10 requests per minute per user (write operations)
-    const rateLimitResult = checkRateLimit(userId, {
+    const rateLimitResult = await checkRateLimit(userId, {
       maxRequests: 10,
       windowMs: 60 * 1000,
       keyPrefix: 'modes-write'

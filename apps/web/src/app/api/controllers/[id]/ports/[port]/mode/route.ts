@@ -241,7 +241,7 @@ export async function GET(
     }
 
     // Rate limiting
-    const rateLimitResult = checkRateLimit(userId, {
+    const rateLimitResult = await checkRateLimit(userId, {
       maxRequests: 20,
       windowMs: 60 * 1000,
       keyPrefix: 'port-mode-read'
@@ -332,7 +332,7 @@ export async function GET(
       const controllerId = connectionResult.controllerId || id
 
       // Get modes for this port
-      const modes = await (adapter as { getDeviceModes: (id: string) => Promise<Array<{ port: number; [key: string]: unknown }>> }).getDeviceModes(controllerId)
+      const modes = await (adapter as unknown as { getDeviceModes: (id: string) => Promise<Array<{ port: number; [key: string]: unknown }>> }).getDeviceModes(controllerId)
       const portMode = modes.find((m) => m.port === port)
 
       // Find device info for this port
@@ -421,7 +421,7 @@ export async function PUT(
     }
 
     // Rate limiting
-    const rateLimitResult = checkRateLimit(userId, {
+    const rateLimitResult = await checkRateLimit(userId, {
       maxRequests: 10,
       windowMs: 60 * 1000,
       keyPrefix: 'port-mode-write'

@@ -46,6 +46,7 @@ describe('MQTTAdapter', () => {
       port: 1883,
       username: 'testuser',
       password: 'testpass',
+      topic: '#',
       topicPrefix: 'enviroflow/test',
       useTls: false,
       clientId: 'test_client'
@@ -454,7 +455,7 @@ describe('MQTTAdapter', () => {
         }
         return mockClient
       })
-      mockClient.publish.mockImplementation((topic, payload, options, callback) => {
+      mockClient.publish.mockImplementation((topic: any, payload: any, options: any, callback: any) => {
         callback()
       })
 
@@ -484,7 +485,7 @@ describe('MQTTAdapter', () => {
         }
         return mockClient
       })
-      mockClient.publish.mockImplementation((topic, payload, options, callback) => {
+      mockClient.publish.mockImplementation((topic: any, payload: any, options: any, callback: any) => {
         callback()
       })
 
@@ -512,7 +513,7 @@ describe('MQTTAdapter', () => {
         }
         return mockClient
       })
-      mockClient.publish.mockImplementation((topic, payload, options, callback) => {
+      mockClient.publish.mockImplementation((topic: any, payload: any, options: any, callback: any) => {
         callback()
       })
 
@@ -541,7 +542,7 @@ describe('MQTTAdapter', () => {
         }
         return mockClient
       })
-      mockClient.publish.mockImplementation((topic, payload, options, callback) => {
+      mockClient.publish.mockImplementation((topic: any, payload: any, options: any, callback: any) => {
         callback(new Error('Publish failed'))
       })
 
@@ -624,13 +625,13 @@ describe('MQTTAdapter', () => {
         }
         return mockClient
       })
-      mockClient.publish.mockImplementation((topic, payload, options, callback) => {
+      mockClient.publish.mockImplementation((topic: any, payload: any, options: any, callback: any) => {
         callback()
       })
-      mockClient.unsubscribe.mockImplementation((topic, callback) => {
+      mockClient.unsubscribe.mockImplementation((topic: any, callback: any) => {
         callback()
       })
-      mockClient.end.mockImplementation((force, options, callback) => {
+      mockClient.end.mockImplementation((force: any, options: any, callback: any) => {
         callback()
       })
 

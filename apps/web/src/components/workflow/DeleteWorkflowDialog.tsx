@@ -56,7 +56,7 @@ export function DeleteWorkflowDialog({
             <div className="space-y-3">
               <p>
                 Are you sure you want to delete{" "}
-                <span className="font-semibold text-foreground">"{workflowName}"</span>?
+                <span className="font-semibold text-foreground">&ldquo;{workflowName}&rdquo;</span>?
               </p>
               
               {isActive && (

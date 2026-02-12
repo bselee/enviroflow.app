@@ -6,7 +6,9 @@ build/
 .env.local
 .DS_Store
 .supabase/
+supabase/.temp/
 .turbo/
 *.log
 .vercel
 .env*.local
+.agent-memory/

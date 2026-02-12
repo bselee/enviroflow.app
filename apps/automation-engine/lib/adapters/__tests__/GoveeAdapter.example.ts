@@ -126,7 +126,7 @@ async function discoverAllDevices(apiKey: string) {
         console.log(`\n  ${device.name} (${device.model})`)
         console.log(`    Device ID: ${device.deviceId}`)
         console.log(`    Online: ${device.isOnline}`)
-        console.log(`    Controllable: ${device.controllable}`)
+        console.log(`    Controllable: ${(device as any).controllable}`)
         console.log(`    Sensors: ${device.capabilities?.sensors?.join(', ') || 'none'}`)
         console.log(`    Devices: ${device.capabilities?.devices?.join(', ') || 'none'}`)
       }
@@ -257,7 +257,7 @@ async function completeWorkflow() {
 
   // Step 5: Control device (if controllable)
   const device = discovery.devices[0]
-  if (device.controllable) {
+  if ((device as any).controllable) {
     console.log('\nStep 5: Testing device control...')
     await controlLight(controllerId, 'on')
     await new Promise(resolve => setTimeout(resolve, 2000)) // Wait 2 seconds

@@ -92,8 +92,11 @@ export type {
   AutoModeConfig,
   VpdModeConfig,
   TimerModeConfig,
+  TimerToOnConfig,
+  TimerToOffConfig,
   CycleModeConfig,
   ScheduleModeConfig,
+  ScheduleSlot,
   // Delay types
   DelayTimeUnit,
   DelayNodeConfig,
