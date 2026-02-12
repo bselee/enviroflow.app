@@ -96,6 +96,8 @@ export interface IntelligentTimelineProps {
   onToggleDeviceActivity?: () => void;
   /** Loading state for sensor data (shows loading indicator in chart) */
   isSensorDataLoading?: boolean;
+  /** Callback to toggle a port on/off */
+  onPortToggle?: (controllerId: string, portId: number, turnOn: boolean) => Promise<void>;
 }
 
 // =============================================================================
@@ -292,9 +294,28 @@ function EmptyState(): JSX.Element {
 interface PortTimelineProps {
   ports: LivePort[];
   controllerName?: string;
+  controllerId?: string;
+  onPortToggle?: (controllerId: string, portId: number, turnOn: boolean) => Promise<void>;
 }
 
-function PortTimeline({ ports, controllerName }: PortTimelineProps): JSX.Element {
+function PortTimeline({ ports, controllerName, controllerId, onPortToggle }: PortTimelineProps): JSX.Element {
+  const [loadingPorts, setLoadingPorts] = useState<Set<number>>(new Set());
+
+  const handleToggle = async (port: LivePort) => {
+    if (!controllerId || !onPortToggle) return;
+
+    setLoadingPorts(prev => new Set(prev).add(port.portId));
+    try {
+      await onPortToggle(controllerId, port.portId, !port.isOn);
+    } finally {
+      setLoadingPorts(prev => {
+        const next = new Set(prev);
+        next.delete(port.portId);
+        return next;
+      });
+    }
+  };
+
   if (ports.length === 0) {
     return (
       <div className="text-center text-xs text-muted-foreground py-4">
@@ -309,35 +330,52 @@ function PortTimeline({ ports, controllerName }: PortTimelineProps): JSX.Element
         <div className="text-xs font-medium text-muted-foreground">
           Port Status {controllerName && <span className="text-foreground">{controllerName}</span>}
         </div>
+        {onPortToggle && (
+          <div className="text-[10px] text-muted-foreground/50">
+            Click to toggle
+          </div>
+        )}
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        {ports.map((port) => (
-          <div
-            key={port.portId}
-            className={cn(
-              "flex items-center gap-2 rounded-md border p-2 text-xs transition-colors",
-              port.isOn
-                ? "border-green-500/50 bg-green-500/10"
-                : "border-border bg-card/50"
-            )}
-          >
-            <Power
+        {ports.map((port) => {
+          const isLoading = loadingPorts.has(port.portId);
+          return (
+            <button
+              key={port.portId}
+              onClick={() => handleToggle(port)}
+              disabled={!onPortToggle || isLoading}
               className={cn(
-                "w-3.5 h-3.5",
-                port.isOn ? "text-green-500" : "text-muted-foreground/50"
+                "flex items-center gap-2 rounded-md border p-2 text-xs transition-all text-left",
+                "hover:scale-[1.02] active:scale-[0.98]",
+                port.isOn
+                  ? "border-green-500/50 bg-green-500/10 hover:bg-green-500/20"
+                  : "border-border bg-card/50 hover:bg-muted/50",
+                isLoading && "opacity-50 cursor-wait",
+                !onPortToggle && "cursor-default hover:scale-100 active:scale-100"
               )}
-            />
-            <div className="flex-1 min-w-0">
-              <div className="font-medium truncate">{port.name}</div>
-              <div className="text-muted-foreground">
-                {port.isOn ? `Speed: ${port.speed}%` : "Off"}
+            >
+              {isLoading ? (
+                <div className="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+              ) : (
+                <Power
+                  className={cn(
+                    "w-3.5 h-3.5",
+                    port.isOn ? "text-green-500" : "text-muted-foreground/50"
+                  )}
+                />
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate">{port.name}</div>
+                <div className="text-muted-foreground">
+                  {port.isOn ? `Speed: ${port.speed}%` : "Off"}
+                </div>
               </div>
-            </div>
-            {port.isOn && (
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-            )}
-          </div>
-        ))}
+              {port.isOn && !isLoading && (
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -366,6 +404,7 @@ export function IntelligentTimeline({
   showDeviceActivity: controlledShowDeviceActivity,
   onToggleDeviceActivity,
   isSensorDataLoading = false,
+  onPortToggle,
 }: IntelligentTimelineProps): JSX.Element {
   const { preferences } = useUserPreferences();
   const tempUnit = preferences.temperatureUnit;
@@ -714,6 +753,8 @@ export function IntelligentTimeline({
           <PortTimeline
             ports={selectedPorts}
             controllerName={selectedControllerName}
+            controllerId={controllerId ?? undefined}
+            onPortToggle={onPortToggle}
           />
         </div>
       )}

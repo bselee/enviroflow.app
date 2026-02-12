@@ -26,6 +26,7 @@ import {
   Wind,             // Alternative for inline/duct fans
   Sun,              // Grow lights (LED panels, boards)
   Droplets,         // Humidifier
+  Droplet,          // Humidity sensor
   Flame,            // Heater
   AirVent,          // Air conditioner / dehumidifier
   Plug,             // Outlet / control plug (generic)
@@ -48,6 +49,8 @@ import {
   BrainCircuit,     // AI controller variant
   PlugZap,          // Smart outlet controller
   Power,            // Generic power/outlet icon
+  Gauge,            // VPD gauge
+  Activity,         // Activity / CO2
   type LucideIcon,
 } from 'lucide-react';
 
@@ -275,6 +278,75 @@ export const statusColors = {
   alarm: '#ff5252',
   wifi: '#00d4ff',
 };
+
+// ============================================
+// Sensor Metric Icons
+// ============================================
+
+export type SensorMetricType = 'temperature' | 'humidity' | 'vpd' | 'co2' | 'light';
+
+export interface SensorIconConfig {
+  icon: LucideIcon;
+  color: string;
+  bg: string;
+  label: string;
+}
+
+/**
+ * Sensor metric type → icon + color mapping
+ * Used for consistent sensor display across Dashboard and Controllers pages
+ */
+export const sensorIconMap: Record<SensorMetricType, SensorIconConfig> = {
+  temperature: {
+    icon: Thermometer,
+    color: '#ff5252',  // Red for heat
+    bg: 'rgba(255,82,82,0.10)',
+    label: 'Temperature',
+  },
+  humidity: {
+    icon: Droplet,
+    color: '#4fc3f7',  // Light blue for water
+    bg: 'rgba(79,195,247,0.10)',
+    label: 'Humidity',
+  },
+  vpd: {
+    icon: Gauge,
+    color: '#00e676',  // Green for optimal range
+    bg: 'rgba(0,230,118,0.10)',
+    label: 'VPD',
+  },
+  co2: {
+    icon: Activity,
+    color: '#b388ff',  // Purple for CO2
+    bg: 'rgba(179,136,255,0.10)',
+    label: 'CO₂',
+  },
+  light: {
+    icon: Sun,
+    color: '#ffd740',  // Yellow for light
+    bg: 'rgba(255,215,64,0.10)',
+    label: 'Light',
+  },
+};
+
+/**
+ * Default sensor icon config
+ */
+export const defaultSensorIcon: SensorIconConfig = {
+  icon: Activity,
+  color: '#e8edf4',
+  bg: 'rgba(232,237,244,0.10)',
+  label: 'Sensor',
+};
+
+/**
+ * Get icon configuration for a sensor type
+ */
+export function getSensorIconConfig(sensorType: string | undefined): SensorIconConfig {
+  if (!sensorType) return defaultSensorIcon;
+  const normalized = sensorType.toLowerCase().replace(/[\s-]/g, '_') as SensorMetricType;
+  return sensorIconMap[normalized] || defaultSensorIcon;
+}
 
 // ============================================
 // Navigation/Action Icons

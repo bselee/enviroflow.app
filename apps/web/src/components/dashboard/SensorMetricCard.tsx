@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Thermometer,
   Droplet,
   Activity,
   Wind,
@@ -25,6 +24,7 @@ import {
   getCO2StatusColor,
   type StatusColorResult,
 } from "@/lib/status-colors";
+import { getSensorIconConfig } from "@/config/deviceIcons";
 import type { SensorType, TimeSeriesPoint } from "@/types";
 
 // =============================================================================
@@ -81,40 +81,40 @@ interface SensorDisplayConfig {
 
 const SENSOR_CONFIGS: Record<SensorType, SensorDisplayConfig> = {
   temperature: {
-    label: "Temperature",
-    icon: Thermometer,
+    label: getSensorIconConfig('temperature').label,
+    icon: getSensorIconConfig('temperature').icon,
     unit: "F",
     decimals: 1,
     defaultOptimalRange: [70, 82],
     getStatusColor: (value, range) => getTemperatureStatusColor(value, "F", range),
   },
   humidity: {
-    label: "Humidity",
-    icon: Droplet,
+    label: getSensorIconConfig('humidity').label,
+    icon: getSensorIconConfig('humidity').icon,
     unit: "%",
     decimals: 1,
     defaultOptimalRange: [50, 70],
     getStatusColor: (value, range) => getHumidityStatusColor(value, range),
   },
   vpd: {
-    label: "VPD",
-    icon: Activity,
+    label: getSensorIconConfig('vpd').label,
+    icon: getSensorIconConfig('vpd').icon,
     unit: "kPa",
     decimals: 2,
     defaultOptimalRange: [0.8, 1.2],
     getStatusColor: (value, range) => getVPDStatusColor(value, range),
   },
   co2: {
-    label: "CO2",
-    icon: Wind,
+    label: getSensorIconConfig('co2').label,
+    icon: getSensorIconConfig('co2').icon,
     unit: "ppm",
     decimals: 0,
     defaultOptimalRange: [800, 1200],
     getStatusColor: (value, range) => getCO2StatusColor(value, range),
   },
   light: {
-    label: "Light",
-    icon: Activity, // Could use Sun icon
+    label: getSensorIconConfig('light').label,
+    icon: getSensorIconConfig('light').icon,
     unit: "lux",
     decimals: 0,
     defaultOptimalRange: [20000, 60000],

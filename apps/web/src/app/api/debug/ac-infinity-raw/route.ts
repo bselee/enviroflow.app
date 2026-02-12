@@ -131,6 +131,69 @@ export async function GET(request: NextRequest) {
     })
     const devInfoData = await devInfoResponse.json()
 
+    // ===== TRY ADDITIONAL ENDPOINTS FOR HISTORY/LOGS =====
+
+    // Try: getDevSetting - might contain more data
+    let devSettingData = null
+    try {
+      const devSettingRes = await fetch(`${API_BASE}/api/dev/getDevSetting`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json',
+          'User-Agent': USER_AGENT,
+          'token': token,
+        },
+        body: new URLSearchParams({ devId: deviceId }).toString(),
+      })
+      devSettingData = await devSettingRes.json()
+    } catch (e) {
+      devSettingData = { error: String(e) }
+    }
+
+    // Try: getDeviceLog / getActionLog / getEventLog (potential history endpoints)
+    const tryEndpoints: Array<{ name: string; body: Record<string, string> }> = [
+      { name: 'getDeviceLog', body: { devId: deviceId } },
+      { name: 'getActionLog', body: { devId: deviceId } },
+      { name: 'getEventLog', body: { devId: deviceId } },
+      { name: 'getDevRunLog', body: { devId: deviceId } },
+      { name: 'getDevHistory', body: { devId: deviceId } },
+      { name: 'getPortHistory', body: { devId: deviceId, port: '1' } },
+      { name: 'getModeHistory', body: { devId: deviceId } },
+      { name: 'getDeviceData', body: { devId: deviceId } },
+      { name: 'getDeviceChart', body: { devId: deviceId } },
+      { name: 'getChartData', body: { devId: deviceId, type: '1' } },
+      { name: 'getSensorHistory', body: { devId: deviceId } },
+      { name: 'getDeviceActivity', body: { devId: deviceId } },
+    ]
+
+    const explorationResults: Record<string, unknown> = {}
+    for (const ep of tryEndpoints) {
+      try {
+        const res = await fetch(`${API_BASE}/api/dev/${ep.name}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'User-Agent': USER_AGENT,
+            'token': token,
+          },
+          body: new URLSearchParams(ep.body).toString(),
+        })
+        const data = await res.json()
+        explorationResults[ep.name] = {
+          status: res.status,
+          code: data.code,
+          hasData: data.data != null,
+          dataKeys: data.data ? Object.keys(data.data) : null,
+          dataPreview: data.data ? JSON.stringify(data.data).substring(0, 500) : null,
+          message: data.msg || data.message,
+        }
+      } catch (e) {
+        explorationResults[ep.name] = { error: String(e) }
+      }
+    }
+
     // Return all responses for analysis
     return NextResponse.json({
       success: true,
@@ -148,7 +211,9 @@ export async function GET(request: NextRequest) {
           response: settingsData,
           dataKeys: settingsData.data ? Object.keys(settingsData.data) : [],
         },
+        getDevSetting: devSettingData,
       },
+      history_endpoint_exploration: explorationResults,
     }, { status: 200 })
 
   } catch (error) {

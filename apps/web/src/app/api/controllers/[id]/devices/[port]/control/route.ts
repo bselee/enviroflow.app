@@ -9,7 +9,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
-import { decryptCredentials } from '@/lib/server-encryption'
+import { decryptCredentials, EncryptionError } from '@/lib/server-encryption'
 import { checkRateLimit, createRateLimitHeaders } from '@/lib/rate-limit'
 import { safeError } from '@/lib/sanitize-log'
 
@@ -264,10 +264,13 @@ export async function POST(
       const adapter = getAdapter(brand)
 
       // Decrypt stored credentials
-      const decryptResult = decryptCredentials(controller.credentials)
-
-      if (!decryptResult.success) {
-        safeError('[Device Control] Credential decryption failed:', decryptResult.error)
+      let storedCredentials: Record<string, unknown>
+      try {
+        storedCredentials = decryptCredentials(controller.credentials)
+      } catch (decryptError) {
+        if (decryptError instanceof EncryptionError) {
+          safeError('[Device Control] Credential decryption failed:', decryptError.message)
+        }
         return NextResponse.json(
           {
             success: false,
@@ -276,8 +279,6 @@ export async function POST(
           { status: 500 }
         )
       }
-
-      const storedCredentials = decryptResult.credentials as Record<string, unknown>
 
       // Validate credentials
       if (brand === 'ac_infinity' || brand === 'inkbird') {
@@ -352,6 +353,54 @@ export async function POST(
           status: 500,
           headers: createRateLimitHeaders(rateLimitResult)
         })
+      }
+
+      // Log to device_state_log for waveform chart visualization
+      try {
+        let newState = false
+        let newSpeed = 0
+
+        if (action === 'turn_on') {
+          newState = true
+          newSpeed = 100
+        } else if (action === 'turn_off') {
+          newState = false
+          newSpeed = 0
+        } else if (action === 'set_level') {
+          newState = (value ?? 0) > 0
+          newSpeed = value ?? 0
+        } else if (action === 'toggle') {
+          // For toggle, use the actual result value
+          newState = (commandResult.actualValue ?? 0) > 0
+          newSpeed = commandResult.actualValue ?? (newState ? 100 : 0)
+        }
+
+        // Get port name from controller_ports if available
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data: portData } = await (client as any)
+          .from('controller_ports')
+          .select('port_name')
+          .eq('controller_id', id)
+          .eq('port_number', port)
+          .single()
+
+        const portName = portData?.port_name || `Port ${port}`
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (client as any)
+          .from('device_state_log')
+          .insert({
+            controller_id: id,
+            port_number: port,
+            device_name: portName,
+            state: newState,
+            speed: newSpeed,
+            trigger: 'manual',
+            recorded_at: new Date().toISOString(),
+          })
+      } catch (stateLogError) {
+        // Table may not exist yet - log but don't fail the request
+        console.warn('[Device Control] Failed to log device state:', stateLogError)
       }
 
       return NextResponse.json({

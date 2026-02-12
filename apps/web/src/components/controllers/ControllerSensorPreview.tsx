@@ -15,10 +15,11 @@
  */
 
 import { useMemo, useEffect, useCallback } from "react";
-import { Thermometer, Droplets, Gauge, Activity, Fan, Lightbulb, Power, Zap, Database } from "lucide-react";
+import { Database, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDeviceControl, type DeviceState } from "@/hooks/use-device-control";
 import { useSensorReadings } from "@/hooks/use-sensor-readings";
+import { getSensorIconConfig, getPortIconConfig, iconSizes } from "@/config/deviceIcons";
 
 interface ControllerSensorPreviewProps {
   controllerId: string;
@@ -28,35 +29,32 @@ interface ControllerSensorPreviewProps {
 }
 
 /**
- * Get icon for device type
+ * Get icon for device type using centralized config
  */
 function getDeviceIcon(deviceType: string) {
-  switch (deviceType.toLowerCase()) {
-    case 'fan':
-      return Fan;
-    case 'light':
-      return Lightbulb;
-    case 'outlet':
-      return Power;
-    default:
-      return Zap;
-  }
+  return getPortIconConfig(deviceType).icon;
 }
 
 /**
  * Compact device status display
  */
 function DeviceStatusBadge({ device }: { device: DeviceState }) {
-  const Icon = getDeviceIcon(device.deviceType);
+  const iconConfig = getPortIconConfig(device.deviceType);
+  const Icon = iconConfig.icon;
 
   return (
-    <div className={cn(
-      "flex items-center gap-1.5 px-2 py-1 rounded-md text-xs",
-      device.isOn
-        ? "bg-green-500/10 text-green-600 dark:text-green-400"
-        : "bg-muted text-muted-foreground"
-    )}>
-      <Icon className="w-3 h-3" />
+    <div
+      className={cn(
+        "flex items-center gap-1.5 px-2 py-1 rounded-md text-xs",
+        device.isOn
+          ? "bg-[rgba(0,230,118,0.08)]"
+          : "bg-muted text-muted-foreground"
+      )}
+    >
+      <Icon
+        className="w-3 h-3"
+        style={{ color: device.isOn ? iconConfig.color : undefined }}
+      />
       <span className="font-medium truncate max-w-[60px]">{device.name}</span>
       {device.isOn && device.supportsDimming && (
         <span className="text-[10px] opacity-75">{device.level}%</span>
@@ -69,19 +67,22 @@ function DeviceStatusBadge({ device }: { device: DeviceState }) {
 }
 
 /**
- * Single sensor value display
+ * Single sensor value display using centralized icons
  */
 function SensorValue({
-  icon: Icon,
+  sensorType,
   value,
   unit,
-  color,
+  decimals = 1,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  sensorType: 'temperature' | 'humidity' | 'vpd' | 'co2';
   value: number | null;
   unit: string;
-  color: string;
+  decimals?: number;
 }) {
+  const config = getSensorIconConfig(sensorType);
+  const Icon = config.icon;
+
   if (value === null) {
     return (
       <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -93,9 +94,9 @@ function SensorValue({
 
   return (
     <div className="flex items-center gap-1.5">
-      <Icon className={cn("w-3.5 h-3.5", color)} />
+      <Icon className="w-3.5 h-3.5" style={{ color: config.color }} />
       <span className="text-sm font-medium tabular-nums">
-        {value.toFixed(1)}
+        {value.toFixed(decimals)}
         <span className="text-xs text-muted-foreground ml-0.5">{unit}</span>
       </span>
     </div>
@@ -223,26 +224,24 @@ export function ControllerSensorPreview({
         <div className="flex items-center gap-4 text-sm">
           {sensorData.temperature !== null && (
             <SensorValue
-              icon={Thermometer}
+              sensorType="temperature"
               value={sensorData.temperature}
               unit="°F"
-              color="text-red-500"
             />
           )}
           {sensorData.humidity !== null && (
             <SensorValue
-              icon={Droplets}
+              sensorType="humidity"
               value={sensorData.humidity}
               unit="%"
-              color="text-blue-500"
             />
           )}
           {sensorData.vpd !== null && (
             <SensorValue
-              icon={Gauge}
+              sensorType="vpd"
               value={sensorData.vpd}
               unit="kPa"
-              color="text-green-500"
+              decimals={2}
             />
           )}
         </div>
@@ -259,6 +258,14 @@ export function ControllerSensorPreview({
   }
 
   // Full view - database-backed data with realtime updates
+  // Get sensor icon configs from centralized config
+  const tempConfig = getSensorIconConfig('temperature');
+  const humidityConfig = getSensorIconConfig('humidity');
+  const vpdConfig = getSensorIconConfig('vpd');
+  const TempIcon = tempConfig.icon;
+  const HumidityIcon = humidityConfig.icon;
+  const VPDIcon = vpdConfig.icon;
+
   return (
     <div className={cn("space-y-3", className)}>
       {/* Sensor values */}
@@ -266,8 +273,8 @@ export function ControllerSensorPreview({
         {/* Temperature */}
         <div className="space-y-1">
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Thermometer className="w-3 h-3 text-red-500" />
-            <span>Temperature</span>
+            <TempIcon className="w-3 h-3" style={{ color: tempConfig.color }} />
+            <span>{tempConfig.label}</span>
           </div>
           <div className="flex items-baseline gap-1">
             <span className="text-lg font-semibold tabular-nums">
@@ -280,8 +287,8 @@ export function ControllerSensorPreview({
         {/* Humidity */}
         <div className="space-y-1">
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Droplets className="w-3 h-3 text-blue-500" />
-            <span>Humidity</span>
+            <HumidityIcon className="w-3 h-3" style={{ color: humidityConfig.color }} />
+            <span>{humidityConfig.label}</span>
           </div>
           <div className="flex items-baseline gap-1">
             <span className="text-lg font-semibold tabular-nums">
@@ -294,8 +301,8 @@ export function ControllerSensorPreview({
         {/* VPD */}
         <div className="space-y-1">
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Gauge className="w-3 h-3 text-green-500" />
-            <span>VPD</span>
+            <VPDIcon className="w-3 h-3" style={{ color: vpdConfig.color }} />
+            <span>{vpdConfig.label}</span>
           </div>
           <div className="flex items-baseline gap-1">
             <span className="text-lg font-semibold tabular-nums">
@@ -316,25 +323,30 @@ export function ControllerSensorPreview({
           </div>
           <div className="grid grid-cols-2 gap-2">
             {devices.map((device) => {
-              const Icon = getDeviceIcon(device.deviceType);
+              const iconConfig = getPortIconConfig(device.deviceType);
+              const Icon = iconConfig.icon;
               return (
                 <div
                   key={device.port}
                   className={cn(
                     "flex items-center gap-2 p-2 rounded-lg border text-sm",
                     device.isOn
-                      ? "bg-green-500/5 border-green-500/20"
+                      ? "bg-[rgba(0,230,118,0.05)] border-[rgba(0,230,118,0.2)]"
                       : "bg-muted/50 border-border"
                   )}
                 >
-                  <div className={cn(
-                    "w-8 h-8 rounded-md flex items-center justify-center",
-                    device.isOn ? "bg-green-500/10" : "bg-muted"
-                  )}>
-                    <Icon className={cn(
-                      "w-4 h-4",
-                      device.isOn ? "text-green-500" : "text-muted-foreground"
-                    )} />
+                  <div
+                    className="w-8 h-8 rounded-md flex items-center justify-center"
+                    style={{
+                      backgroundColor: device.isOn ? iconConfig.bg : 'rgba(255,255,255,0.05)',
+                    }}
+                  >
+                    <Icon
+                      className="w-4 h-4"
+                      style={{
+                        color: device.isOn ? iconConfig.color : undefined,
+                      }}
+                    />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium truncate">{device.name}</p>

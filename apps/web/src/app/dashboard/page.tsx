@@ -15,6 +15,7 @@ import { useSensorData, toTimeSeriesData } from "@/hooks/use-sensor-data";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
+import { createClient } from "@/lib/supabase";
 
 // =============================================================================
 // Constants
@@ -392,6 +393,67 @@ export default function DashboardPage(): JSX.Element {
     }
   }, []);
 
+  /**
+   * Handle device port toggle from the dashboard.
+   * Uses the control API to turn devices on/off.
+   */
+  const handlePortToggle = useCallback(async (
+    controllerId: string,
+    portId: number,
+    turnOn: boolean
+  ): Promise<void> => {
+    try {
+      // Get auth token
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      if (!token) {
+        console.error('[Dashboard] No auth token for port control');
+        return;
+      }
+
+      // Find the database controller ID (UUID) from the devId
+      // The liveSensors use devId, but we need the database controller ID for the API
+      const controller = controllers.find(c =>
+        c.controller_id === controllerId || c.id === controllerId
+      );
+
+      if (!controller) {
+        console.error('[Dashboard] Controller not found:', controllerId);
+        return;
+      }
+
+      const dbControllerId = controller.id;
+
+      // Call the control API
+      const response = await fetch(
+        `/api/controllers/${dbControllerId}/ports/${portId}/control`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: turnOn ? 'turn_on' : 'turn_off',
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        console.error('[Dashboard] Port control failed:', error);
+        return;
+      }
+
+      // The LiveSensorDashboard will refresh and show updated state
+      console.log('[Dashboard] Port toggled successfully:', { controllerId: dbControllerId, portId, turnOn });
+    } catch (error) {
+      console.error('[Dashboard] Port toggle error:', error);
+    }
+  }, [controllers]);
+
   return (
     <AppLayout>
       <OnboardingTour />
@@ -433,6 +495,7 @@ export default function DashboardPage(): JSX.Element {
                   isLoading={needsHistory && historyLoading}
                   deviceStateData={enrichedDeviceStateData}
                   isSensorDataLoading={sensorDataLoading}
+                  onPortToggle={handlePortToggle}
                 />
               )}
             </div>
