@@ -137,17 +137,16 @@ export function ControllerTreeItem({
   const [userExpanded, setUserExpanded] = useState(false);
   const hasLoadedDevices = useRef(false);
 
-  // Fetch from adapter API when expanded AND we don't have live ports
-  // Simplified logic: always fetch if expanded and no live ports available
-  const shouldFetchDevices = isExpanded && !hasLivePorts;
-
+  // Always pass controller.id to useDeviceControl so controlDevice works
+  // The hook fetches devices when controllerId is provided AND expanded
+  // When we have live ports, we use those for display but still need controlDevice
   const {
     devices: adapterDevices,
     isLoading: isLoadingDevices,
     error: devicesError,
     controlDevice,
     refreshDevices,
-  } = useDeviceControl(shouldFetchDevices ? controller.id : "");
+  } = useDeviceControl(isExpanded ? controller.id : "");
 
   // Use live ports if available, otherwise fall back to adapter devices
   const devices = hasLivePorts 
