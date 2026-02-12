@@ -251,18 +251,7 @@ export const EnviroSensorChart = memo(function EnviroSensorChart({
   const handleLeave = useCallback(() => onHoverChange(null), [onHoverChange]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
-  // Debug logging for chart rendering issues
-  if (!chart || cw <= 0 || ch <= 0) {
-    console.warn('[EnviroSensorChart] Cannot render:', {
-      hasChart: !!chart,
-      dataLength: data.length,
-      width,
-      height,
-      cw,
-      ch,
-    });
-    return null;
-  }
+  if (!chart || cw <= 0 || ch <= 0) return null;
 
   const { entries, xS, tLabels } = chart;
   const keys = Object.keys(entries);

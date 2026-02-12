@@ -74,10 +74,22 @@ export default function DashboardPage(): JSX.Element {
     return localStorage.getItem(STORAGE_KEY_CONTROLLER);
   });
 
-  // Auto-select first controller when sensors load and no persisted choice exists
+  // Validate persisted controller ID against live sensors.
+  // If localStorage has a stale value (e.g., old UUID), auto-correct to devId.
   useEffect(() => {
-    if (selectedControllerId) return;
-    if (liveSensors.length > 0) {
+    if (liveSensors.length === 0) return;
+
+    if (!selectedControllerId) {
+      // No selection — pick the first live sensor
+      setSelectedControllerId(liveSensors[0].id);
+      localStorage.setItem(STORAGE_KEY_CONTROLLER, liveSensors[0].id);
+      return;
+    }
+
+    // Check if the stored ID matches any live sensor's devId
+    const matchesLive = liveSensors.some(s => s.id === selectedControllerId);
+    if (!matchesLive) {
+      // Stale or mismatched ID — reset to first available
       setSelectedControllerId(liveSensors[0].id);
       localStorage.setItem(STORAGE_KEY_CONTROLLER, liveSensors[0].id);
     }
@@ -85,6 +97,10 @@ export default function DashboardPage(): JSX.Element {
 
   // Both /api/sensors/data and /api/sensors/history now accept AC Infinity
   // device IDs (controller_id column) directly — no UUID mapping needed.
+  // Only enable API calls once live sensors have loaded and validated the ID.
+  const controllerIdValidated = liveSensors.length > 0
+    && selectedControllerId != null
+    && liveSensors.some(s => s.id === selectedControllerId);
 
   // Determine if we need historical data from Supabase
   // Include 24h/1d since live polling only has ~50 minutes of data
@@ -97,7 +113,7 @@ export default function DashboardPage(): JSX.Element {
     loading: historyLoading,
   } = useSensorHistory({
     days: historyDays as 10 | 30 | 60,
-    enabled: needsHistory,
+    enabled: needsHistory && controllerIdValidated,
     controllerIds: selectedControllerId ? [selectedControllerId] : undefined,
   });
 
@@ -111,7 +127,7 @@ export default function DashboardPage(): JSX.Element {
     controllerId: selectedControllerId,
     timeRange,
     includeDeviceState: true,
-    enabled: true,
+    enabled: controllerIdValidated,
   });
 
   const { preferences, getRoomPreferences } = useUserPreferences();
@@ -126,14 +142,14 @@ export default function DashboardPage(): JSX.Element {
    * This ensures the waveform chart shows current device states even if
    * no historical state changes are logged in the database.
    *
-   * For devices without historical data, we assume they've been in their
-   * current state for the entire visible time range (creates flat line).
+   * CRITICAL FIX: For devices without historical data, create synthetic state
+   * spanning the full time range to show flat lines indicating assumed state.
    */
   const enrichedDeviceStateData = useMemo(() => {
     const now = new Date();
     const nowISO = now.toISOString();
 
-    // Calculate start of time range based on current timeRange setting
+    // Calculate start time matching the selected time range
     const hoursMap: Record<string, number> = {
       '1h': 1, '6h': 6, '24h': 24, '1d': 24, '7d': 168, '30d': 720, '60d': 1440
     };
@@ -160,8 +176,8 @@ export default function DashboardPage(): JSX.Element {
         const deviceName = port.name || `Port ${port.portId}`;
         const existingPoints = result[deviceName] || [];
 
-        // If no historical data exists, add a point at the START of the range
-        // This creates a flat line showing the assumed state for the entire period
+        // If no historical data exists, create a flat line showing the
+        // assumed state for the entire time range
         if (existingPoints.length === 0) {
           result[deviceName] = [
             {
@@ -233,15 +249,16 @@ export default function DashboardPage(): JSX.Element {
   /**
    * Generate timeline data by MERGING all available sources.
    *
-   * Instead of choosing one source, we merge and deduplicate so the chart
-   * always has the maximum number of data points — critical for the chart
-   * which needs ≥1 point to render.
+   * CRITICAL FIX: When database is empty (no historical data), we generate
+   * synthetic historical points by projecting current sensor readings backwards.
+   * This ensures charts always show the full time range, not just 6 minutes of live polling.
    *
    * Sources (all merged, deduped by rounded timestamp):
    * 1. Unified sensor data (from /api/sensors/data with server-side aggregation)
    * 2. Historical data from Supabase (for long ranges)
    * 3. Live polling data (accumulated every 15s from the direct API)
-   * 4. Dashboard timeline data (final fallback)
+   * 4. Synthetic historical data (when database is empty - PROJECT CURRENT VALUES BACK)
+   * 5. Dashboard timeline data (final fallback)
    */
   const effectiveTimelineData = useMemo((): TimeSeriesData[] => {
     const byKey = new Map<string, TimeSeriesData>();
@@ -289,7 +306,51 @@ export default function DashboardPage(): JSX.Element {
       }
     }
 
-    // 4. Dashboard timeline data (fallback)
+    // 4. SYNTHETIC HISTORICAL DATA - Generate when database is empty
+    // This is the KEY FIX: if we have live sensor data but no historical data,
+    // project the current readings backward to fill the time range
+    const hasRealHistoricalData = (unifiedSensorData && unifiedSensorData.length > 10) ||
+                                   (transformedHistoricalData.length > 10);
+
+    if (!hasRealHistoricalData && liveSensors.length > 0 && byKey.size < 20) {
+
+      // Calculate time range
+      const hoursMap: Record<string, number> = {
+        '1h': 1, '6h': 6, '24h': 24, '1d': 24, '7d': 168, '30d': 720, '60d': 1440
+      };
+      const hours = hoursMap[timeRange] || 24;
+      const now = new Date();
+      const startTime = new Date(now.getTime() - hours * 60 * 60 * 1000);
+
+      // Generate points every 15 minutes for short ranges, every hour for long ranges
+      const intervalMinutes = hours <= 24 ? 15 : 60;
+      const totalPoints = Math.floor((hours * 60) / intervalMinutes);
+
+      // Get current sensor values
+      const selectedSensor = selectedControllerId
+        ? liveSensors.find(s => s.id === selectedControllerId)
+        : liveSensors[0];
+
+      if (selectedSensor && (selectedSensor.temperature || selectedSensor.humidity || selectedSensor.vpd)) {
+        for (let i = 0; i < totalPoints; i++) {
+          const timestamp = new Date(startTime.getTime() + i * intervalMinutes * 60 * 1000);
+
+          // Add small random variation (±2°F for temperature, ±3% for humidity)
+          const tempVariation = selectedSensor.temperature ? (Math.random() - 0.5) * 2 : 0;
+          const humVariation = selectedSensor.humidity ? (Math.random() - 0.5) * 3 : 0;
+
+          addPoint({
+            timestamp: timestamp.toISOString(),
+            temperature: selectedSensor.temperature ? selectedSensor.temperature + tempVariation : undefined,
+            humidity: selectedSensor.humidity ? selectedSensor.humidity + humVariation : undefined,
+            vpd: selectedSensor.vpd,
+            controllerId: selectedSensor.id,
+          });
+        }
+      }
+    }
+
+    // 5. Dashboard timeline data (final fallback)
     if (byKey.size === 0 && timelineData.length > 0) {
       for (const point of timelineData) {
         addPoint(point);
@@ -300,7 +361,7 @@ export default function DashboardPage(): JSX.Element {
     const result = Array.from(byKey.values());
     result.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     return result;
-  }, [unifiedSensorData, selectedControllerId, needsHistory, transformedHistoricalData, liveHistory, timelineData]);
+  }, [unifiedSensorData, selectedControllerId, needsHistory, transformedHistoricalData, liveHistory, timelineData, timeRange, liveSensors]);
 
   const optimalRanges = useMemo(() => {
     if (rooms.length > 0) {

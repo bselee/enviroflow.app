@@ -147,14 +147,28 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
   );
 
   // ── Time domain ────────────────────────────────────────────────────────────
+  // Use sensor data as the primary time domain so waveform aligns with the
+  // sensor chart.  Device state timestamps can extend beyond the visible
+  // sensor range (e.g. enriched data starts 24h ago while live data covers
+  // only a few minutes) — so we clip to the sensor range when available.
   const { t0, t1, dur } = useMemo(() => {
-    let lo = Infinity;
-    let hi = -Infinity;
+    // Sensor data time bounds (authoritative range for alignment)
+    let sLo = Infinity;
+    let sHi = -Infinity;
     for (const pt of sensorData) {
       const t = new Date(pt.timestamp).getTime();
-      if (t < lo) lo = t;
-      if (t > hi) hi = t;
+      if (t < sLo) sLo = t;
+      if (t > sHi) sHi = t;
     }
+
+    if (sLo !== Infinity && sHi !== -Infinity && sHi > sLo) {
+      // Use sensor data range — device state data will be clipped to fit
+      return { t0: sLo, t1: sHi, dur: sHi - sLo };
+    }
+
+    // Fallback: use device state data range
+    let lo = Infinity;
+    let hi = -Infinity;
     for (const pts of Object.values(deviceStateData)) {
       for (const pt of pts) {
         const t = new Date(pt.timestamp).getTime();
