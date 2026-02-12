@@ -1,22 +1,12 @@
 "use client";
 
-import { useMemo, useState, useCallback, useEffect } from "react";
-import {
-  Area,
-  ComposedChart,
-  ResponsiveContainer,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  ReferenceArea,
-} from "recharts";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { format, parseISO, isValid, subHours } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Thermometer, Droplet, Activity, TrendingUp, TrendingDown, Power } from "lucide-react";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
-import { convertTemperatureFromCelsius, formatTemperature } from "@/lib/temperature-utils";
+import { convertTemperatureFromCelsius } from "@/lib/temperature-utils";
 import {
   Select,
   SelectContent,
@@ -26,6 +16,8 @@ import {
 } from "@/components/ui/select";
 import type { LiveSensor, LivePort } from "@/types";
 import { DeviceWaveformChart } from "@/components/charts/DeviceWaveformChart";
+import { EnviroSensorChart } from "@/components/charts/EnviroSensorChart";
+import type { VisibleMetrics } from "@/components/charts/EnviroSensorChart";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 // =============================================================================
@@ -111,7 +103,6 @@ export interface IntelligentTimelineProps {
 // =============================================================================
 
 const CHART_HEIGHT = 300;
-const ANIMATION_DURATION = 600;
 
 const DEFAULT_OPTIMAL_RANGES: OptimalRanges = {
   vpd: [0.8, 1.2],
@@ -178,18 +169,6 @@ function filterDataByTimeRange(data: TimeSeriesData[], range: TimeRange): TimeSe
   });
 }
 
-function formatTimeLabel(timestamp: string, range: TimeRange): string {
-  const date = parseISO(timestamp);
-  if (!isValid(date)) return "";
-
-  if (range === "60d") return format(date, "MMM d");
-  if (range === "30d") return format(date, "MMM d");
-  if (range === "7d") return format(date, "EEE, MMM d");
-  if (range === "24h" || range === "1d") return format(date, "h:mm a");
-  if (range === "6h") return format(date, "h:mm a");
-  return format(date, "h:mm:ss a");
-}
-
 interface MetricStats {
   current: number | null;
   min: number | null;
@@ -215,28 +194,6 @@ function calculateMetricStats(data: TimeSeriesData[], metric: FocusMetric): Metr
   };
 }
 
-/** Compute auto-scale domain for a set of values with padding and a minimum spread */
-function autoDomain(values: number[], padding = 0.1, minSpread = 5): [number, number] {
-  if (values.length === 0) return [0, 100];
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min;
-
-  // Enforce minimum spread so small variations are still visible
-  if (range < minSpread) {
-    const mid = (min + max) / 2;
-    return [
-      Math.floor((mid - minSpread / 2) * 10) / 10,
-      Math.ceil((mid + minSpread / 2) * 10) / 10,
-    ];
-  }
-
-  return [
-    Math.floor((min - range * padding) * 10) / 10,
-    Math.ceil((max + range * padding) * 10) / 10,
-  ];
-}
-
 // =============================================================================
 // Sub-Components
 // =============================================================================
@@ -258,35 +215,35 @@ function StatCard({ metric, stats, unit, decimals = 1, transformValue }: StatCar
   };
 
   return (
-    <div className={cn("flex items-center gap-3 rounded-lg px-4 py-3", config.bgColor)}>
+    <div className="relative overflow-hidden rounded-xl border border-border/40 bg-card/80 p-4">
+      {/* Gradient accent line at top */}
       <div
-        className="flex items-center justify-center w-10 h-10 rounded-full"
-        style={{ backgroundColor: `${config.stroke}20` }}
-      >
-        {metric === "temperature" && <Thermometer className="w-5 h-5" style={{ color: config.stroke }} />}
-        {metric === "humidity" && <Droplet className="w-5 h-5" style={{ color: config.stroke }} />}
-        {metric === "vpd" && <Activity className="w-5 h-5" style={{ color: config.stroke }} />}
-      </div>
+        className="absolute top-0 left-0 right-0 h-[2px]"
+        style={{ background: `linear-gradient(90deg, transparent, ${config.stroke}, transparent)` }}
+      />
 
-      <div className="flex-1">
-        <div className="text-xl font-bold" style={{ color: config.stroke }}>
-          {formatValue(stats.current)}{unit}
-        </div>
-        <div className="text-xs text-muted-foreground">{config.label}</div>
-      </div>
-
-      {stats.min !== null && stats.max !== null && (
-        <div className="flex flex-col gap-0.5 text-xs">
-          <div className="flex items-center gap-1 text-muted-foreground">
-            <TrendingUp className="w-3 h-3 text-red-400" />
-            <span>{formatValue(stats.max)}{unit}</span>
+      <div className="flex justify-between items-start">
+        <div>
+          <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5 font-medium">
+            {config.label}
           </div>
-          <div className="flex items-center gap-1 text-muted-foreground">
-            <TrendingDown className="w-3 h-3 text-blue-400" />
-            <span>{formatValue(stats.min)}{unit}</span>
+          <div className="text-2xl font-bold font-mono" style={{ color: config.stroke }}>
+            {formatValue(stats.current)}<span className="text-base ml-0.5">{unit}</span>
           </div>
         </div>
-      )}
+        {stats.min !== null && stats.max !== null && (
+          <div className="text-right space-y-0.5 mt-1">
+            <div className="flex items-center gap-1 text-muted-foreground font-mono text-xs">
+              <TrendingUp className="w-3 h-3 text-red-400" />
+              <span>{formatValue(stats.max)}{unit}</span>
+            </div>
+            <div className="flex items-center gap-1 text-muted-foreground font-mono text-xs">
+              <TrendingDown className="w-3 h-3 text-blue-400" />
+              <span>{formatValue(stats.min)}{unit}</span>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -324,77 +281,6 @@ function EmptyState(): JSX.Element {
       <p className="text-xs text-muted-foreground/70 mt-1">
         Your timeline will populate as sensors report readings
       </p>
-    </div>
-  );
-}
-
-interface CustomTooltipProps {
-  active?: boolean;
-  payload?: Array<{
-    dataKey: string;
-    value: number;
-    color: string;
-  }>;
-  label?: string;
-  tempUnit?: "C" | "F";
-}
-
-function CustomTooltip({ active, payload, label, tempUnit = "C" }: CustomTooltipProps): JSX.Element | null {
-  if (!active || !payload || payload.length === 0 || label == null) {
-    return null;
-  }
-
-  let formattedTime = "";
-  try {
-    // label may be a numeric epoch (_ts) or an ISO string
-    const date = typeof label === "number" ? new Date(label) : parseISO(String(label));
-    if (isValid(date)) formattedTime = format(date, "MMM d, h:mm:ss a");
-  } catch { /* ignore */ }
-
-  const tempPayload = payload.find(p => p.dataKey === "temperature");
-  const humPayload = payload.find(p => p.dataKey === "humidity");
-  const vpdPayload = payload.find(p => p.dataKey === "vpd");
-
-  return (
-    <div className="bg-popover/95 backdrop-blur-sm border border-border rounded-lg shadow-xl p-3 min-w-[190px]">
-      <p className="text-xs text-muted-foreground mb-2 font-medium border-b border-border pb-2">
-        {formattedTime}
-      </p>
-      <div className="space-y-2">
-        {tempPayload && tempPayload.value != null && (
-          <div className="flex items-center justify-between gap-4">
-            <span className="flex items-center gap-1.5 text-xs">
-              <Thermometer className="w-3 h-3" style={{ color: METRIC_COLORS.temperature.stroke }} />
-              <span style={{ color: METRIC_COLORS.temperature.stroke }}>Temperature</span>
-            </span>
-            <span className="text-sm font-bold" style={{ color: METRIC_COLORS.temperature.stroke }}>
-              {formatTemperature(tempPayload.value, tempUnit)}
-            </span>
-          </div>
-        )}
-        {humPayload && humPayload.value != null && (
-          <div className="flex items-center justify-between gap-4">
-            <span className="flex items-center gap-1.5 text-xs">
-              <Droplet className="w-3 h-3" style={{ color: METRIC_COLORS.humidity.stroke }} />
-              <span style={{ color: METRIC_COLORS.humidity.stroke }}>Humidity</span>
-            </span>
-            <span className="text-sm font-bold" style={{ color: METRIC_COLORS.humidity.stroke }}>
-              {humPayload.value.toFixed(1)}%
-            </span>
-          </div>
-        )}
-        {vpdPayload && vpdPayload.value != null && (
-          <div className="flex items-center justify-between gap-4">
-            <span className="flex items-center gap-1.5 text-xs">
-              <Activity className="w-3 h-3" style={{ color: METRIC_COLORS.vpd.stroke }} />
-              <span style={{ color: METRIC_COLORS.vpd.stroke }}>VPD</span>
-            </span>
-            <span className="text-sm font-bold" style={{ color: METRIC_COLORS.vpd.stroke }}>
-              {vpdPayload.value.toFixed(2)} kPa
-            </span>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -490,6 +376,37 @@ export function IntelligentTimeline({
 
   // Shared hover state for crosshair synchronization between charts
   const [hoverTimestamp, setHoverTimestamp] = useState<string | null>(null);
+
+  // Metric visibility toggles (at least one must remain visible)
+  const [visibleMetrics, setVisibleMetrics] = useState<VisibleMetrics>({
+    temperature: true,
+    humidity: true,
+    vpd: true,
+  });
+
+  const toggleMetric = useCallback((key: keyof VisibleMetrics) => {
+    setVisibleMetrics((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      if (!Object.values(next).some((v) => v)) return prev;
+      return next;
+    });
+  }, []);
+
+  // Chart container width via ResizeObserver for SVG chart sizing
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  const [chartWidth, setChartWidth] = useState(0);
+
+  useEffect(() => {
+    const el = chartContainerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setChartWidth(Math.floor(entry.contentRect.width));
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // Device activity visibility
   const showDeviceActivity = controlledShowDeviceActivity ?? internalShowDeviceActivity;
@@ -594,38 +511,10 @@ export function IntelligentTimeline({
     }));
   }, [filteredData]);
 
-  // Whether to show individual dots (when fewer data points)
-  const showDots = sortedData.length > 0 && sortedData.length <= 60;
-
   // Calculate stats from real data
   const tempStats = useMemo(() => calculateMetricStats(sortedData, "temperature"), [sortedData]);
   const humStats = useMemo(() => calculateMetricStats(sortedData, "humidity"), [sortedData]);
   const vpdStats = useMemo(() => calculateMetricStats(sortedData, "vpd"), [sortedData]);
-
-  // Auto-scale Y-axis domains based on actual data (with minimum spread per metric)
-  // Larger minimum spreads ensure visual variation even with stable conditions
-  const tempDomain = useMemo((): [number, number] => {
-    const values = sortedData.map(d => d.temperature).filter((v): v is number => v != null);
-    if (values.length === 0) return tempUnit === "F" ? [60, 95] : [15, 35];
-    // Use 5°C minimum spread for noticeable visual variation
-    return autoDomain(values, 0.2, 5);
-  }, [sortedData, tempUnit]);
-
-  const humDomain = useMemo((): [number, number] => {
-    const values = sortedData.map(d => d.humidity).filter((v): v is number => v != null);
-    if (values.length === 0) return [30, 80];
-    // Use 10% minimum spread for meaningful humidity visualization
-    const domain = autoDomain(values, 0.2, 10);
-    return [Math.max(0, domain[0]), Math.min(100, domain[1])];
-  }, [sortedData]);
-
-  const vpdDomain = useMemo((): [number, number] => {
-    const values = sortedData.map(d => d.vpd).filter((v): v is number => v != null);
-    if (values.length === 0) return [0, 2.5];
-    // Use 0.5 kPa minimum spread for VPD (typical range is 0.4-1.6 kPa)
-    const domain = autoDomain(values, 0.25, 0.5);
-    return [Math.max(0, domain[0]), domain[1]];
-  }, [sortedData]);
 
   // Get ports for selected controller
   const selectedPorts = useMemo((): LivePort[] => {
@@ -642,8 +531,8 @@ export function IntelligentTimeline({
     return undefined;
   }, [selectedSensor, controllerId, liveSensors]);
 
-  // Optimal range bounds (for shaded reference areas)
-  const ranges = optimalRanges ?? DEFAULT_OPTIMAL_RANGES;
+  // Optimal range bounds (kept for potential future use)
+  // const ranges = optimalRanges ?? DEFAULT_OPTIMAL_RANGES;
 
   // Fade-in on mount
   const [visible, setVisible] = useState(false);
@@ -666,7 +555,7 @@ export function IntelligentTimeline({
       visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3",
       className
     )}>
-      {/* Header: Controller Selector + Time Range */}
+      {/* Header: Controller Selector + Time Range + Metric Toggles */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">Controller:</span>
@@ -688,7 +577,32 @@ export function IntelligentTimeline({
           </Select>
         </div>
 
-        <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-1">
+        <div className="flex items-center gap-4 flex-wrap">
+          {/* Metric Toggles */}
+          <div className="flex items-center gap-3">
+            {(["temperature", "humidity", "vpd"] as const).map((key) => {
+              const mc = METRIC_COLORS[key];
+              const label = key === "temperature" ? `Temp °${tempUnit}` : key === "humidity" ? "Humidity %" : "VPD kPa";
+              return (
+                <button
+                  key={key}
+                  onClick={() => toggleMetric(key)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2 py-1 rounded transition-all text-xs",
+                    visibleMetrics[key]
+                      ? "opacity-100"
+                      : "opacity-30 hover:opacity-50"
+                  )}
+                >
+                  <div className="w-4 h-0.5 rounded-full" style={{ backgroundColor: mc.stroke }} />
+                  <span className="font-medium" style={{ color: mc.stroke }}>{label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Time Range Buttons */}
+          <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-1">
           {(Object.keys(TIME_RANGE_LABELS) as TimeRange[]).map((range) => (
             <button
               key={range}
@@ -703,6 +617,7 @@ export function IntelligentTimeline({
               {TIME_RANGE_LABELS[range]}
             </button>
           ))}
+          </div>
         </div>
       </div>
 
@@ -724,198 +639,36 @@ export function IntelligentTimeline({
         <EmptyState />
       ) : (
         <>
-          {/* Main Chart — ComposedChart with gradient area fills */}
+          {/* Main Chart — Custom SVG Sensor Chart */}
           <div
+            ref={chartContainerRef}
             className="w-full relative rounded-xl overflow-hidden"
-            style={{ height: CHART_HEIGHT }}
             role="img"
             aria-label={`Sensor data chart for the last ${TIME_RANGE_LABELS[timeRange]}`}
           >
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart
+            {chartWidth > 0 && (
+              <EnviroSensorChart
                 data={sortedData}
-                margin={{ top: 10, right: 50, left: -5, bottom: 5 }}
-                onMouseMove={(state: { activePayload?: Array<{ payload?: { timestamp?: string } }> }) => {
-                  if (state?.activePayload?.[0]?.payload?.timestamp) {
-                    setHoverTimestamp(state.activePayload[0].payload.timestamp);
-                  }
-                }}
-                onMouseLeave={() => setHoverTimestamp(null)}
-              >
-                {/* Gradient Definitions */}
-                <defs>
-                  <linearGradient id="gradTemp" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#ef4444" stopOpacity={0.3} />
-                    <stop offset="100%" stopColor="#ef4444" stopOpacity={0.02} />
-                  </linearGradient>
-                  <linearGradient id="gradHum" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#4fc3f7" stopOpacity={0.25} />
-                    <stop offset="100%" stopColor="#4fc3f7" stopOpacity={0.02} />
-                  </linearGradient>
-                  <linearGradient id="gradVpd" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#b388ff" stopOpacity={0.25} />
-                    <stop offset="100%" stopColor="#b388ff" stopOpacity={0.02} />
-                  </linearGradient>
-                </defs>
-
-                <CartesianGrid
-                  strokeDasharray="3 6"
-                  stroke="hsl(var(--border))"
-                  opacity={0.4}
-                  vertical={false}
-                />
-
-                <XAxis
-                  dataKey="_ts"
-                  type="number"
-                  scale="time"
-                  domain={["dataMin", "dataMax"]}
-                  tickFormatter={(value: number) => {
-                    const d = new Date(value);
-                    if (!isValid(d)) return "";
-                    if (timeRange === "60d" || timeRange === "30d") return format(d, "MMM d");
-                    if (timeRange === "7d") return format(d, "EEE, MMM d");
-                    if (timeRange === "24h" || timeRange === "1d") return format(d, "h:mm a");
-                    if (timeRange === "6h") return format(d, "h:mm a");
-                    return format(d, "h:mm:ss a");
-                  }}
-                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                  tickLine={false}
-                  axisLine={{ stroke: "hsl(var(--border))", opacity: 0.3 }}
-                  minTickGap={50}
-                  padding={{ left: 10, right: 10 }}
-                />
-
-                {/* Left Y-axis — Humidity */}
-                <YAxis
-                  yAxisId="humidity"
-                  domain={humDomain}
-                  tick={{ fontSize: 10, fill: METRIC_COLORS.humidity.stroke }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={38}
-                  tickFormatter={(value: number) => `${Math.round(value)}%`}
-                />
-
-                {/* Right Y-axis — Temperature */}
-                <YAxis
-                  yAxisId="temp"
-                  domain={tempDomain}
-                  tick={{ fontSize: 10, fill: METRIC_COLORS.temperature.stroke }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={38}
-                  orientation="right"
-                  tickFormatter={(value: number) => `${Math.round(convertTemperatureFromCelsius(value, tempUnit))}°`}
-                />
-
-                {/* Far-right Y-axis — VPD */}
-                <YAxis
-                  yAxisId="vpd"
-                  orientation="right"
-                  domain={vpdDomain}
-                  tick={{ fontSize: 10, fill: METRIC_COLORS.vpd.stroke }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={40}
-                  tickFormatter={(value: number) => value.toFixed(1)}
-                />
-
-                {/* Optimal range bands */}
-                {ranges.humidity && (
-                  <ReferenceArea
-                    yAxisId="humidity"
-                    y1={ranges.humidity[0]}
-                    y2={ranges.humidity[1]}
-                    fill="#4fc3f7"
-                    fillOpacity={0.06}
-                    strokeOpacity={0}
-                  />
-                )}
-                {ranges.vpd && (
-                  <ReferenceArea
-                    yAxisId="vpd"
-                    y1={ranges.vpd[0]}
-                    y2={ranges.vpd[1]}
-                    fill="#b388ff"
-                    fillOpacity={0.06}
-                    strokeOpacity={0}
-                  />
-                )}
-
-                <Tooltip
-                  content={<CustomTooltip tempUnit={tempUnit} />}
-                  cursor={{ stroke: "hsl(var(--muted-foreground))", strokeWidth: 1, strokeDasharray: "4 4" }}
-                />
-
-                {/* Area + Line for Temperature */}
-                <Area
-                  yAxisId="temp"
-                  type="monotoneX"
-                  dataKey="temperature"
-                  stroke={METRIC_COLORS.temperature.stroke}
-                  strokeWidth={2}
-                  fill="url(#gradTemp)"
-                  dot={showDots ? { r: 2.5, fill: METRIC_COLORS.temperature.stroke, strokeWidth: 0 } : false}
-                  activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff", fill: METRIC_COLORS.temperature.stroke }}
-                  connectNulls={true}
-                  isAnimationActive={true}
-                  animationDuration={ANIMATION_DURATION}
-                />
-
-                {/* Area + Line for Humidity */}
-                <Area
-                  yAxisId="humidity"
-                  type="monotoneX"
-                  dataKey="humidity"
-                  stroke={METRIC_COLORS.humidity.stroke}
-                  strokeWidth={2}
-                  fill="url(#gradHum)"
-                  dot={showDots ? { r: 2.5, fill: METRIC_COLORS.humidity.stroke, strokeWidth: 0 } : false}
-                  activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff", fill: METRIC_COLORS.humidity.stroke }}
-                  connectNulls={true}
-                  isAnimationActive={true}
-                  animationDuration={ANIMATION_DURATION}
-                />
-
-                {/* Area + Line for VPD */}
-                <Area
-                  yAxisId="vpd"
-                  type="monotoneX"
-                  dataKey="vpd"
-                  stroke={METRIC_COLORS.vpd.stroke}
-                  strokeWidth={2}
-                  fill="url(#gradVpd)"
-                  dot={showDots ? { r: 2.5, fill: METRIC_COLORS.vpd.stroke, strokeWidth: 0 } : false}
-                  activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff", fill: METRIC_COLORS.vpd.stroke }}
-                  connectNulls={true}
-                  isAnimationActive={true}
-                  animationDuration={ANIMATION_DURATION}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Legend */}
-          <div className="flex items-center justify-center gap-4 text-xs flex-wrap">
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-blue-500/10">
-              <div className="w-4 h-0.5 rounded-full" style={{ backgroundColor: METRIC_COLORS.humidity.stroke }} />
-              <span style={{ color: METRIC_COLORS.humidity.stroke }}>Humidity %</span>
-            </div>
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-red-500/10">
-              <div className="w-4 h-0.5 rounded-full" style={{ backgroundColor: METRIC_COLORS.temperature.stroke }} />
-              <span style={{ color: METRIC_COLORS.temperature.stroke }}>Temp °{tempUnit}</span>
-            </div>
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-purple-500/10">
-              <div className="w-4 h-0.5 rounded-full" style={{ backgroundColor: METRIC_COLORS.vpd.stroke }} />
-              <span style={{ color: METRIC_COLORS.vpd.stroke }}>VPD kPa</span>
-            </div>
-            {sortedData.length > 1 && (
-              <span className="text-muted-foreground/50 text-[10px]">
-                {sortedData.length} data points
-              </span>
+                width={chartWidth}
+                height={CHART_HEIGHT}
+                visible={visibleMetrics}
+                hoverTimestamp={hoverTimestamp}
+                onHoverChange={setHoverTimestamp}
+                timeRange={timeRange}
+                tempUnit={tempUnit}
+                convertTemp={(v) => convertTemperatureFromCelsius(v, tempUnit)}
+              />
             )}
           </div>
+
+          {/* Data point count */}
+          {sortedData.length > 1 && (
+            <div className="text-center">
+              <span className="text-muted-foreground/40 text-[10px] font-mono">
+                {sortedData.length} data points
+              </span>
+            </div>
+          )}
         </>
       )}
 
@@ -971,6 +724,8 @@ export function IntelligentTimeline({
               hoverTimestamp={hoverTimestamp}
               onHover={setHoverTimestamp}
               showSensorOverlay={true}
+              visible={visibleMetrics}
+              width={chartWidth > 0 ? chartWidth : undefined}
               className="mt-2"
             />
           )}

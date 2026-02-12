@@ -1,40 +1,26 @@
 "use client";
 
 /**
- * DeviceWaveformChart Component
+ * DeviceWaveformChart — Custom SVG Device Activity Chart
  *
- * AC Infinity-style device activity waveform chart showing ON/OFF state changes.
- * Features:
- * - Step-function waveforms for each device
- * - Mini sensor overlay at top (ghosted lines)
- * - Shared crosshair synchronized with parent sensor chart
- * - Device state indicator at hover timestamp
- *
- * Usage:
- * <DeviceWaveformChart
- *   deviceStateData={deviceData}
- *   sensorData={sensorData}
- *   hoverTimestamp={hoveredTime}
- *   onHover={setHoveredTime}
- * />
+ * AC Infinity-style step-function waveforms showing device ON/OFF states:
+ * - Pure SVG rendering (no Recharts dependency)
+ * - Semi-transparent fill under ON states
+ * - Mini ghosted sensor overlay at top
+ * - Shared crosshair synchronized with EnviroSensorChart
+ * - ON/OFF labels and device name labels
+ * - Matching CHART_PAD left/right for pixel-perfect crosshair alignment
  */
 
-import { useMemo, useCallback, useRef, useEffect, useState } from "react";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  ResponsiveContainer,
-  ReferenceLine,
-  ComposedChart,
-  Area,
-} from "recharts";
+import { useMemo, useCallback, useRef, memo } from "react";
 import { cn } from "@/lib/utils";
-import { format, parseISO, isValid } from "date-fns";
-import type { DeviceStateData, DeviceStatePoint, SensorDataPoint } from "@/hooks/use-sensor-data";
+import { format, isValid } from "date-fns";
+import type {
+  DeviceStateData,
+  SensorDataPoint,
+} from "@/hooks/use-sensor-data";
 import { getDeviceColor } from "@/hooks/use-sensor-data";
-import { Power, PowerOff } from "lucide-react";
+import { CHART_PAD } from "./EnviroSensorChart";
 
 // =============================================================================
 // Types
@@ -43,406 +29,530 @@ import { Power, PowerOff } from "lucide-react";
 export interface DeviceWaveformChartProps {
   deviceStateData: DeviceStateData;
   sensorData?: SensorDataPoint[];
-  /** Synchronized hover timestamp (ISO string or null) */
   hoverTimestamp?: string | null;
-  /** Callback when hovering over the chart */
   onHover?: (timestamp: string | null) => void;
-  /** Show mini sensor overlay */
   showSensorOverlay?: boolean;
+  visible?: { temperature: boolean; humidity: boolean; vpd: boolean };
+  width?: number;
   className?: string;
-}
-
-interface WaveformDataPoint {
-  timestamp: number; // epoch ms for recharts
-  time: string; // ISO string
-  state: number; // 0 or 1
-  speed: number;
 }
 
 // =============================================================================
 // Constants
 // =============================================================================
 
-const WAVEFORM_HEIGHT = 40; // Height per device row
-const SENSOR_OVERLAY_HEIGHT = 48;
-const CHART_PADDING = { left: 8, right: 8 };
+const WAVE_H = 36;
+const SENSOR_OVERLAY_H = 44;
+const ROW_GAP = 2;
+
+const OVERLAY_METRICS: Array<{
+  key: "temperature" | "humidity";
+  color: string;
+  unit: string;
+}> = [
+  { key: "temperature", color: "#ef4444", unit: "°" },
+  { key: "humidity", color: "#4fc3f7", unit: "%" },
+];
+
+// =============================================================================
+// SVG Helpers
+// =============================================================================
+
+function f(v: number): string {
+  return v.toFixed(1);
+}
+
+/** Build a simple polyline path for the mini sensor overlay. */
+function sensorLine(
+  pts: Array<{ ts: number; v: number }>,
+  t0: number,
+  dur: number,
+  cw: number,
+  vMin: number,
+  vMax: number,
+  top: number,
+  h: number,
+  padL: number,
+): string {
+  if (pts.length < 2 || dur === 0) return "";
+  const xS = (t: number) => padL + ((t - t0) / dur) * cw;
+  const vRange = vMax - vMin || 1;
+  const yS = (v: number) => top + h - ((v - vMin) / vRange) * h;
+  return pts
+    .map((p, i) => `${i === 0 ? "M" : "L"}${f(xS(p.ts))},${f(yS(p.v))}`)
+    .join(" ");
+}
+
+/** Build step-after waveform path for device states. */
+function stepPath(
+  states: Array<{ ts: number; on: boolean }>,
+  t0: number,
+  dur: number,
+  cw: number,
+  onY: number,
+  offY: number,
+  padL: number,
+): string {
+  if (states.length === 0 || dur === 0) return "";
+  const xS = (t: number) => padL + ((t - t0) / dur) * cw;
+
+  let d = `M${f(xS(states[0].ts))},${f(states[0].on ? onY : offY)}`;
+  for (let i = 1; i < states.length; i++) {
+    const x = xS(states[i].ts);
+    const prevY = states[i - 1].on ? onY : offY;
+    const curY = states[i].on ? onY : offY;
+    d += ` L${f(x)},${f(prevY)}`;
+    if (curY !== prevY) d += ` L${f(x)},${f(curY)}`;
+  }
+  return d;
+}
+
+/** Close the step waveform path into a fill area reaching the offY baseline. */
+function stepFillPath(
+  linePath: string,
+  states: Array<{ ts: number; on: boolean }>,
+  t0: number,
+  dur: number,
+  cw: number,
+  offY: number,
+  padL: number,
+): string {
+  if (!linePath || states.length < 2 || dur === 0) return "";
+  const xS = (t: number) => padL + ((t - t0) / dur) * cw;
+  const lastX = xS(states[states.length - 1].ts);
+  const firstX = xS(states[0].ts);
+  return `${linePath} L${f(lastX)},${f(offY)} L${f(firstX)},${f(offY)} Z`;
+}
 
 // =============================================================================
 // Component
 // =============================================================================
 
-export function DeviceWaveformChart({
+export const DeviceWaveformChart = memo(function DeviceWaveformChart({
   deviceStateData,
   sensorData = [],
   hoverTimestamp,
   onHover,
   showSensorOverlay = true,
+  visible = { temperature: true, humidity: true, vpd: true },
+  width: forcedWidth,
   className,
 }: DeviceWaveformChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [chartWidth, setChartWidth] = useState(0);
+  const svgRef = useRef<SVGSVGElement>(null);
 
-  // Track container width
-  useEffect(() => {
-    const updateWidth = () => {
-      if (containerRef.current) {
-        setChartWidth(containerRef.current.offsetWidth);
-      }
-    };
-    updateWidth();
-    window.addEventListener("resize", updateWidth);
-    return () => window.removeEventListener("resize", updateWidth);
-  }, []);
-
-  // Get device names
+  // ── Device list ────────────────────────────────────────────────────────────
   const deviceNames = useMemo(
     () => Object.keys(deviceStateData).sort(),
-    [deviceStateData]
+    [deviceStateData],
   );
 
-  // Calculate time domain from sensor data or device data
-  const timeDomain = useMemo(() => {
-    let minTime = Infinity;
-    let maxTime = -Infinity;
-
-    // From sensor data
-    for (const point of sensorData) {
-      const ts = new Date(point.timestamp).getTime();
-      if (ts < minTime) minTime = ts;
-      if (ts > maxTime) maxTime = ts;
+  // ── Time domain ────────────────────────────────────────────────────────────
+  const { t0, t1, dur } = useMemo(() => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const pt of sensorData) {
+      const t = new Date(pt.timestamp).getTime();
+      if (t < lo) lo = t;
+      if (t > hi) hi = t;
     }
-
-    // From device data
-    for (const points of Object.values(deviceStateData)) {
-      for (const point of points) {
-        const ts = new Date(point.timestamp).getTime();
-        if (ts < minTime) minTime = ts;
-        if (ts > maxTime) maxTime = ts;
+    for (const pts of Object.values(deviceStateData)) {
+      for (const pt of pts) {
+        const t = new Date(pt.timestamp).getTime();
+        if (t < lo) lo = t;
+        if (t > hi) hi = t;
       }
     }
-
-    if (minTime === Infinity) {
+    if (lo === Infinity) {
       const now = Date.now();
-      return [now - 3600000, now];
+      return { t0: now - 3_600_000, t1: now, dur: 3_600_000 };
     }
-
-    return [minTime, maxTime];
+    return { t0: lo, t1: hi, dur: hi - lo };
   }, [sensorData, deviceStateData]);
 
-  // Convert device state data to waveform format
-  const waveformData = useMemo(() => {
-    const result: Record<string, WaveformDataPoint[]> = {};
+  // ── Dimensions ─────────────────────────────────────────────────────────────
+  const P = CHART_PAD;
+  const chartW = (forcedWidth ?? 800) - P.left - P.right;
+  const hasSensorOverlay = showSensorOverlay && sensorData.length >= 2;
+  const devBaseY = hasSensorOverlay ? SENSOR_OVERLAY_H + 10 : 6;
+  const totalH =
+    devBaseY + deviceNames.length * (WAVE_H + ROW_GAP) + 8;
 
-    for (const [deviceName, states] of Object.entries(deviceStateData)) {
-      if (!states || states.length === 0) continue;
+  // ── Sensor overlay lines ───────────────────────────────────────────────────
+  const overlayPaths = useMemo(() => {
+    if (!hasSensorOverlay || dur === 0) return [];
+    return OVERLAY_METRICS.filter((m) => visible[m.key])
+      .map((m) => {
+        const raw = sensorData
+          .map((d) => ({
+            ts: new Date(d.timestamp).getTime(),
+            v: d[m.key],
+          }))
+          .filter((r): r is { ts: number; v: number } => r.v != null);
+        if (raw.length < 2) return null;
+        const vals = raw.map((r) => r.v);
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (const v of vals) {
+          if (v < lo) lo = v;
+          if (v > hi) hi = v;
+        }
+        const pad = (hi - lo) * 0.15 || 1;
+        return {
+          color: m.color,
+          d: sensorLine(
+            raw,
+            t0,
+            dur,
+            chartW,
+            lo - pad,
+            hi + pad,
+            2,
+            SENSOR_OVERLAY_H - 4,
+            P.left,
+          ),
+        };
+      })
+      .filter(Boolean) as Array<{ color: string; d: string }>;
+  }, [sensorData, visible, t0, dur, chartW, hasSensorOverlay, P.left]);
 
-      // Sort by timestamp
-      const sorted = [...states].sort(
-        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  // ── Device waveform data ───────────────────────────────────────────────────
+  const deviceWaves = useMemo(() => {
+    if (dur === 0) return [];
+    return deviceNames.map((name, idx) => {
+      const raw = deviceStateData[name] || [];
+      const sorted = [...raw]
+        .sort(
+          (a, b) =>
+            new Date(a.timestamp).getTime() -
+            new Date(b.timestamp).getTime(),
+        )
+        .map((s) => ({
+          ts: new Date(s.timestamp).getTime(),
+          on: s.state,
+          speed: s.speed,
+        }));
+
+      // Extend to end of time domain for a clean trailing edge
+      if (
+        sorted.length > 0 &&
+        sorted[sorted.length - 1].ts < t1
+      ) {
+        sorted.push({ ...sorted[sorted.length - 1], ts: t1 });
+      }
+
+      const yBase = devBaseY + idx * (WAVE_H + ROW_GAP);
+      const onY = yBase + 7;
+      const offY = yBase + WAVE_H - 7;
+      const color = getDeviceColor(name);
+
+      const wPath = stepPath(sorted, t0, dur, chartW, onY, offY, P.left);
+      const fPath = stepFillPath(
+        wPath,
+        sorted,
+        t0,
+        dur,
+        chartW,
+        offY,
+        P.left,
       );
 
-      // Convert to waveform points with step-function behavior
-      const points: WaveformDataPoint[] = [];
-
-      for (let i = 0; i < sorted.length; i++) {
-        const state = sorted[i];
-        const ts = new Date(state.timestamp).getTime();
-
-        // Add point at this timestamp
-        points.push({
-          timestamp: ts,
-          time: state.timestamp,
-          state: state.state ? 1 : 0,
-          speed: state.speed,
-        });
-      }
-
-      // Extend to end of time domain
-      if (points.length > 0) {
-        const lastPoint = points[points.length - 1];
-        if (lastPoint.timestamp < timeDomain[1]) {
-          points.push({
-            timestamp: timeDomain[1],
-            time: new Date(timeDomain[1]).toISOString(),
-            state: lastPoint.state,
-            speed: lastPoint.speed,
-          });
+      // Current state at hover
+      let hoverState: { on: boolean; speed: number } | null = null;
+      if (hoverTimestamp) {
+        const hts = new Date(hoverTimestamp).getTime();
+        let last = { on: false, speed: 0 };
+        for (const s of sorted) {
+          if (s.ts <= hts) last = { on: s.on, speed: s.speed };
+          else break;
         }
+        hoverState = last;
       }
 
-      result[deviceName] = points;
-    }
+      return { name, color, yBase, onY, offY, wPath, fPath, hoverState };
+    });
+  }, [
+    deviceNames,
+    deviceStateData,
+    t0,
+    t1,
+    dur,
+    chartW,
+    P.left,
+    devBaseY,
+    hoverTimestamp,
+  ]);
 
-    return result;
-  }, [deviceStateData, timeDomain]);
-
-  // Convert sensor data for mini overlay
-  const sensorChartData = useMemo(() => {
-    return sensorData.map((point) => ({
-      timestamp: new Date(point.timestamp).getTime(),
-      temperature: point.temperature,
-      humidity: point.humidity,
-    }));
-  }, [sensorData]);
-
-  // Calculate hover position as percentage of width
-  const hoverPosition = useMemo(() => {
-    if (!hoverTimestamp) return null;
+  // ── Hover X position ──────────────────────────────────────────────────────
+  const hoverX = useMemo(() => {
+    if (!hoverTimestamp || dur === 0) return null;
     const ts = new Date(hoverTimestamp).getTime();
-    const [minTime, maxTime] = timeDomain;
-    const range = maxTime - minTime;
-    if (range === 0 || ts < minTime || ts > maxTime) return null;
-    return ((ts - minTime) / range) * 100;
-  }, [hoverTimestamp, timeDomain]);
+    if (ts < t0 || ts > t1) return null;
+    return P.left + ((ts - t0) / dur) * chartW;
+  }, [hoverTimestamp, t0, t1, dur, chartW, P.left]);
 
-  // Get device states at hover timestamp
-  const deviceStatesAtHover = useMemo(() => {
-    if (!hoverTimestamp) return null;
-    const ts = new Date(hoverTimestamp).getTime();
-    if (isNaN(ts)) return null;
-
-    const result: Record<string, { state: boolean; speed: number }> = {};
-
-    for (const [deviceName, points] of Object.entries(waveformData)) {
-      if (!points || points.length === 0) continue;
-
-      // Find the state at this timestamp (last state before or at ts)
-      let lastState = { state: false, speed: 0 };
-      for (const point of points) {
-        if (point.timestamp <= ts) {
-          lastState = { state: point.state === 1, speed: point.speed };
-        } else {
-          break;
-        }
+  // ── Mouse handlers ─────────────────────────────────────────────────────────
+  const handleMove = useCallback(
+    (e: React.MouseEvent<SVGSVGElement>) => {
+      if (!onHover || dur === 0) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const ratio = (x - P.left) / chartW;
+      if (ratio < -0.01 || ratio > 1.01) {
+        onHover(null);
+        return;
       }
-      result[deviceName] = lastState;
-    }
-
-    return Object.keys(result).length > 0 ? result : null;
-  }, [hoverTimestamp, waveformData]);
-
-  // Handle mouse move on chart area
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!onHover || !containerRef.current) return;
-
-      const rect = containerRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left - CHART_PADDING.left;
-      const chartAreaWidth = rect.width - CHART_PADDING.left - CHART_PADDING.right;
-      const ratio = Math.max(0, Math.min(1, x / chartAreaWidth));
-
-      const [minTime, maxTime] = timeDomain;
-      const ts = minTime + ratio * (maxTime - minTime);
+      const ts = t0 + Math.max(0, Math.min(1, ratio)) * dur;
       onHover(new Date(ts).toISOString());
     },
-    [onHover, timeDomain]
+    [onHover, t0, dur, chartW, P.left],
   );
 
-  const handleMouseLeave = useCallback(() => {
-    if (onHover) {
-      onHover(null);
-    }
+  const handleLeave = useCallback(() => {
+    if (onHover) onHover(null);
   }, [onHover]);
 
-  // If no devices, show placeholder
-  if (deviceNames.length === 0) {
+  // ── Early return ───────────────────────────────────────────────────────────
+  if (deviceNames.length === 0 || chartW <= 0) {
     return (
-      <div className={cn("text-center py-8 text-muted-foreground text-sm", className)}>
-        No device activity data available
+      <div
+        className={cn(
+          "text-center py-6 text-muted-foreground text-xs",
+          className,
+        )}
+      >
+        No device activity data
       </div>
     );
   }
 
-  const totalHeight =
-    (showSensorOverlay ? SENSOR_OVERLAY_HEIGHT : 0) +
-    deviceNames.length * WAVEFORM_HEIGHT +
-    32; // Extra padding
+  // ── Time labels ────────────────────────────────────────────────────────────
+  const tCount = Math.min(7, Math.max(3, Math.floor(chartW / 100)));
+  const tLabels: Array<{ x: number; text: string }> = [];
+  for (let i = 0; i <= tCount; i++) {
+    const t = t0 + (dur * i) / tCount;
+    const d = new Date(t);
+    if (!isValid(d)) continue;
+    let text: string;
+    if (dur <= 86_400_000) text = format(d, "h:mm a");
+    else if (dur <= 604_800_000) text = format(d, "EEE");
+    else text = format(d, "MMM d");
+    tLabels.push({ x: P.left + (chartW * i) / tCount, text });
+  }
 
+  // ── Hover time label ───────────────────────────────────────────────────────
+  let hoverTimeStr = "";
+  if (hoverTimestamp) {
+    const d = new Date(hoverTimestamp);
+    if (isValid(d)) hoverTimeStr = format(d, "MMM d, h:mm a");
+  }
+
+  const svgWidth = (forcedWidth ?? 800);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div
-      ref={containerRef}
       className={cn("relative select-none", className)}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
     >
-      {/* Mini sensor overlay */}
-      {showSensorOverlay && sensorChartData.length > 0 && (
-        <div className="relative h-12 mb-2 opacity-40">
-          <ResponsiveContainer width="100%" height={SENSOR_OVERLAY_HEIGHT}>
-            <ComposedChart
-              data={sensorChartData}
-              margin={{ top: 4, right: 8, bottom: 0, left: 8 }}
-            >
-              <XAxis dataKey="timestamp" hide domain={timeDomain} type="number" />
-              <YAxis hide />
-              <Area
-                dataKey="temperature"
-                stroke="#ef4444"
+      <svg
+        ref={svgRef}
+        width={svgWidth}
+        height={totalH + 22}
+        className="block"
+        onMouseMove={handleMove}
+        onMouseLeave={handleLeave}
+      >
+        {/* ── Mini sensor overlay (ghosted) ── */}
+        {hasSensorOverlay && (
+          <g opacity={0.28}>
+            {overlayPaths.map((op, i) => (
+              <path
+                key={i}
+                d={op.d}
                 fill="none"
+                stroke={op.color}
                 strokeWidth={1}
-                dot={false}
-                isAnimationActive={false}
+                opacity={0.65}
               />
-              <Area
-                dataKey="humidity"
-                stroke="#3b82f6"
-                fill="none"
-                strokeWidth={1}
-                dot={false}
-                isAnimationActive={false}
-              />
-              {/* Hover line in sensor overlay */}
-              {hoverPosition !== null && (
-                <ReferenceLine
-                  x={timeDomain[0] + (timeDomain[1] - timeDomain[0]) * (hoverPosition / 100)}
-                  stroke="rgba(255,255,255,0.4)"
-                  strokeDasharray="3 3"
-                />
-              )}
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+            ))}
+          </g>
+        )}
 
-      {/* Separator */}
-      <div className="h-px bg-border/50 mb-2" />
-
-      {/* Device waveforms */}
-      <div className="space-y-1">
-        {deviceNames.map((deviceName) => {
-          const data = waveformData[deviceName] || [];
-          const color = getDeviceColor(deviceName);
-          const stateAtHover = deviceStatesAtHover?.[deviceName];
-
-          return (
-            <div key={deviceName} className="flex items-center gap-2">
-              {/* Device label */}
-              <div className="w-24 flex-shrink-0 flex items-center gap-1.5">
-                <div
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: color }}
-                />
-                <span className="text-[10px] font-medium text-muted-foreground truncate">
-                  {deviceName.toUpperCase()}
-                </span>
-              </div>
-
-              {/* Waveform chart */}
-              <div className="flex-1 h-8 relative">
-                <ResponsiveContainer width="100%" height={32}>
-                  <LineChart
-                    data={data}
-                    margin={{ top: 4, right: 8, bottom: 4, left: 8 }}
-                  >
-                    <XAxis
-                      dataKey="timestamp"
-                      hide
-                      domain={timeDomain}
-                      type="number"
-                    />
-                    <YAxis hide domain={[0, 1]} />
-                    <Line
-                      type="stepAfter"
-                      dataKey="state"
-                      stroke={color}
-                      strokeWidth={2}
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                    {/* Hover line */}
-                    {hoverPosition !== null && (
-                      <ReferenceLine
-                        x={timeDomain[0] + (timeDomain[1] - timeDomain[0]) * (hoverPosition / 100)}
-                        stroke="rgba(255,255,255,0.3)"
-                        strokeDasharray="3 3"
-                      />
-                    )}
-                  </LineChart>
-                </ResponsiveContainer>
-
-                {/* ON/OFF reference lines */}
-                <div
-                  className="absolute top-1 left-2 right-2 border-t border-dashed border-border/30"
-                  style={{ top: "4px" }}
-                />
-                <div
-                  className="absolute bottom-1 left-2 right-2 border-t border-dashed border-border/30"
-                  style={{ bottom: "4px" }}
-                />
-              </div>
-
-              {/* State indicator at hover */}
-              <div className="w-16 flex-shrink-0 flex items-center justify-end gap-1">
-                {stateAtHover ? (
-                  <>
-                    {stateAtHover.state ? (
-                      <Power className="h-3 w-3 text-green-500" />
-                    ) : (
-                      <PowerOff className="h-3 w-3 text-muted-foreground" />
-                    )}
-                    <span
-                      className={cn(
-                        "text-[10px] font-mono",
-                        stateAtHover.state ? "text-green-500" : "text-muted-foreground"
-                      )}
-                    >
-                      {stateAtHover.state ? `${stateAtHover.speed}%` : "OFF"}
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-[10px] text-muted-foreground">-</span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Shared crosshair vertical line */}
-      {hoverPosition !== null && (
-        <div
-          className="absolute top-0 bottom-0 w-px bg-white/20 pointer-events-none z-10"
-          style={{
-            left: `calc(${hoverPosition}% + ${CHART_PADDING.left}px)`,
-          }}
+        {/* ── Separator ── */}
+        <line
+          x1={P.left}
+          y1={devBaseY - 4}
+          x2={P.left + chartW}
+          y2={devBaseY - 4}
+          stroke="hsl(var(--border))"
+          strokeOpacity={0.35}
+          strokeWidth={0.5}
         />
-      )}
 
-      {/* Hover timestamp label */}
-      {hoverTimestamp && (
+        {/* ── Device waveform rows ── */}
+        {deviceWaves.map((dw, idx) => (
+          <g key={dw.name}>
+            {/* Device name label */}
+            <text
+              x={P.left + 4}
+              y={dw.yBase + 1}
+              fill={dw.color}
+              fontSize="9"
+              fontFamily="ui-monospace, monospace"
+              fontWeight="600"
+              opacity={0.72}
+            >
+              {dw.name.toUpperCase()}
+            </text>
+
+            {/* ON / OFF reference dashes */}
+            <line
+              x1={P.left}
+              y1={dw.onY}
+              x2={P.left + chartW}
+              y2={dw.onY}
+              stroke="hsl(var(--border))"
+              strokeOpacity={0.18}
+              strokeDasharray="2 4"
+            />
+            <line
+              x1={P.left}
+              y1={dw.offY}
+              x2={P.left + chartW}
+              y2={dw.offY}
+              stroke="hsl(var(--border))"
+              strokeOpacity={0.18}
+              strokeDasharray="2 4"
+            />
+
+            {/* ON / OFF labels */}
+            <text
+              x={P.left - 5}
+              y={dw.onY + 3}
+              fill="hsl(var(--muted-foreground))"
+              fontSize="7"
+              textAnchor="end"
+              fontFamily="ui-monospace, monospace"
+              opacity={0.4}
+            >
+              ON
+            </text>
+            <text
+              x={P.left - 5}
+              y={dw.offY + 3}
+              fill="hsl(var(--muted-foreground))"
+              fontSize="7"
+              textAnchor="end"
+              fontFamily="ui-monospace, monospace"
+              opacity={0.4}
+            >
+              OFF
+            </text>
+
+            {/* Semi-transparent fill under waveform */}
+            {dw.fPath && (
+              <path d={dw.fPath} fill={dw.color} opacity={0.1} />
+            )}
+
+            {/* Step waveform line */}
+            {dw.wPath && (
+              <path
+                d={dw.wPath}
+                fill="none"
+                stroke={dw.color}
+                strokeWidth={1.5}
+                opacity={0.8}
+              />
+            )}
+
+            {/* Row separator */}
+            {idx < deviceWaves.length - 1 && (
+              <line
+                x1={P.left}
+                y1={dw.yBase + WAVE_H}
+                x2={P.left + chartW}
+                y2={dw.yBase + WAVE_H}
+                stroke="hsl(var(--border))"
+                strokeOpacity={0.12}
+              />
+            )}
+
+            {/* Hover state indicator (right side) */}
+            {dw.hoverState && hoverX !== null && (
+              <text
+                x={P.left + chartW + 8}
+                y={dw.yBase + WAVE_H / 2 + 3}
+                fill={
+                  dw.hoverState.on
+                    ? "#22c55e"
+                    : "hsl(var(--muted-foreground))"
+                }
+                fontSize="9"
+                fontFamily="ui-monospace, monospace"
+                fontWeight="600"
+                opacity={dw.hoverState.on ? 0.9 : 0.4}
+              >
+                {dw.hoverState.on
+                  ? `${dw.hoverState.speed}%`
+                  : "OFF"}
+              </text>
+            )}
+          </g>
+        ))}
+
+        {/* ── Hover crosshair ── */}
+        {hoverX !== null && (
+          <line
+            x1={hoverX}
+            y1={0}
+            x2={hoverX}
+            y2={totalH}
+            stroke="hsl(var(--muted-foreground))"
+            strokeWidth={1}
+            strokeDasharray="3 3"
+            opacity={0.22}
+          />
+        )}
+
+        {/* ── Time axis labels ── */}
+        {tLabels.map((l, i) => (
+          <text
+            key={i}
+            x={l.x}
+            y={totalH + 14}
+            fill="hsl(var(--muted-foreground))"
+            fontSize="10"
+            textAnchor="middle"
+            fontFamily="ui-monospace, monospace"
+            opacity={0.45}
+          >
+            {l.text}
+          </text>
+        ))}
+      </svg>
+
+      {/* ── Hover timestamp badge ── */}
+      {hoverX !== null && hoverTimeStr && (
         <div
-          className="absolute bottom-0 transform -translate-x-1/2 pointer-events-none z-20"
+          className="absolute pointer-events-none z-10"
           style={{
-            left: `calc(${hoverPosition}% + ${CHART_PADDING.left}px)`,
+            left: `${hoverX}px`,
+            bottom: "2px",
+            transform: "translateX(-50%)",
           }}
         >
           <div className="bg-card/90 backdrop-blur-sm border border-border/50 rounded px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground whitespace-nowrap">
-            {formatTimestamp(hoverTimestamp)}
+            {hoverTimeStr}
           </div>
         </div>
       )}
     </div>
   );
-}
+});
 
-// =============================================================================
-// Helpers
-// =============================================================================
+// Re-export types for compatibility
+export type { DeviceStateData };
 
-function formatTimestamp(timestamp: string): string {
-  try {
-    const date = parseISO(timestamp);
-    if (!isValid(date)) return timestamp;
-    return format(date, "MMM d, h:mm a");
-  } catch {
-    return timestamp;
-  }
-}
-
-// =============================================================================
-// Device State Tooltip (for use in parent)
-// =============================================================================
-
+// Legacy tooltip component (maintained for backward compat)
 export interface DeviceStateTooltipProps {
   deviceStates: Record<string, { state: boolean; speed: number }> | null;
   timestamp: string | null;
@@ -453,21 +563,29 @@ export function DeviceStateTooltip({
   deviceStates,
   timestamp,
   className,
-}: DeviceStateTooltipProps) {
+}: DeviceStateTooltipProps): JSX.Element | null {
   if (!deviceStates || !timestamp) return null;
 
   const entries = Object.entries(deviceStates);
   if (entries.length === 0) return null;
 
+  let timeStr = "";
+  try {
+    const d = new Date(timestamp);
+    if (isValid(d)) timeStr = format(d, "MMM d, h:mm a");
+  } catch {
+    /* ignore */
+  }
+
   return (
     <div
       className={cn(
         "bg-card/95 backdrop-blur-sm border border-border/50 rounded-lg p-3 shadow-lg",
-        className
+        className,
       )}
     >
       <div className="text-[10px] text-muted-foreground mb-2 font-mono">
-        {formatTimestamp(timestamp)}
+        {timeStr}
       </div>
       <div className="space-y-1.5">
         {entries.map(([name, { state, speed }]) => (
@@ -482,7 +600,9 @@ export function DeviceStateTooltip({
             <span
               className={cn(
                 "text-xs font-mono",
-                state ? "text-green-500" : "text-muted-foreground"
+                state
+                  ? "text-green-500"
+                  : "text-muted-foreground",
               )}
             >
               {state ? `ON ${speed}%` : "OFF"}
