@@ -1010,7 +1010,45 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
 
       log('info', `Sending command to ${controllerId}:${port}`, { command: command.type, power })
 
-      // Use addDevMode endpoint to set device port settings
+      // Step 1: Get current mode settings (AC Infinity requires ALL settings to be sent)
+      const settingsResult = await adapterFetch<{ code: number; data?: Record<string, unknown>; msg?: string }>(
+        ADAPTER_NAME,
+        `${API_BASE}/api/dev/getdevModeSettingList`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'User-Agent': USER_AGENT,
+            'token': stored.token,
+          },
+          body: new URLSearchParams({
+            devId: controllerId,
+            port: String(port)
+          }).toString()
+        }
+      )
+
+      // Build settings object - merge existing with our changes
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const currentSettings: Record<string, any> = settingsResult.success && settingsResult.data?.data
+        ? { ...(settingsResult.data.data as Record<string, unknown>) }
+        : {}
+
+      // Update only the power-related fields
+      currentSettings.devId = controllerId
+      currentSettings.port = port
+      currentSettings.speak = power
+      currentSettings.onOff = power > 0 ? 1 : 0
+
+      // Ensure required mode fields exist (set to ON mode = 1 for manual control)
+      if (currentSettings.devModeOne === undefined) currentSettings.devModeOne = 1
+      if (currentSettings.levelLow === undefined) currentSettings.levelLow = 0
+      if (currentSettings.levelHigh === undefined) currentSettings.levelHigh = 10
+
+      log('info', `Sending merged settings`, { port, speak: power, onOff: currentSettings.onOff, mode: currentSettings.devModeOne })
+
+      // Step 2: Send updated settings back
       const result = await adapterFetch<ACUpdatePortResponse>(
         ADAPTER_NAME,
         `${API_BASE}/api/dev/addDevMode`,
@@ -1022,12 +1060,13 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
             'User-Agent': USER_AGENT,
             'token': stored.token,
           },
-          body: new URLSearchParams({
-            devId: controllerId,
-            port: String(port),
-            speak: String(power),
-            onOff: power > 0 ? '1' : '0'
-          }).toString()
+          body: new URLSearchParams(
+            Object.entries(currentSettings).reduce((acc, [key, value]) => {
+              // Convert values to strings for URLSearchParams
+              acc[key] = value === null || value === undefined ? '' : String(value)
+              return acc
+            }, {} as Record<string, string>)
+          ).toString()
         }
       )
 
