@@ -83,9 +83,9 @@ function sensorLine(
     .join(" ");
 }
 
-/** Build step-after waveform path for device states. */
+/** Build step-after waveform path for device states using speed as height. */
 function stepPath(
-  states: Array<{ ts: number; on: boolean }>,
+  states: Array<{ ts: number; on: boolean; speed: number }>,
   t0: number,
   dur: number,
   cw: number,
@@ -95,14 +95,17 @@ function stepPath(
 ): string {
   if (states.length === 0 || dur === 0) return "";
   const xS = (t: number) => padL + ((t - t0) / dur) * cw;
+  // Map speed (0-100) to Y position (offY at 0, onY at 100)
+  const yS = (speed: number) => offY - ((speed / 100) * (offY - onY));
 
-  let d = `M${f(xS(states[0].ts))},${f(states[0].on ? onY : offY)}`;
+  let d = `M${f(xS(states[0].ts))},${f(yS(states[0].speed))}`;
   for (let i = 1; i < states.length; i++) {
     const x = xS(states[i].ts);
-    const prevY = states[i - 1].on ? onY : offY;
-    const curY = states[i].on ? onY : offY;
+    const prevY = yS(states[i - 1].speed);
+    const curY = yS(states[i].speed);
+    // Step-after: horizontal to new X, then vertical to new Y
     d += ` L${f(x)},${f(prevY)}`;
-    if (curY !== prevY) d += ` L${f(x)},${f(curY)}`;
+    if (Math.abs(curY - prevY) > 0.1) d += ` L${f(x)},${f(curY)}`;
   }
   return d;
 }
@@ -110,7 +113,7 @@ function stepPath(
 /** Close the step waveform path into a fill area reaching the offY baseline. */
 function stepFillPath(
   linePath: string,
-  states: Array<{ ts: number; on: boolean }>,
+  states: Array<{ ts: number; on: boolean; speed: number }>,
   t0: number,
   dur: number,
   cw: number,
@@ -456,30 +459,30 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
               strokeDasharray="4 4"
             />
 
-            {/* ON / OFF labels - BOLD and visible */}
+            {/* Speed scale labels - 100% at top, 0% at bottom */}
             <text
               x={P.left - 5}
               y={dw.onY + 3}
               fill="#22c55e"
-              fontSize="9"
+              fontSize="8"
               textAnchor="end"
               fontFamily="ui-monospace, monospace"
-              fontWeight="700"
-              opacity={0.9}
+              fontWeight="600"
+              opacity={0.8}
             >
-              ON
+              100
             </text>
             <text
               x={P.left - 5}
               y={dw.offY + 3}
               fill="hsl(var(--muted-foreground))"
-              fontSize="9"
+              fontSize="8"
               textAnchor="end"
               fontFamily="ui-monospace, monospace"
-              fontWeight="700"
-              opacity={0.8}
+              fontWeight="600"
+              opacity={0.6}
             >
-              OFF
+              0
             </text>
 
             {/* Solid fill under waveform - BOLD AC Infinity style */}
