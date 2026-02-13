@@ -12,7 +12,7 @@
  * - Matching CHART_PAD left/right for pixel-perfect crosshair alignment
  */
 
-import { useMemo, useCallback, useRef, memo } from "react";
+import { useMemo, useCallback, useRef, memo, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { format, isValid } from "date-fns";
 import type {
@@ -148,6 +148,17 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
     () => Object.keys(deviceStateData).sort(),
     [deviceStateData],
   );
+
+  // Debug: Log device state data to console
+  useEffect(() => {
+    if (Object.keys(deviceStateData).length > 0) {
+      console.log('[DeviceWaveformChart] Received data:', deviceStateData);
+      for (const [name, points] of Object.entries(deviceStateData)) {
+        const speeds = points.map(p => p.speed);
+        console.log(`[DeviceWaveformChart] ${name}: ${points.length} points, speeds: [${speeds.join(', ')}]`);
+      }
+    }
+  }, [deviceStateData]);
 
   // ── Time domain ────────────────────────────────────────────────────────────
   // Use sensor data as the primary time domain so waveform aligns with the
