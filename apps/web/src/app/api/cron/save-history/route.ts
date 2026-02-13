@@ -23,10 +23,6 @@ type SupabaseClient = ReturnType<typeof createClient<any>>;
 // Lazy Supabase client
 let supabase: SupabaseClient | null = null;
 
-// In-memory cache for device state tracking (to detect changes)
-// Key: "controllerId:port", Value: { state: boolean, speed: number }
-const deviceStateCache = new Map<string, { state: boolean; speed: number }>();
-
 function getSupabase(): SupabaseClient {
   if (!supabase) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -293,8 +289,39 @@ export async function GET(request: NextRequest) {
     // =========================================================
     // Track Device State Changes (for waveform chart)
     // =========================================================
+    // Note: We query the database for previous state instead of using in-memory cache
+    // because serverless functions may cold-start and lose the cache.
     let deviceStateChanges = 0;
     const deviceStateRecords = [];
+
+    // Collect all controller IDs we need to query
+    const controllerIds = Array.from(new Set(
+      devices
+        .map(d => deviceToControllerMap.get(d.devId)?.id)
+        .filter((id): id is string => !!id)
+    ));
+
+    // Fetch the most recent state for each device from the database
+    const previousStatesMap = new Map<string, { state: boolean; speed: number }>();
+    if (controllerIds.length > 0) {
+      // Get the latest state for each controller+port combination
+      const { data: latestStates } = await supabase
+        .from('device_state_log')
+        .select('controller_id, port_number, state, speed')
+        .in('controller_id', controllerIds)
+        .order('recorded_at', { ascending: false });
+
+      if (latestStates) {
+        // Build a map of the most recent state per controller:port
+        // Since we ordered by recorded_at desc, the first occurrence for each key is the latest
+        for (const entry of latestStates) {
+          const key = `${entry.controller_id}:${entry.port_number}`;
+          if (!previousStatesMap.has(key)) {
+            previousStatesMap.set(key, { state: entry.state, speed: entry.speed || 0 });
+          }
+        }
+      }
+    }
 
     for (const device of devices) {
       const controller = deviceToControllerMap.get(device.devId);
@@ -310,9 +337,9 @@ export async function GET(request: NextRequest) {
         const state = speed > 0;
 
         const cacheKey = `${controller.id}:${portNum}`;
-        const previousState = deviceStateCache.get(cacheKey);
+        const previousState = previousStatesMap.get(cacheKey);
 
-        // Only log if state changed or this is the first reading
+        // Log if state changed OR if this is the first reading for this device
         const stateChanged = !previousState ||
           previousState.state !== state ||
           previousState.speed !== speed;
@@ -328,9 +355,6 @@ export async function GET(request: NextRequest) {
             recorded_at: timestamp
           });
           deviceStateChanges++;
-
-          // Update cache
-          deviceStateCache.set(cacheKey, { state, speed });
         }
       }
     }

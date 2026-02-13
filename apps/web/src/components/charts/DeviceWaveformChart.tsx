@@ -246,6 +246,12 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
           speed: s.speed,
         }));
 
+      // Extend to start of time domain using first known state
+      // This ensures the waveform spans the full visible range
+      if (sorted.length > 0 && sorted[0].ts > t0) {
+        sorted.unshift({ ...sorted[0], ts: t0 });
+      }
+
       // Extend to end of time domain for a clean trailing edge
       if (
         sorted.length > 0 &&
