@@ -172,6 +172,17 @@ export default function DashboardPage(): JSX.Element {
       ? liveSensors.find(s => s.id === selectedControllerId)
       : liveSensors[0];
 
+    // Debug logging
+    console.log('[Dashboard] enrichedDeviceStateData:', {
+      selectedControllerId,
+      liveSensorsCount: liveSensors.length,
+      selectedSensorId: selectedSensor?.id,
+      selectedSensorName: selectedSensor?.name,
+      hasPorts: !!selectedSensor?.ports,
+      portsCount: selectedSensor?.ports?.length ?? 0,
+      ports: selectedSensor?.ports?.map(p => ({ name: p.name, portId: p.portId, isOn: p.isOn, speed: p.speed }))
+    });
+
     if (selectedSensor?.ports) {
       for (const port of selectedSensor.ports) {
         const deviceName = port.name || `Port ${port.portId}`;
@@ -204,6 +215,7 @@ export default function DashboardPage(): JSX.Element {
       }
     }
 
+    console.log('[Dashboard] enrichedDeviceStateData result:', Object.keys(result).length, 'devices', result);
     return result;
   }, [deviceStateData, liveSensors, selectedControllerId, timeRange]);
 
