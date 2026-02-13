@@ -209,24 +209,24 @@ export async function GET(request: NextRequest): Promise<NextResponse<SensorData
       }
 
       if (controllerError || !controller) {
-        return NextResponse.json(
-          {
-            success: false,
-            sensorData: [],
-            deviceStateData: {},
-            metadata: {
-              range,
-              intervalMinutes: config.intervalMinutes,
-              pointCount: 0,
-              controllerId: null,
-              startDate: startDate.toISOString(),
-              endDate: endDate.toISOString(),
-              useRPC: config.useRPC,
-            },
-            error: 'Controller not found or access denied'
-          },
-          { status: 404 }
-        )
+        // Controller not registered in database - return empty data gracefully
+        // This allows the UI to show "no data" instead of an error
+        // (Live sensors work without registration, but historical data requires it)
+        console.log(`[SensorData API] Controller ${controllerId} not found in database - returning empty data`)
+        return NextResponse.json({
+          success: true,
+          sensorData: [],
+          deviceStateData: {},
+          metadata: {
+            range,
+            intervalMinutes: config.intervalMinutes,
+            pointCount: 0,
+            controllerId: null,
+            startDate: startDate.toISOString(),
+            endDate: endDate.toISOString(),
+            useRPC: config.useRPC,
+          }
+        })
       }
       validControllerId = controller.id
     } else {
