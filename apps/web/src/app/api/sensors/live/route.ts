@@ -51,6 +51,24 @@ interface LivePort {
   isOn: boolean
   deviceType?: PortDeviceType  // Device type (fan, light, humidifier, etc.)
   mode?: PortMode              // Operating mode (auto, vpd, timer, etc.)
+  modeSummary?: string         // Brief summary of mode config (e.g., "H 75°F / L 54°F")
+}
+
+interface ModeSettings {
+  devModeOne?: number          // Mode ID: 0=off, 1=on, 2=auto, 3=timer, 4=cycle, 5=schedule, 6=vpd
+  tempTriggerAbove?: number    // Temperature high trigger (Fahrenheit)
+  tempTriggerBelow?: number    // Temperature low trigger (Fahrenheit)
+  humTriggerAbove?: number     // Humidity high trigger (%)
+  humTriggerBelow?: number     // Humidity low trigger (%)
+  vpdTriggerAbove?: number     // VPD high trigger (kPa * 100)
+  vpdTriggerBelow?: number     // VPD low trigger (kPa * 100)
+  timerDuration?: number       // Timer duration in seconds
+  timerType?: number           // Timer type: 0=to off, 1=to on
+  cycleOnSec?: number          // Cycle on duration in seconds
+  cycleOffSec?: number         // Cycle off duration in seconds
+  scheduleStartTime?: string   // Schedule start time (HH:MM)
+  scheduleEndTime?: string     // Schedule end time (HH:MM)
+  speak?: number               // Speed level 0-10
 }
 
 interface LiveSensorResponse {
@@ -241,10 +259,151 @@ function mapCurModeToMode(curMode: number | undefined, isOn: boolean): PortMode 
 }
 
 /**
+ * Fetch mode settings for all ports on a device.
+ * Returns a map of portId -> ModeSettings
+ */
+async function fetchModeSettingsForDevice(
+  token: string,
+  devId: string,
+  ports: ACInfinityPort[]
+): Promise<Map<number, ModeSettings>> {
+  const settingsMap = new Map<number, ModeSettings>()
+
+  // Fetch mode settings for each port (with small delay to avoid rate limiting)
+  for (const port of ports) {
+    const portId = port.port || port.portId
+    if (portId <= 0) continue
+
+    try {
+      const response = await fetch('http://www.acinfinityserver.com/api/dev/getdevModeSettingList', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json',
+          'token': token,
+          'User-Agent': 'ACController/1.8.2 (com.acinfinity.humiture; build:489; iOS 16.5.1) Alamofire/5.4.4',
+        },
+        body: new URLSearchParams({
+          devId: devId,
+          port: String(portId)
+        }).toString(),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.code === 200 && data.data) {
+          settingsMap.set(portId, data.data as ModeSettings)
+        }
+      }
+    } catch (err) {
+      console.warn(`[Live Sensors] Failed to fetch mode settings for port ${portId}:`, err)
+    }
+  }
+
+  return settingsMap
+}
+
+/**
+ * Generate a human-readable mode summary from mode settings.
+ * Format matches AC Infinity app style: "AUTO · H 75°F / L 54°F · H 54% / L 39%"
+ */
+function generateModeSummary(mode: PortMode, settings: ModeSettings | undefined): string {
+  if (!settings) return ''
+
+  switch (mode) {
+    case 'auto': {
+      const parts: string[] = []
+      // Temperature triggers
+      const tempHigh = settings.tempTriggerAbove
+      const tempLow = settings.tempTriggerBelow
+      if (tempHigh !== undefined || tempLow !== undefined) {
+        const tempParts: string[] = []
+        if (tempHigh !== undefined) tempParts.push(`H ${tempHigh}°F`)
+        if (tempLow !== undefined) tempParts.push(`L ${tempLow}°F`)
+        parts.push(tempParts.join(' / '))
+      }
+      // Humidity triggers
+      const humHigh = settings.humTriggerAbove
+      const humLow = settings.humTriggerBelow
+      if (humHigh !== undefined || humLow !== undefined) {
+        const humParts: string[] = []
+        if (humHigh !== undefined) humParts.push(`H ${humHigh}%`)
+        if (humLow !== undefined) humParts.push(`L ${humLow}%`)
+        parts.push(humParts.join(' / '))
+      }
+      return parts.join(' · ')
+    }
+
+    case 'vpd': {
+      const vpdHigh = settings.vpdTriggerAbove
+      const vpdLow = settings.vpdTriggerBelow
+      if (vpdHigh !== undefined || vpdLow !== undefined) {
+        const vpdParts: string[] = []
+        // VPD is stored as kPa * 100
+        if (vpdHigh !== undefined) vpdParts.push(`H ${(vpdHigh / 100).toFixed(2)}kPa`)
+        if (vpdLow !== undefined) vpdParts.push(`L ${(vpdLow / 100).toFixed(2)}kPa`)
+        return vpdParts.join(' / ')
+      }
+      return ''
+    }
+
+    case 'timer': {
+      const duration = settings.timerDuration
+      if (duration) {
+        const hours = Math.floor(duration / 3600)
+        const mins = Math.floor((duration % 3600) / 60)
+        const typeStr = settings.timerType === 1 ? 'To ON' : 'To OFF'
+        return hours > 0 ? `${hours}h ${mins}m · ${typeStr}` : `${mins}m · ${typeStr}`
+      }
+      return ''
+    }
+
+    case 'cycle': {
+      const onDur = settings.cycleOnSec || 0
+      const offDur = settings.cycleOffSec || 0
+      const formatDur = (s: number) => {
+        if (s < 60) return `${s}s`
+        if (s < 3600) return `${Math.floor(s / 60)}m`
+        return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`
+      }
+      if (onDur || offDur) {
+        return `ON ${formatDur(onDur)} / OFF ${formatDur(offDur)}`
+      }
+      return ''
+    }
+
+    case 'schedule': {
+      const formatTime = (t: string | undefined) => {
+        if (!t) return '?'
+        const [h, m] = t.split(':').map(Number)
+        const period = h >= 12 ? 'pm' : 'am'
+        const hour = h % 12 || 12
+        return `${hour}:${m.toString().padStart(2, '0')}${period}`
+      }
+      const start = settings.scheduleStartTime
+      const end = settings.scheduleEndTime
+      if (start || end) {
+        return `${formatTime(start)} - ${formatTime(end)}`
+      }
+      return ''
+    }
+
+    case 'on': {
+      const level = settings.speak
+      if (level !== undefined) return `Level ${level}`
+      return ''
+    }
+
+    default:
+      return ''
+  }
+}
+
+/**
  * Extract port information from device.
  * Note: AC Infinity uses 0-10 scale for speed, convert to 0-100 percentage
  */
-function extractPorts(device: ACInfinityDevice): LivePort[] {
+function extractPorts(device: ACInfinityDevice, modeSettingsMap?: Map<number, ModeSettings>): LivePort[] {
   // Ports are in deviceInfo.ports, not device.portInfo
   const ports = device.deviceInfo?.ports || device.portInfo
   if (!ports || !Array.isArray(ports)) {
@@ -253,14 +412,20 @@ function extractPorts(device: ACInfinityDevice): LivePort[] {
 
   return ports
     .map((port: ACInfinityPort) => {
+      const portId = port.port || port.portId
       const isOn = port.loadState === 1 || (port.surplus ?? 0) > 0 || port.online === 1
+      const mode = mapCurModeToMode(port.curMode, isOn)
+      const modeSettings = modeSettingsMap?.get(portId)
+      const modeSummary = generateModeSummary(mode, modeSettings)
+
       return {
-        portId: port.port || port.portId,
-        name: port.portName || `Port ${port.port || port.portId}`,
+        portId,
+        name: port.portName || `Port ${portId}`,
         speed: (port.speak ?? 0) * 10, // Convert 0-10 scale to 0-100 percentage
         isOn,
         deviceType: mapLoadTypeToDeviceType(port.loadType),
-        mode: mapCurModeToMode(port.curMode, isOn),
+        mode,
+        modeSummary: modeSummary || undefined,
       }
     })
     .filter((port) => port.portId > 0) // Only include valid ports
@@ -449,6 +614,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // Use calculated VPD or fallback to 0
       const finalVPD = vpd ?? 0
 
+      // Fetch mode settings for ports that have non-trivial modes (auto, vpd, timer, cycle, schedule)
+      const ports = device.deviceInfo?.ports || device.portInfo || []
+      const portsNeedingModeSettings = ports.filter((p: ACInfinityPort) => {
+        const curMode = p.curMode
+        // Modes 2-6 are: auto, timer, cycle, schedule, vpd - these have settings to display
+        return curMode !== undefined && curMode >= 2 && curMode <= 6
+      })
+
+      let modeSettingsMap: Map<number, ModeSettings> | undefined
+      if (portsNeedingModeSettings.length > 0) {
+        try {
+          modeSettingsMap = await fetchModeSettingsForDevice(token, device.devId, portsNeedingModeSettings)
+        } catch (err) {
+          console.warn('[Live Sensors] Failed to fetch mode settings for device:', device.devId, err)
+        }
+      }
+
       sensors.push({
         id: device.devId,
         name: device.devName,
@@ -458,7 +640,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         vpd: finalVPD,
         online: device.online === 1,
         lastUpdate: now,
-        ports: extractPorts(device),
+        ports: extractPorts(device, modeSettingsMap),
       })
     }
 

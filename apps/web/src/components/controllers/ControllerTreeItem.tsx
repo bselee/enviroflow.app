@@ -173,7 +173,7 @@ export function ControllerTreeItem({
         minLevel: 0,
         maxLevel: 100,
         mode: port.mode,
-        // modeSummary comes from adapter devices when we need full mode details
+        modeSummary: port.modeSummary,
       }))
     : adapterDevices;
 

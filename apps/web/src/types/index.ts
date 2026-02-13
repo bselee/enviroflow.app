@@ -1148,6 +1148,7 @@ export interface LivePort {
   isOn: boolean;
   deviceType?: PortDeviceType;  // Device type (fan, light, humidifier, etc.)
   mode?: PortMode;              // Operating mode (auto, vpd, timer, etc.)
+  modeSummary?: string;         // Brief summary of mode config (e.g., "H 75°F / L 54°F")
 }
 
 /**
