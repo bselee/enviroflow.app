@@ -24,6 +24,7 @@ import {
   Loader2,
   RefreshCw,
   AlertTriangle,
+  Calendar,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,14 +32,23 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { DeviceTreeItem } from "./DeviceTreeItem";
+import { AdvanceAutomationsPanel } from "./AdvanceAutomationsPanel";
 import { useDeviceControl } from "@/hooks/use-device-control";
 import { useSensorReadings } from "@/hooks/use-sensor-readings";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
@@ -137,6 +147,9 @@ export function ControllerTreeItem({
   const [userExpanded, setUserExpanded] = useState(false);
   const hasLoadedDevices = useRef(false);
 
+  // Advance Automations dialog state (AC Infinity only)
+  const [showAutomations, setShowAutomations] = useState(false);
+
   // Always pass controller.id to useDeviceControl so controlDevice works
   // The hook fetches devices when controllerId is provided AND expanded
   // When we have live ports, we use those for display but still need controlDevice
@@ -149,16 +162,18 @@ export function ControllerTreeItem({
   } = useDeviceControl(isExpanded ? controller.id : "");
 
   // Use live ports if available, otherwise fall back to adapter devices
-  const devices = hasLivePorts 
+  const devices = hasLivePorts
     ? livePorts.map(port => ({
         port: port.portId,
-        deviceType: 'device',
+        deviceType: port.deviceType || 'device',
         name: port.name,
         isOn: port.isOn,
         level: port.speed, // Already 0-100
         supportsDimming: true,
         minLevel: 0,
         maxLevel: 100,
+        mode: port.mode,
+        // modeSummary comes from adapter devices when we need full mode details
       }))
     : adapterDevices;
 
@@ -336,6 +351,17 @@ export function ControllerTreeItem({
               <Home className="h-4 w-4 mr-2" />
               Assign to Room
             </DropdownMenuItem>
+            {/* Advance Automations - AC Infinity only */}
+            {controller.brand === "ac_infinity" && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setShowAutomations(true)}>
+                  <Calendar className="h-4 w-4 mr-2 text-blue-500" />
+                  Advance Automations
+                </DropdownMenuItem>
+              </>
+            )}
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-destructive"
               onClick={() => onDelete(controller.id)}
@@ -463,6 +489,29 @@ export function ControllerTreeItem({
           </div>
         </div>
       </CollapsibleContent>
+
+      {/* Advance Automations Dialog - AC Infinity only */}
+      {showAutomations && controller.brand === "ac_infinity" && (
+        <Dialog
+          open={showAutomations}
+          onOpenChange={(open) => !open && setShowAutomations(false)}
+        >
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Advance Automations</DialogTitle>
+              <DialogDescription>
+                Time-windowed mode overrides for {controller.name}
+              </DialogDescription>
+            </DialogHeader>
+            <AdvanceAutomationsPanel
+              controllerId={controller.id}
+              controllerName={controller.name}
+              availablePorts={devices.map(d => ({ port: d.port, name: d.name }))}
+              onClose={() => setShowAutomations(false)}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
     </Collapsible>
   );
 }

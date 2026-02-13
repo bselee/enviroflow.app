@@ -130,7 +130,7 @@ export function DeviceTreeItem({ device, onControl, disabled }: DeviceTreeItemPr
 
       {/* Device Info */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className={cn(
             "text-sm font-medium truncate",
             localIsOn ? "text-foreground dark:text-[#e8edf4]" : "text-muted-foreground dark:text-[#8896a8]"
@@ -140,7 +140,30 @@ export function DeviceTreeItem({ device, onControl, disabled }: DeviceTreeItemPr
           <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 flex-shrink-0 bg-muted/50 dark:bg-[rgba(255,255,255,0.06)] dark:text-[#4a5568]">
             Port {device.port}
           </Badge>
+          {/* Mode Badge - Show colored badge for active modes */}
+          {device.mode && device.mode !== 'off' && (
+            <Badge
+              variant="secondary"
+              className={cn(
+                "text-[10px] px-1.5 py-0 h-4 uppercase font-medium flex-shrink-0",
+                device.mode === 'auto' && "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/20",
+                device.mode === 'vpd' && "bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/20",
+                device.mode === 'timer' && "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20",
+                device.mode === 'cycle' && "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/20",
+                device.mode === 'schedule' && "bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20",
+                device.mode === 'on' && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+              )}
+            >
+              {device.mode}
+            </Badge>
+          )}
         </div>
+        {/* Mode Summary - Show trigger details below name */}
+        {device.modeSummary && device.mode && device.mode !== 'off' && device.mode !== 'on' && (
+          <div className="text-[10px] text-muted-foreground dark:text-[#8896a8] mt-0.5 truncate">
+            {device.modeSummary}
+          </div>
+        )}
 
         {/* Power Level Bar - Thicker and more visible */}
         {device.supportsDimming && (
