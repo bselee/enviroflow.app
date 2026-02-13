@@ -34,8 +34,17 @@ interface RouteParams {
 }
 
 interface ControlRequest {
-  action: 'set_level' | 'turn_on' | 'turn_off' | 'toggle'
+  action: 'set_level' | 'turn_on' | 'turn_off' | 'toggle' | 'restore_mode'
   value?: number // 0-100 for set_level
+  /**
+   * If true, keeps native programming mode active (temporary control).
+   * If false (default), switches to ON mode for persistent manual control.
+   */
+  preserveNativeMode?: boolean
+  /**
+   * For restore_mode action: the mode ID to restore (1=ON, 2=AUTO, 5=SCHEDULE, 6=VPD)
+   */
+  targetMode?: number
 }
 
 // ============================================
@@ -214,12 +223,12 @@ export async function POST(
       )
     }
 
-    const { action, value } = body
+    const { action, value, preserveNativeMode, targetMode } = body
 
     // Validate action
-    if (!['set_level', 'turn_on', 'turn_off', 'toggle'].includes(action)) {
+    if (!['set_level', 'turn_on', 'turn_off', 'toggle', 'restore_mode'].includes(action)) {
       return NextResponse.json(
-        { error: 'Invalid action. Must be one of: set_level, turn_on, turn_off, toggle' },
+        { error: 'Invalid action. Must be one of: set_level, turn_on, turn_off, toggle, restore_mode' },
         { status: 400 }
       )
     }
@@ -229,6 +238,16 @@ export async function POST(
       if (value === undefined || value < 0 || value > 100) {
         return NextResponse.json(
           { error: 'Invalid value. Must be between 0 and 100 for set_level action.' },
+          { status: 400 }
+        )
+      }
+    }
+
+    // Validate targetMode for restore_mode
+    if (action === 'restore_mode') {
+      if (targetMode === undefined || ![0, 1, 2, 3, 4, 5, 6, 7].includes(targetMode)) {
+        return NextResponse.json(
+          { error: 'Invalid targetMode. Must be 0-7 for restore_mode action.' },
           { status: 400 }
         )
       }
@@ -317,10 +336,12 @@ export async function POST(
         }, { status: 503 })
       }
 
-      // Build device command
+      // Build device command with mode options
       const command: DeviceCommand = {
         type: action as CommandType,
         value: action === 'set_level' ? value : undefined,
+        preserveNativeMode: preserveNativeMode,
+        targetMode: action === 'restore_mode' ? targetMode : undefined,
       }
 
       // Execute command
@@ -407,6 +428,15 @@ export async function POST(
         success: true,
         actualValue: commandResult.actualValue,
         previousValue: commandResult.previousValue,
+        // Mode information for UI to show status and offer restore capability
+        previousMode: commandResult.previousMode,
+        previousModeName: commandResult.previousModeName,
+        currentMode: commandResult.currentMode,
+        // Flag indicating if native programming was overridden
+        nativeModeOverridden: commandResult.previousMode !== undefined &&
+          commandResult.previousMode !== 1 &&
+          commandResult.currentMode === 1 &&
+          !preserveNativeMode,
         timestamp: commandResult.timestamp.toISOString(),
       }, {
         headers: createRateLimitHeaders(rateLimitResult)

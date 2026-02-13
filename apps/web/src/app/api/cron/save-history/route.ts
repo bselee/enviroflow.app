@@ -23,6 +23,10 @@ type SupabaseClient = ReturnType<typeof createClient<any>>;
 // Lazy Supabase client
 let supabase: SupabaseClient | null = null;
 
+// In-memory cache for device state tracking (to detect changes)
+// Key: "controllerId:port", Value: { state: boolean, speed: number }
+const deviceStateCache = new Map<string, { state: boolean; speed: number }>();
+
 function getSupabase(): SupabaseClient {
   if (!supabase) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -41,6 +45,22 @@ function getSupabase(): SupabaseClient {
 // Types (matching AC Infinity API response format)
 // ============================================
 
+interface ACInfinityPort {
+  port: number;
+  portName?: string;
+  speak?: number;        // Power level 0-10
+  online?: number;       // 1 = online, 0 = offline
+  loadType?: number;     // Device type (0=fan, 2=humidifier, 128=light)
+  surplus?: number;
+}
+
+interface ACInfinityDeviceInfo {
+  temperatureF?: number;   // Fahrenheit × 100
+  humidity?: number;       // Percentage × 100
+  vpdnums?: number;        // kPa × 100
+  ports?: ACInfinityPort[];
+}
+
 interface ACInfinityDevice {
   devId: string;
   devName: string;
@@ -51,6 +71,8 @@ interface ACInfinityDevice {
   temperature?: number;  // Hundredths of Fahrenheit
   humidity?: number;     // Hundredths of percent
   vpd?: number;          // Hundredths of kPa
+  // Full device info (includes ports)
+  deviceInfo?: ACInfinityDeviceInfo;
 }
 
 interface ACInfinityResponse {
@@ -133,7 +155,8 @@ export async function GET(request: NextRequest) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Token': acInfinityToken,
+        'Accept': 'application/json',
+        'token': acInfinityToken,  // AC Infinity uses 'token' header (not 'User-Token')
         'User-Agent': 'ACController/1.8.2 (com.acinfinity.humiture; build:489; iOS 16.5.1) Alamofire/5.4.4',
       },
       body: `userId=${acInfinityToken}`,
@@ -267,10 +290,70 @@ export async function GET(request: NextRequest) {
 
     log('info', `Successfully saved ${readings.length} sensor readings`);
 
+    // =========================================================
+    // Track Device State Changes (for waveform chart)
+    // =========================================================
+    let deviceStateChanges = 0;
+    const deviceStateRecords = [];
+
+    for (const device of devices) {
+      const controller = deviceToControllerMap.get(device.devId);
+      if (!controller) continue;
+
+      // Get ports from deviceInfo (preferred) or fallback
+      const ports = device.deviceInfo?.ports || [];
+
+      for (const port of ports) {
+        const portNum = port.port;
+        const portName = port.portName || `Port ${portNum}`;
+        const speed = (port.speak || 0) * 10;  // Convert 0-10 to 0-100%
+        const state = speed > 0;
+
+        const cacheKey = `${controller.id}:${portNum}`;
+        const previousState = deviceStateCache.get(cacheKey);
+
+        // Only log if state changed or this is the first reading
+        const stateChanged = !previousState ||
+          previousState.state !== state ||
+          previousState.speed !== speed;
+
+        if (stateChanged) {
+          deviceStateRecords.push({
+            controller_id: controller.id,
+            port_number: portNum,
+            device_name: portName,
+            state: state,
+            speed: speed,
+            trigger: 'auto',  // Could be native mode (AUTO/VPD/SCHEDULE)
+            recorded_at: timestamp
+          });
+          deviceStateChanges++;
+
+          // Update cache
+          deviceStateCache.set(cacheKey, { state, speed });
+        }
+      }
+    }
+
+    // Insert device state changes if any
+    if (deviceStateRecords.length > 0) {
+      const { error: stateInsertError } = await supabase
+        .from('device_state_log')
+        .insert(deviceStateRecords);
+
+      if (stateInsertError) {
+        // Log but don't fail - table might not exist yet
+        log('warn', `Failed to insert device state changes: ${stateInsertError.message}`);
+      } else {
+        log('info', `Logged ${deviceStateRecords.length} device state changes`);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: `Saved ${readings.length} sensor readings from ${devices.length} devices`,
       saved: readings.length,
+      deviceStateChanges,
       devices: devices.length,
       duration: Date.now() - startTime
     });

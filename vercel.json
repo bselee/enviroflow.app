@@ -27,7 +27,7 @@
     },
     {
       "path": "/api/cron/save-history",
-      "schedule": "*/5 * * * *"
+      "schedule": "* * * * *"
     }
   ]
 }

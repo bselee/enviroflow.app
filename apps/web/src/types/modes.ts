@@ -138,3 +138,168 @@ export function isCycleModeConfig(config: ModeConfiguration): config is CycleMod
 export function isScheduleModeConfig(config: ModeConfiguration): config is ScheduleModeConfig {
   return config.mode === 'schedule'
 }
+
+// ============================================
+// Advance Automations (AC Infinity)
+// Time-windowed mode overrides
+// ============================================
+
+/**
+ * Advance Automation - Time-windowed mode override
+ *
+ * This is different from SCHEDULE mode. Advance Automations allow:
+ * - Named automation programs (e.g., "Veg Phase", "Flower Phase")
+ * - Time windows during which a specific mode runs
+ * - The mode can be OFF, ON, AUTO, or CYCLE with full config
+ *
+ * Example: "9:00am - 5:00pm · AUTO · H 75°F / L 54°F · H 54% / L 39%"
+ */
+export interface AdvanceAutomation {
+  /** Unique ID for this automation */
+  id: string
+  /** User-defined name (e.g., "Veg Auto", "Lights Out") */
+  name: string
+  /** Whether this automation is active */
+  enabled: boolean
+  /** Port number this automation applies to */
+  port: number
+  /** Start time in HH:MM format (24h) */
+  startTime: string
+  /** End time in HH:MM format (24h) */
+  endTime: string
+  /** Days of week (0=Sunday, 6=Saturday) - empty means everyday */
+  days: number[]
+  /** Mode to run during this time window */
+  mode: DeviceMode
+  /** Full mode configuration */
+  modeConfig: ModeConfiguration
+  /** Created timestamp */
+  createdAt: string
+  /** Last updated timestamp */
+  updatedAt: string
+}
+
+/**
+ * Advance Automations list for a device
+ */
+export interface DeviceAutomations {
+  port: number
+  portName: string
+  automations: AdvanceAutomation[]
+}
+
+// ============================================
+// Mode Summary Generation
+// ============================================
+
+/**
+ * Generate a human-readable summary of a mode configuration
+ * Format: "9:00am - 5:00pm · AUTO · H 75°F / L 54°F · H 54% / L 39%"
+ */
+export function generateModeSummary(
+  config: ModeConfiguration,
+  options?: {
+    tempUnit?: 'F' | 'C'
+    includeTime?: { startTime: string; endTime: string }
+  }
+): string {
+  const parts: string[] = []
+  const tempUnit = options?.tempUnit || 'F'
+
+  // Add time window if provided
+  if (options?.includeTime) {
+    const formatTime = (time: string) => {
+      const [hours, minutes] = time.split(':').map(Number)
+      const period = hours >= 12 ? 'pm' : 'am'
+      const h = hours % 12 || 12
+      return `${h}:${minutes.toString().padStart(2, '0')}${period}`
+    }
+    parts.push(`${formatTime(options.includeTime.startTime)} - ${formatTime(options.includeTime.endTime)}`)
+  }
+
+  // Add mode name
+  parts.push(config.mode.toUpperCase())
+
+  // Add mode-specific details
+  if (isAutoModeConfig(config)) {
+    const triggers: string[] = []
+    if (config.tempTriggerHigh !== undefined || config.tempTriggerLow !== undefined) {
+      const high = config.tempTriggerHigh !== undefined ? `H ${config.tempTriggerHigh}°${tempUnit}` : ''
+      const low = config.tempTriggerLow !== undefined ? `L ${config.tempTriggerLow}°${tempUnit}` : ''
+      triggers.push([high, low].filter(Boolean).join(' / '))
+    }
+    if (config.humidityTriggerHigh !== undefined || config.humidityTriggerLow !== undefined) {
+      const high = config.humidityTriggerHigh !== undefined ? `H ${config.humidityTriggerHigh}%` : ''
+      const low = config.humidityTriggerLow !== undefined ? `L ${config.humidityTriggerLow}%` : ''
+      triggers.push([high, low].filter(Boolean).join(' / '))
+    }
+    if (triggers.length > 0) {
+      parts.push(...triggers)
+    }
+  } else if (isVpdModeConfig(config)) {
+    const triggers: string[] = []
+    if (config.vpdTriggerHigh !== undefined || config.vpdTriggerLow !== undefined) {
+      const high = config.vpdTriggerHigh !== undefined ? `H ${config.vpdTriggerHigh}kPa` : ''
+      const low = config.vpdTriggerLow !== undefined ? `L ${config.vpdTriggerLow}kPa` : ''
+      triggers.push([high, low].filter(Boolean).join(' / '))
+    }
+    if (triggers.length > 0) {
+      parts.push(...triggers)
+    }
+  } else if (isOnModeConfig(config)) {
+    parts.push(`Level ${config.level}`)
+  } else if (isTimerModeConfig(config)) {
+    const duration = formatDuration(config.timerDuration)
+    parts.push(`${config.timerType === 'on' ? 'To ON' : 'To OFF'} · ${duration}`)
+  } else if (isCycleModeConfig(config)) {
+    const onDur = formatDuration(config.cycleOnDuration)
+    const offDur = formatDuration(config.cycleOffDuration)
+    parts.push(`ON ${onDur} / OFF ${offDur}`)
+  } else if (isScheduleModeConfig(config)) {
+    if (config.schedules.length > 0) {
+      const active = config.schedules.filter(s => s.enabled)
+      if (active.length > 0) {
+        const slot = active[0]
+        const formatTime = (time: string) => {
+          const [hours, minutes] = time.split(':').map(Number)
+          const period = hours >= 12 ? 'pm' : 'am'
+          const h = hours % 12 || 12
+          return `${h}:${minutes.toString().padStart(2, '0')}${period}`
+        }
+        parts.push(`${formatTime(slot.startTime)} - ${formatTime(slot.endTime)}`)
+        if (active.length > 1) {
+          parts.push(`+${active.length - 1} more`)
+        }
+      }
+    }
+  }
+
+  return parts.join(' · ')
+}
+
+/**
+ * Format seconds duration to human readable string
+ */
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
+  const hours = Math.floor(seconds / 3600)
+  const mins = Math.floor((seconds % 3600) / 60)
+  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
+}
+
+/**
+ * Generate a short badge-style mode label
+ */
+export function getModeBadgeLabel(config: ModeConfiguration): string {
+  switch (config.mode) {
+    case 'off': return 'OFF'
+    case 'on': return 'ON'
+    case 'auto': return 'AUTO'
+    case 'vpd': return 'VPD'
+    case 'timer': return isTimerModeConfig(config) ? (config.timerType === 'on' ? 'TIMER→ON' : 'TIMER→OFF') : 'TIMER'
+    case 'cycle': return 'CYCLE'
+    case 'schedule': return 'SCHED'
+    default: return 'UNKNOWN'
+  }
+}

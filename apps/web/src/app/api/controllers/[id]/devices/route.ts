@@ -341,40 +341,80 @@ export async function GET(
             5: 'schedule',
             6: 'vpd',
           }
-          
+
           for (const modeData of modes) {
             const modeId = (modeData.modeId ?? modeData.mode) as number
             const modeName = modeNames[modeId] || 'unknown'
             let summary = ''
-            
-            // Build summary based on mode
-            if (modeName === 'auto' || modeName === 'vpd') {
+
+            // Build summary matching AC Infinity format:
+            // "AUTO · H 75°F / L 54°F · H 54% / L 39%"
+            if (modeName === 'auto') {
               const parts: string[] = []
-              if (modeData.tempTriggerLow || modeData.tempTriggerHigh) {
-                parts.push(`${modeData.tempTriggerLow || '?'}-${modeData.tempTriggerHigh || '?'}°F`)
+              // Temperature triggers
+              const tempHigh = modeData.tempTriggerHigh || modeData.tempTriggerAbove
+              const tempLow = modeData.tempTriggerLow || modeData.tempTriggerBelow
+              if (tempHigh !== undefined || tempLow !== undefined) {
+                const tempParts: string[] = []
+                if (tempHigh !== undefined) tempParts.push(`H ${tempHigh}°F`)
+                if (tempLow !== undefined) tempParts.push(`L ${tempLow}°F`)
+                parts.push(tempParts.join(' / '))
               }
-              if (modeData.humidityTriggerLow || modeData.humidityTriggerHigh) {
-                parts.push(`${modeData.humidityTriggerLow || '?'}-${modeData.humidityTriggerHigh || '?'}% RH`)
+              // Humidity triggers
+              const humHigh = modeData.humidityTriggerHigh || modeData.humTriggerAbove
+              const humLow = modeData.humidityTriggerLow || modeData.humTriggerBelow
+              if (humHigh !== undefined || humLow !== undefined) {
+                const humParts: string[] = []
+                if (humHigh !== undefined) humParts.push(`H ${humHigh}%`)
+                if (humLow !== undefined) humParts.push(`L ${humLow}%`)
+                parts.push(humParts.join(' / '))
               }
-              if (modeName === 'vpd' && (modeData.vpdTriggerLow || modeData.vpdTriggerHigh)) {
-                parts.push(`${modeData.vpdTriggerLow || '?'}-${modeData.vpdTriggerHigh || '?'} kPa`)
+              summary = parts.join(' · ')
+            } else if (modeName === 'vpd') {
+              const vpdHigh = modeData.vpdTriggerHigh || modeData.vpdTriggerAbove
+              const vpdLow = modeData.vpdTriggerLow || modeData.vpdTriggerBelow
+              if (vpdHigh !== undefined || vpdLow !== undefined) {
+                const vpdParts: string[] = []
+                if (vpdHigh !== undefined) vpdParts.push(`H ${vpdHigh}kPa`)
+                if (vpdLow !== undefined) vpdParts.push(`L ${vpdLow}kPa`)
+                summary = vpdParts.join(' / ')
               }
-              summary = parts.join(', ')
             } else if (modeName === 'timer') {
-              const duration = modeData.timerDuration as number
+              const duration = modeData.timerDuration as number || modeData.timerTime as number
               if (duration) {
-                const mins = Math.floor(duration / 60)
-                summary = `${mins}m ${modeData.timerType || ''}`
+                const hours = Math.floor(duration / 3600)
+                const mins = Math.floor((duration % 3600) / 60)
+                const type = modeData.timerType || modeData.timerMode
+                const typeStr = type === 'on' || type === 1 ? 'To ON' : 'To OFF'
+                summary = hours > 0 ? `${hours}h ${mins}m · ${typeStr}` : `${mins}m · ${typeStr}`
               }
             } else if (modeName === 'cycle') {
-              summary = `${modeData.cycleOnDuration || 0}s on / ${modeData.cycleOffDuration || 0}s off`
+              const onDur = (modeData.cycleOnDuration || modeData.cycleOnTime || 0) as number
+              const offDur = (modeData.cycleOffDuration || modeData.cycleOffTime || 0) as number
+              const formatDur = (s: number) => {
+                if (s < 60) return `${s}s`
+                if (s < 3600) return `${Math.floor(s / 60)}m`
+                return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`
+              }
+              summary = `ON ${formatDur(onDur)} / OFF ${formatDur(offDur)}`
             } else if (modeName === 'schedule') {
-              summary = `${modeData.scheduleStartTime || '?'} - ${modeData.scheduleEndTime || '?'}`
+              const formatTime = (t: string) => {
+                if (!t) return '?'
+                const [h, m] = t.split(':').map(Number)
+                const period = h >= 12 ? 'pm' : 'am'
+                const hour = h % 12 || 12
+                return `${hour}:${m.toString().padStart(2, '0')}${period}`
+              }
+              const start = modeData.scheduleStartTime as string
+              const end = modeData.scheduleEndTime as string
+              if (start || end) {
+                summary = `${formatTime(start)} - ${formatTime(end)}`
+              }
             } else if (modeName === 'on') {
-              const level = modeData.level as number
+              const level = (modeData.level ?? modeData.speak) as number
               if (level !== undefined) summary = `Level ${level}`
             }
-            
+
             modeMap.set(modeData.port, { mode: modeName, summary })
           }
         } catch (modeErr) {

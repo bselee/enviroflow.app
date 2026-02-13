@@ -338,21 +338,61 @@ export type DeviceType =
 export interface DeviceCommand {
   type: CommandType
   value?: number  // 0-100 for dimmers, undefined for on/off
+  /**
+   * If true, keeps the device's native programming mode active (AUTO/VPD/SCHEDULE).
+   * The power change will be temporary - native mode will re-evaluate and may override.
+   * If false (default), switches to ON mode for persistent manual control.
+   */
+  preserveNativeMode?: boolean
+  /**
+   * For restore_mode command: the mode ID to restore to (1=ON, 2=AUTO, 5=SCHEDULE, 6=VPD)
+   */
+  targetMode?: number
 }
 
-export type CommandType = 
+export type CommandType =
   | 'turn_on'
   | 'turn_off'
   | 'set_level'      // 0-100
   | 'increase'       // Increment by value
   | 'decrease'       // Decrement by value
   | 'toggle'
+  | 'restore_mode'   // Restore native programming mode
+
+/**
+ * Device mode IDs (AC Infinity)
+ */
+export type DeviceModeId = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7
+
+export const DEVICE_MODE_NAMES: Record<DeviceModeId, string> = {
+  0: 'Off',
+  1: 'On',
+  2: 'Auto',
+  3: 'Timer to On',
+  4: 'Timer to Off', // or Cycle depending on context
+  5: 'Schedule',
+  6: 'VPD',
+  7: 'Cycle'
+}
 
 export interface CommandResult {
   success: boolean
   error?: string
   actualValue?: number
   previousValue?: number
+  /**
+   * The mode that was active before the command (for restore capability)
+   * Only set when a mode change occurred
+   */
+  previousMode?: number
+  /**
+   * The name of the previous mode (e.g., "Auto", "VPD", "Schedule")
+   */
+  previousModeName?: string
+  /**
+   * Current mode after the command
+   */
+  currentMode?: number
   timestamp: Date
 }
 

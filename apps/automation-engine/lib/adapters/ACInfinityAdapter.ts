@@ -257,6 +257,23 @@ interface ACUpdatePortResponse {
   data?: unknown
 }
 
+/**
+ * AC Infinity Advance Automation structure (based on app behavior)
+ */
+interface ACAdvanceAutomation {
+  autoId?: string | number
+  autoName?: string
+  devId: string
+  port: number
+  isOpen: number // 1=enabled, 0=disabled
+  startTime: string // HH:MM or seconds from midnight
+  endTime: string
+  week?: string // "1,2,3,4,5,6,7" format or array
+  devModeOne: number // Mode: 0=OFF, 1=ON, 2=AUTO, 4=CYCLE
+  // Mode-specific settings follow the same structure as addDevMode
+  [key: string]: unknown
+}
+
 // ============================================
 // Logging Utility
 // ============================================
@@ -1041,8 +1058,31 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
       currentSettings.speak = power
       currentSettings.onOff = power > 0 ? 1 : 0
 
-      // Ensure required mode fields exist (set to ON mode = 1 for manual control)
-      if (currentSettings.devModeOne === undefined) currentSettings.devModeOne = 1
+      // Track the previous mode for restore capability
+      const previousMode = currentSettings.devModeOne as number | undefined
+      const modeNames: Record<number, string> = {
+        0: 'Off', 1: 'On', 2: 'Auto', 3: 'Timer to On',
+        4: 'Timer to Off', 5: 'Schedule', 6: 'VPD', 7: 'Cycle'
+      }
+
+      // Handle mode based on command options
+      if (command.type === 'restore_mode' && command.targetMode !== undefined) {
+        // Restore to a specific native programming mode
+        currentSettings.devModeOne = command.targetMode
+        log('info', `Restoring native mode to ${command.targetMode} (${modeNames[command.targetMode] || 'Unknown'})`, { port })
+      } else if (command.preserveNativeMode) {
+        // Keep native mode active - just change the immediate power level
+        // Note: Native programming may override this soon based on conditions
+        log('info', `Preserving native mode ${previousMode} (${modeNames[previousMode || 0]}), temporary power change`, { port, power })
+      } else {
+        // Default behavior: Force ON mode (1) to override native programming
+        // This ensures manual control persists until user explicitly restores native mode
+        currentSettings.devModeOne = 1
+        if (previousMode !== 1 && previousMode !== undefined) {
+          log('info', `Overriding native mode ${previousMode} (${modeNames[previousMode]}) with manual ON mode`, { port, previousMode })
+        }
+      }
+
       if (currentSettings.levelLow === undefined) currentSettings.levelLow = 0
       if (currentSettings.levelHigh === undefined) currentSettings.levelHigh = 10
 
@@ -1084,6 +1124,10 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
         success: responseData.code === 200,
         error: responseData.code !== 200 ? responseData.msg : undefined,
         actualValue: power * 10,
+        // Include mode information for UI to offer restore capability
+        previousMode: previousMode,
+        previousModeName: previousMode !== undefined ? modeNames[previousMode] : undefined,
+        currentMode: currentSettings.devModeOne as number,
         timestamp: new Date()
       }
 
@@ -1169,6 +1213,742 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
    */
   getCircuitBreakerState() {
     return getCircuitBreaker(`adapter:${ADAPTER_NAME}`)
+  }
+
+  // ============================================
+  // Historical Data Methods (Experimental)
+  // ============================================
+
+  /**
+   * Attempt to fetch historical sensor data from AC Infinity cloud.
+   * Note: This explores various potential endpoints as AC Infinity's historical
+   * data API is not officially documented.
+   *
+   * Returns null if historical data is not available from the API.
+   */
+  async getHistoricalData(
+    controllerId: string,
+    options?: {
+      startDate?: Date
+      endDate?: Date
+      dataType?: 'temperature' | 'humidity' | 'vpd' | 'all'
+    }
+  ): Promise<{
+    success: boolean
+    data?: Array<{
+      timestamp: Date
+      temperature?: number
+      humidity?: number
+      vpd?: number
+    }>
+    endpointUsed?: string
+    error?: string
+    explorationResults?: Record<string, unknown>
+  }> {
+    const stored = tokenStore.get(controllerId)
+    if (!stored) {
+      return { success: false, error: 'Controller not connected' }
+    }
+
+    const endDate = options?.endDate || new Date()
+    const startDate = options?.startDate || new Date(endDate.getTime() - 24 * 60 * 60 * 1000) // Default 24h
+
+    const explorationResults: Record<string, unknown> = {}
+
+    // List of potential historical data endpoints to try
+    // These are guesses based on common API naming conventions
+    const endpointsToTry = [
+      { name: 'getChartData', body: { devId: controllerId, type: '1', startTime: Math.floor(startDate.getTime() / 1000), endTime: Math.floor(endDate.getTime() / 1000) } },
+      { name: 'getSensorHistory', body: { devId: controllerId, startTime: Math.floor(startDate.getTime() / 1000), endTime: Math.floor(endDate.getTime() / 1000) } },
+      { name: 'getDevHistory', body: { devId: controllerId } },
+      { name: 'getDeviceData', body: { devId: controllerId, type: 'sensor' } },
+      { name: 'getHistoryData', body: { devId: controllerId, days: '7' } },
+      { name: 'getDevRunLog', body: { devId: controllerId } },
+      { name: 'getPortHistory', body: { devId: controllerId, port: '1' } },
+    ]
+
+    for (const endpoint of endpointsToTry) {
+      try {
+        const result = await adapterFetch<{ code: number; data?: unknown; msg?: string }>(
+          ADAPTER_NAME,
+          `${API_BASE}/api/dev/${endpoint.name}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'Accept': 'application/json',
+              'User-Agent': USER_AGENT,
+              'token': stored.token,
+            },
+            body: new URLSearchParams(
+              Object.entries(endpoint.body).reduce((acc, [k, v]) => {
+                acc[k] = String(v)
+                return acc
+              }, {} as Record<string, string>)
+            ).toString()
+          },
+          { maxRetries: 1, timeoutMs: 10000 }
+        )
+
+        explorationResults[endpoint.name] = {
+          success: result.success,
+          code: result.data?.code,
+          hasData: result.data?.data != null,
+          dataType: result.data?.data ? typeof result.data.data : null,
+          isArray: Array.isArray(result.data?.data),
+          dataLength: Array.isArray(result.data?.data) ? result.data.data.length : null,
+          message: result.data?.msg,
+          sampleData: result.data?.data ? JSON.stringify(result.data.data).substring(0, 500) : null
+        }
+
+        // If we got valid data that looks like historical readings, parse and return it
+        if (result.success && result.data?.code === 200 && Array.isArray(result.data?.data) && result.data.data.length > 0) {
+          const historicalData = this.parseHistoricalData(result.data.data as unknown[])
+          if (historicalData.length > 0) {
+            log('info', `Found historical data via ${endpoint.name}`, { count: historicalData.length })
+            return {
+              success: true,
+              data: historicalData,
+              endpointUsed: endpoint.name,
+              explorationResults
+            }
+          }
+        }
+      } catch (err) {
+        explorationResults[endpoint.name] = { error: err instanceof Error ? err.message : String(err) }
+      }
+    }
+
+    log('warn', 'No historical data endpoints returned valid data', { explorationResults })
+    return {
+      success: false,
+      error: 'Historical data not available from AC Infinity API',
+      explorationResults
+    }
+  }
+
+  /**
+   * Get device activity log (on/off events, mode changes)
+   * Note: This explores potential endpoints - may not be available
+   */
+  async getDeviceActivityLog(
+    controllerId: string,
+    portId?: number
+  ): Promise<{
+    success: boolean
+    events?: Array<{
+      timestamp: Date
+      port: number
+      action: string
+      previousState?: unknown
+      newState?: unknown
+    }>
+    error?: string
+    explorationResults?: Record<string, unknown>
+  }> {
+    const stored = tokenStore.get(controllerId)
+    if (!stored) {
+      return { success: false, error: 'Controller not connected' }
+    }
+
+    const explorationResults: Record<string, unknown> = {}
+
+    const baseBody: Record<string, string> = { devId: controllerId }
+    const portBody: Record<string, string> = portId ? { devId: controllerId, port: String(portId) } : baseBody
+
+    const endpointsToTry: Array<{ name: string; body: Record<string, string> }> = [
+      { name: 'getDeviceLog', body: portBody },
+      { name: 'getActionLog', body: baseBody },
+      { name: 'getEventLog', body: baseBody },
+      { name: 'getModeHistory', body: baseBody },
+      { name: 'getDeviceActivity', body: baseBody },
+    ]
+
+    for (const endpoint of endpointsToTry) {
+      try {
+        const result = await adapterFetch<{ code: number; data?: unknown; msg?: string }>(
+          ADAPTER_NAME,
+          `${API_BASE}/api/dev/${endpoint.name}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'Accept': 'application/json',
+              'User-Agent': USER_AGENT,
+              'token': stored.token,
+            },
+            body: new URLSearchParams(endpoint.body).toString()
+          },
+          { maxRetries: 1, timeoutMs: 10000 }
+        )
+
+        explorationResults[endpoint.name] = {
+          success: result.success,
+          code: result.data?.code,
+          hasData: result.data?.data != null,
+          dataType: result.data?.data ? typeof result.data.data : null,
+          isArray: Array.isArray(result.data?.data),
+          message: result.data?.msg,
+          sampleData: result.data?.data ? JSON.stringify(result.data.data).substring(0, 500) : null
+        }
+
+        // If we got valid array data, try to parse as activity log
+        if (result.success && result.data?.code === 200 && Array.isArray(result.data?.data) && result.data.data.length > 0) {
+          const events = this.parseActivityLog(result.data.data as unknown[])
+          if (events.length > 0) {
+            log('info', `Found activity log via ${endpoint.name}`, { count: events.length })
+            return {
+              success: true,
+              events,
+              explorationResults
+            }
+          }
+        }
+      } catch (err) {
+        explorationResults[endpoint.name] = { error: err instanceof Error ? err.message : String(err) }
+      }
+    }
+
+    return {
+      success: false,
+      error: 'Device activity log not available from AC Infinity API',
+      explorationResults
+    }
+  }
+
+  /**
+   * Parse raw historical data from AC Infinity API
+   * Tries to extract timestamp and sensor values from various possible formats
+   */
+  private parseHistoricalData(data: unknown[]): Array<{ timestamp: Date; temperature?: number; humidity?: number; vpd?: number }> {
+    const results: Array<{ timestamp: Date; temperature?: number; humidity?: number; vpd?: number }> = []
+
+    for (const item of data) {
+      if (typeof item !== 'object' || item === null) continue
+
+      const record = item as Record<string, unknown>
+
+      // Try various possible timestamp field names
+      let timestamp: Date | null = null
+      const timestampFields = ['timestamp', 'time', 'recordTime', 'createTime', 'recordedAt', 'created_at', 'ts']
+      for (const field of timestampFields) {
+        if (record[field]) {
+          const val = record[field]
+          if (typeof val === 'number') {
+            // Unix timestamp (seconds or milliseconds)
+            timestamp = val > 1e12 ? new Date(val) : new Date(val * 1000)
+          } else if (typeof val === 'string') {
+            timestamp = new Date(val)
+          }
+          if (timestamp && !isNaN(timestamp.getTime())) break
+          timestamp = null
+        }
+      }
+
+      if (!timestamp) continue
+
+      // Try to extract sensor values
+      const point: { timestamp: Date; temperature?: number; humidity?: number; vpd?: number } = { timestamp }
+
+      // Temperature fields
+      const tempFields = ['temperature', 'temp', 'temperatureF', 'temperatureC', 'tempValue']
+      for (const field of tempFields) {
+        if (typeof record[field] === 'number') {
+          let val = record[field] as number
+          // AC Infinity typically uses values × 100
+          if (val > 1000) val = val / 100
+          point.temperature = val
+          break
+        }
+      }
+
+      // Humidity fields
+      const humFields = ['humidity', 'hum', 'humidityValue', 'rh']
+      for (const field of humFields) {
+        if (typeof record[field] === 'number') {
+          let val = record[field] as number
+          if (val > 100) val = val / 100
+          point.humidity = val
+          break
+        }
+      }
+
+      // VPD fields
+      const vpdFields = ['vpd', 'vpdnums', 'vpdValue']
+      for (const field of vpdFields) {
+        if (typeof record[field] === 'number') {
+          let val = record[field] as number
+          if (val > 10) val = val / 100
+          point.vpd = val
+          break
+        }
+      }
+
+      if (point.temperature !== undefined || point.humidity !== undefined || point.vpd !== undefined) {
+        results.push(point)
+      }
+    }
+
+    return results.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+  }
+
+  /**
+   * Parse activity log data from AC Infinity API
+   */
+  private parseActivityLog(data: unknown[]): Array<{ timestamp: Date; port: number; action: string; previousState?: unknown; newState?: unknown }> {
+    const events: Array<{ timestamp: Date; port: number; action: string; previousState?: unknown; newState?: unknown }> = []
+
+    for (const item of data) {
+      if (typeof item !== 'object' || item === null) continue
+
+      const record = item as Record<string, unknown>
+
+      // Try to parse timestamp
+      let timestamp: Date | null = null
+      const timestampFields = ['timestamp', 'time', 'actionTime', 'eventTime', 'created_at']
+      for (const field of timestampFields) {
+        if (record[field]) {
+          const val = record[field]
+          if (typeof val === 'number') {
+            timestamp = val > 1e12 ? new Date(val) : new Date(val * 1000)
+          } else if (typeof val === 'string') {
+            timestamp = new Date(val)
+          }
+          if (timestamp && !isNaN(timestamp.getTime())) break
+          timestamp = null
+        }
+      }
+
+      if (!timestamp) continue
+
+      // Try to extract port and action
+      const port = typeof record.port === 'number' ? record.port : (typeof record.portNum === 'number' ? record.portNum : 1)
+      const action = typeof record.action === 'string' ? record.action :
+                    (typeof record.actionType === 'string' ? record.actionType :
+                    (typeof record.type === 'string' ? record.type : 'unknown'))
+
+      events.push({
+        timestamp,
+        port,
+        action,
+        previousState: record.previousState || record.oldValue || record.before,
+        newState: record.newState || record.newValue || record.after || record.value
+      })
+    }
+
+    return events.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+  }
+
+  // ============================================
+  // Advance Automations (Time-Windowed Mode Overrides)
+  // ============================================
+
+  /**
+   * Get all advance automations for a device
+   * Probes multiple potential endpoints to find the automation list
+   */
+  async getAdvanceAutomations(
+    controllerId: string,
+    portId?: number
+  ): Promise<{
+    success: boolean
+    automations?: ACAdvanceAutomation[]
+    error?: string
+    endpointUsed?: string
+    explorationResults?: Record<string, unknown>
+  }> {
+    const stored = tokenStore.get(controllerId)
+    if (!stored) {
+      return { success: false, error: 'Controller not connected' }
+    }
+
+    const explorationResults: Record<string, unknown> = {}
+
+    // Potential endpoints for getting automations
+    const endpointsToTry = [
+      { name: 'getAutoList', body: { devId: controllerId } },
+      { name: 'getAdvanceList', body: { devId: controllerId } },
+      { name: 'getAutomationList', body: { devId: controllerId } },
+      { name: 'getDevAutoList', body: { devId: controllerId } },
+      { name: 'getPortAutoList', body: { devId: controllerId, port: String(portId || 1) } },
+      { name: 'getAdvList', body: { devId: controllerId } },
+      { name: 'getSceneList', body: { devId: controllerId } },
+      { name: 'getRecipeList', body: { devId: controllerId } },
+    ]
+
+    for (const endpoint of endpointsToTry) {
+      try {
+        const result = await adapterFetch<{ code: number; data?: unknown; msg?: string }>(
+          ADAPTER_NAME,
+          `${API_BASE}/api/dev/${endpoint.name}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'Accept': 'application/json',
+              'User-Agent': USER_AGENT,
+              'token': stored.token,
+            },
+            body: new URLSearchParams(
+              Object.entries(endpoint.body).reduce((acc, [k, v]) => {
+                acc[k] = String(v)
+                return acc
+              }, {} as Record<string, string>)
+            ).toString()
+          },
+          { maxRetries: 1, timeoutMs: 10000 }
+        )
+
+        explorationResults[endpoint.name] = {
+          success: result.success,
+          code: result.data?.code,
+          hasData: result.data?.data != null,
+          dataType: result.data?.data ? typeof result.data.data : null,
+          isArray: Array.isArray(result.data?.data),
+          dataLength: Array.isArray(result.data?.data) ? result.data.data.length : null,
+          message: result.data?.msg,
+          sampleData: result.data?.data ? JSON.stringify(result.data.data).substring(0, 1000) : null
+        }
+
+        // If we got valid array data, try to parse as automations
+        if (result.success && result.data?.code === 200 && Array.isArray(result.data?.data)) {
+          const automations = this.parseAutomations(result.data.data as unknown[], controllerId)
+          log('info', `Found ${automations.length} automations via ${endpoint.name}`)
+          return {
+            success: true,
+            automations,
+            endpointUsed: endpoint.name,
+            explorationResults
+          }
+        }
+      } catch (err) {
+        explorationResults[endpoint.name] = { error: err instanceof Error ? err.message : String(err) }
+      }
+    }
+
+    // Also check if automations are embedded in the main device info
+    try {
+      const deviceResult = await adapterFetch<ACDeviceListResponse>(
+        ADAPTER_NAME,
+        `${API_BASE}/api/user/devInfoListAll`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'User-Agent': USER_AGENT,
+            'token': stored.token,
+          },
+          body: new URLSearchParams({ userId: stored.token }).toString()
+        }
+      )
+
+      if (deviceResult.success && deviceResult.data?.code === 200 && deviceResult.data?.data) {
+        const device = deviceResult.data.data.find(d => d.devId === controllerId)
+        if (device) {
+          const deviceAny = device as any
+          // Check for automation-related fields
+          const autoFields = ['autoList', 'advanceList', 'automations', 'scenes', 'recipes']
+          for (const field of autoFields) {
+            if (Array.isArray(deviceAny[field]) && deviceAny[field].length > 0) {
+              const automations = this.parseAutomations(deviceAny[field], controllerId)
+              log('info', `Found ${automations.length} automations in deviceInfo.${field}`)
+              return {
+                success: true,
+                automations,
+                endpointUsed: `devInfoListAll.${field}`,
+                explorationResults
+              }
+            }
+            if (deviceAny.deviceInfo && Array.isArray(deviceAny.deviceInfo[field])) {
+              const automations = this.parseAutomations(deviceAny.deviceInfo[field], controllerId)
+              log('info', `Found ${automations.length} automations in deviceInfo.deviceInfo.${field}`)
+              return {
+                success: true,
+                automations,
+                endpointUsed: `devInfoListAll.deviceInfo.${field}`,
+                explorationResults
+              }
+            }
+          }
+          explorationResults['devInfoListAll'] = {
+            deviceKeys: Object.keys(device),
+            deviceInfoKeys: deviceAny.deviceInfo ? Object.keys(deviceAny.deviceInfo) : null
+          }
+        }
+      }
+    } catch (err) {
+      explorationResults['devInfoListAll'] = { error: err instanceof Error ? err.message : String(err) }
+    }
+
+    log('warn', 'No automation endpoints returned valid data', { controllerId, explorationResults })
+    return {
+      success: false,
+      error: 'Advance automations not available from AC Infinity API (endpoints not found)',
+      explorationResults
+    }
+  }
+
+  /**
+   * Create or update an advance automation
+   */
+  async setAdvanceAutomation(
+    controllerId: string,
+    automation: ACAdvanceAutomation
+  ): Promise<{
+    success: boolean
+    automationId?: string
+    error?: string
+    endpointUsed?: string
+  }> {
+    const stored = tokenStore.get(controllerId)
+    if (!stored) {
+      return { success: false, error: 'Controller not connected' }
+    }
+
+    // Try rate limiting
+    try {
+      await waitForRateLimit(`ac_infinity:${stored.email}`)
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Rate limit exceeded' }
+    }
+
+    // Endpoints to try for creating/updating automations
+    const isUpdate = automation.autoId !== undefined
+    const endpointsToTry = isUpdate
+      ? [
+          { name: 'updateAuto', priority: 1 },
+          { name: 'editAuto', priority: 2 },
+          { name: 'modifyAuto', priority: 3 },
+          { name: 'setAuto', priority: 4 },
+        ]
+      : [
+          { name: 'addAuto', priority: 1 },
+          { name: 'createAuto', priority: 2 },
+          { name: 'addAdvance', priority: 3 },
+          { name: 'addAutoMode', priority: 4 },
+        ]
+
+    for (const endpoint of endpointsToTry.sort((a, b) => a.priority - b.priority)) {
+      try {
+        const body: Record<string, string> = {
+          devId: controllerId,
+          port: String(automation.port),
+          autoName: automation.autoName || 'Automation',
+          isOpen: String(automation.isOpen),
+          startTime: automation.startTime,
+          endTime: automation.endTime,
+          devModeOne: String(automation.devModeOne),
+        }
+
+        if (automation.autoId) {
+          body.autoId = String(automation.autoId)
+        }
+        if (automation.week) {
+          body.week = automation.week
+        }
+
+        // Add any additional mode settings
+        for (const [key, value] of Object.entries(automation)) {
+          if (!body[key] && value !== undefined && value !== null) {
+            body[key] = String(value)
+          }
+        }
+
+        const result = await adapterFetch<{ code: number; data?: { autoId?: string | number }; msg?: string }>(
+          ADAPTER_NAME,
+          `${API_BASE}/api/dev/${endpoint.name}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'Accept': 'application/json',
+              'User-Agent': USER_AGENT,
+              'token': stored.token,
+            },
+            body: new URLSearchParams(body).toString()
+          },
+          { maxRetries: 1, timeoutMs: 15000 }
+        )
+
+        if (result.success && result.data?.code === 200) {
+          log('info', `${isUpdate ? 'Updated' : 'Created'} automation via ${endpoint.name}`, {
+            autoId: result.data.data?.autoId || automation.autoId
+          })
+          return {
+            success: true,
+            automationId: String(result.data.data?.autoId || automation.autoId || ''),
+            endpointUsed: endpoint.name
+          }
+        }
+      } catch (err) {
+        log('warn', `Failed to ${isUpdate ? 'update' : 'create'} automation via ${endpoint.name}`, {
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+    }
+
+    return {
+      success: false,
+      error: `Failed to ${isUpdate ? 'update' : 'create'} automation - no working endpoint found`
+    }
+  }
+
+  /**
+   * Delete an advance automation
+   */
+  async deleteAdvanceAutomation(
+    controllerId: string,
+    automationId: string
+  ): Promise<{
+    success: boolean
+    error?: string
+  }> {
+    const stored = tokenStore.get(controllerId)
+    if (!stored) {
+      return { success: false, error: 'Controller not connected' }
+    }
+
+    try {
+      await waitForRateLimit(`ac_infinity:${stored.email}`)
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Rate limit exceeded' }
+    }
+
+    const endpointsToTry = ['deleteAuto', 'removeAuto', 'delAuto', 'delAdvance']
+
+    for (const endpoint of endpointsToTry) {
+      try {
+        const result = await adapterFetch<{ code: number; msg?: string }>(
+          ADAPTER_NAME,
+          `${API_BASE}/api/dev/${endpoint}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'Accept': 'application/json',
+              'User-Agent': USER_AGENT,
+              'token': stored.token,
+            },
+            body: new URLSearchParams({
+              devId: controllerId,
+              autoId: automationId
+            }).toString()
+          },
+          { maxRetries: 1, timeoutMs: 10000 }
+        )
+
+        if (result.success && result.data?.code === 200) {
+          log('info', `Deleted automation ${automationId} via ${endpoint}`)
+          return { success: true }
+        }
+      } catch (err) {
+        log('warn', `Failed to delete automation via ${endpoint}`, {
+          error: err instanceof Error ? err.message : String(err)
+        })
+      }
+    }
+
+    return { success: false, error: 'Failed to delete automation - no working endpoint found' }
+  }
+
+  /**
+   * Parse automation data from various API response formats
+   */
+  private parseAutomations(data: unknown[], controllerId: string): ACAdvanceAutomation[] {
+    const automations: ACAdvanceAutomation[] = []
+
+    for (const item of data) {
+      if (typeof item !== 'object' || item === null) continue
+
+      const record = item as Record<string, unknown>
+
+      // Try to extract automation fields
+      const automation: ACAdvanceAutomation = {
+        autoId: (record.autoId ?? record.id ?? record.automationId) as string | number | undefined,
+        autoName: (record.autoName ?? record.name ?? record.automationName ?? 'Automation') as string,
+        devId: (record.devId ?? controllerId) as string,
+        port: Number(record.port ?? record.portNum ?? 1),
+        isOpen: Number(record.isOpen ?? record.enabled ?? record.active ?? 1),
+        startTime: (record.startTime ?? record.start ?? '00:00') as string,
+        endTime: (record.endTime ?? record.end ?? '23:59') as string,
+        week: record.week as string | undefined,
+        devModeOne: Number(record.devModeOne ?? record.mode ?? record.modeId ?? 1),
+      }
+
+      // Copy any additional mode settings
+      const modeFields = [
+        'speak', 'levelHigh', 'levelLow', 'tempTriggerAbove', 'tempTriggerBelow',
+        'humTriggerAbove', 'humTriggerBelow', 'vpdTriggerAbove', 'vpdTriggerBelow',
+        'transTemp', 'transHum', 'transVpd', 'bufferTemp', 'bufferHum', 'bufferVpd',
+        'cycleOnTime', 'cycleOffTime', 'timerTime', 'timerMode'
+      ]
+      for (const field of modeFields) {
+        if (record[field] !== undefined) {
+          automation[field] = record[field]
+        }
+      }
+
+      automations.push(automation)
+    }
+
+    return automations
+  }
+
+  /**
+   * Get detailed mode settings for a port (for generating mode summary)
+   */
+  async getPortModeSettings(
+    controllerId: string,
+    port: number
+  ): Promise<{
+    success: boolean
+    settings?: Record<string, unknown>
+    error?: string
+  }> {
+    const stored = tokenStore.get(controllerId)
+    if (!stored) {
+      return { success: false, error: 'Controller not connected' }
+    }
+
+    try {
+      await waitForRateLimit(`ac_infinity:${stored.email}`)
+
+      const result = await adapterFetch<{ code: number; data?: Record<string, unknown>; msg?: string }>(
+        ADAPTER_NAME,
+        `${API_BASE}/api/dev/getdevModeSettingList`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'User-Agent': USER_AGENT,
+            'token': stored.token,
+          },
+          body: new URLSearchParams({
+            devId: controllerId,
+            port: String(port)
+          }).toString()
+        }
+      )
+
+      if (result.success && result.data?.code === 200 && result.data?.data) {
+        return {
+          success: true,
+          settings: result.data.data as Record<string, unknown>
+        }
+      }
+
+      return {
+        success: false,
+        error: result.data?.msg || result.error || 'Failed to get mode settings'
+      }
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Unknown error'
+      }
+    }
   }
 
   // ============================================

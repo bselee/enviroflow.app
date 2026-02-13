@@ -31,13 +31,28 @@ export interface DeviceControlResult {
   actualValue?: number
   previousValue?: number
   error?: string
+  /** Previous mode ID before the control command */
+  previousMode?: number
+  /** Name of the previous mode (e.g., "Auto", "VPD") */
+  previousModeName?: string
+  /** Current mode ID after the control command */
+  currentMode?: number
+  /** True if native programming was overridden to manual ON mode */
+  nativeModeOverridden?: boolean
+}
+
+export interface DeviceControlOptions {
+  /** If true, keeps native programming mode active (temporary control) */
+  preserveNativeMode?: boolean
+  /** For restore_mode action: the mode ID to restore */
+  targetMode?: number
 }
 
 export interface UseDeviceControlReturn {
   devices: DeviceState[]
   isLoading: boolean
   error: string | null
-  controlDevice: (port: number, action: string, value?: number) => Promise<DeviceControlResult>
+  controlDevice: (port: number, action: string, value?: number, options?: DeviceControlOptions) => Promise<DeviceControlResult>
   refreshDevices: () => Promise<void>
 }
 
@@ -129,7 +144,7 @@ export function useDeviceControl(controllerId: string): UseDeviceControlReturn {
    * Send control command to a device
    */
   const controlDevice = useCallback(
-    async (port: number, action: string, value?: number): Promise<DeviceControlResult> => {
+    async (port: number, action: string, value?: number, options?: DeviceControlOptions): Promise<DeviceControlResult> => {
       if (!controllerId) {
         return {
           success: false,
@@ -155,7 +170,12 @@ export function useDeviceControl(controllerId: string): UseDeviceControlReturn {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ action, value }),
+          body: JSON.stringify({
+            action,
+            value,
+            preserveNativeMode: options?.preserveNativeMode,
+            targetMode: options?.targetMode,
+          }),
         })
 
         const data = await response.json()
@@ -183,6 +203,10 @@ export function useDeviceControl(controllerId: string): UseDeviceControlReturn {
           success: data.success,
           actualValue: data.actualValue,
           previousValue: data.previousValue,
+          previousMode: data.previousMode,
+          previousModeName: data.previousModeName,
+          currentMode: data.currentMode,
+          nativeModeOverridden: data.nativeModeOverridden,
           error: data.error,
         }
       } catch (err) {

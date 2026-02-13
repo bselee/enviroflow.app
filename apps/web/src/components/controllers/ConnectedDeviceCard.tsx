@@ -5,13 +5,14 @@
  * Displays device state, provides quick toggle, and includes a menu for device controls.
  */
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import {
   Power,
   MoreVertical,
   Loader2,
   Circle,
   Settings2,
+  RotateCcw,
 } from 'lucide-react'
 import { getPortIconConfig, iconSizes } from '@/config/deviceIcons'
 import { Card, CardContent } from '@/components/ui/card'
@@ -27,7 +28,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Slider } from '@/components/ui/slider'
 import { cn } from '@/lib/utils'
-import type { DeviceState } from '@/hooks/use-device-control'
+import type { DeviceState, DeviceControlOptions, DeviceControlResult } from '@/hooks/use-device-control'
 
 // ============================================
 // Types
@@ -35,12 +36,24 @@ import type { DeviceState } from '@/hooks/use-device-control'
 
 interface ConnectedDeviceCardProps {
   device: DeviceState
-  onControl: (port: number, action: string, value?: number) => Promise<{ success: boolean; error?: string }>
+  onControl: (port: number, action: string, value?: number, options?: DeviceControlOptions) => Promise<DeviceControlResult>
   /** Callback to open mode programming panel */
   onProgram?: (device: DeviceState) => void
   disabled?: boolean
   /** Wire connection point ID for SVG path connection */
   wireId: string
+}
+
+/** Mode ID to name mapping */
+const MODE_NAMES: Record<number, string> = {
+  0: 'Off',
+  1: 'On',
+  2: 'Auto',
+  3: 'Timer',
+  4: 'Cycle',
+  5: 'Schedule',
+  6: 'VPD',
+  7: 'Advance',
 }
 
 // ============================================
@@ -69,10 +82,16 @@ export function ConnectedDeviceCard({
   const [isUpdating, setIsUpdating] = useState(false)
   const [localLevel, setLocalLevel] = useState(device.level)
   const [localIsOn, setLocalIsOn] = useState(device.isOn)
+  // Track when native programming was overridden (for showing restore option)
+  const [overriddenMode, setOverriddenMode] = useState<{ id: number; name: string } | null>(null)
 
   const iconConfig = getDeviceIconConfig(device.deviceType)
   const Icon = iconConfig.icon
   const statusColor = getStatusColor(localIsOn)
+
+  // Check if device is currently in manual ON mode but has native programming available
+  // This can happen if we overrode native mode or if the device was manually set
+  const canRestoreNativeMode = overriddenMode !== null
 
   const handleQuickToggle = async () => {
     if (disabled || isUpdating) return
@@ -87,12 +106,32 @@ export function ConnectedDeviceCard({
     if (!result.success) {
       // Revert on error
       setLocalIsOn(!newState)
+    } else if (result.nativeModeOverridden && result.previousMode !== undefined && result.previousModeName) {
+      // Track that we overrode native programming
+      setOverriddenMode({ id: result.previousMode, name: result.previousModeName })
     }
 
     setIsUpdating(false)
   }
 
-  const handleMenuAction = async (action: string, value?: number) => {
+  const handleRestoreMode = useCallback(async () => {
+    if (disabled || isUpdating || !overriddenMode) return
+
+    setIsUpdating(true)
+
+    const result = await onControl(device.port, 'restore_mode', undefined, {
+      targetMode: overriddenMode.id,
+    })
+
+    if (result.success) {
+      // Clear the overridden mode tracker
+      setOverriddenMode(null)
+    }
+
+    setIsUpdating(false)
+  }, [disabled, isUpdating, overriddenMode, onControl, device.port])
+
+  const handleMenuAction = async (action: string, value?: number, options?: DeviceControlOptions) => {
     if (disabled || isUpdating) return
 
     setIsUpdating(true)
@@ -176,28 +215,45 @@ export function ConnectedDeviceCard({
                     {localIsOn ? 'On' : 'Off'}
                   </span>
                 </div>
-                {/* Show current mode from AC Infinity programming */}
-                {device.mode && device.mode !== 'off' && (
-                  <Badge 
-                    variant="secondary" 
+                </div>
+              {/* Mode info line - matches AC Infinity style: "AUTO · H 75°F / L 54°F · H 54% / L 39%" */}
+              {device.mode && device.mode !== 'off' && device.mode !== 'on' && (
+                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                  <Badge
+                    variant="secondary"
                     className={cn(
-                      "text-xs px-1.5 py-0 h-5 uppercase",
-                      device.mode === 'auto' && "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-                      device.mode === 'vpd' && "bg-purple-500/10 text-purple-600 dark:text-purple-400",
-                      device.mode === 'timer' && "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-                      device.mode === 'cycle' && "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400",
-                      device.mode === 'schedule' && "bg-green-500/10 text-green-600 dark:text-green-400",
+                      "text-[10px] px-1.5 py-0 h-4 uppercase font-medium",
+                      device.mode === 'auto' && "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/20",
+                      device.mode === 'vpd' && "bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/20",
+                      device.mode === 'timer' && "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20",
+                      device.mode === 'cycle' && "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/20",
+                      device.mode === 'schedule' && "bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20",
                     )}
                   >
                     {device.mode}
                   </Badge>
-                )}
-              </div>
-              {/* Show mode summary if available */}
-              {device.modeSummary && (
-                <p className="text-[10px] text-muted-foreground mt-1 truncate">
-                  {device.modeSummary}
-                </p>
+                  {device.modeSummary && (
+                    <span className="text-[10px] text-muted-foreground truncate max-w-[180px]">
+                      {device.modeSummary}
+                    </span>
+                  )}
+                </div>
+              )}
+              {/* Simple mode badge for ON mode */}
+              {device.mode === 'on' && (
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] px-1.5 py-0 h-4 uppercase font-medium bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20"
+                  >
+                    ON
+                  </Badge>
+                  {device.modeSummary && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {device.modeSummary}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -251,6 +307,20 @@ export function ConnectedDeviceCard({
                     <DropdownMenuItem onClick={() => onProgram(device)}>
                       <Settings2 className="w-4 h-4 mr-2 text-blue-500" />
                       Program Mode
+                    </DropdownMenuItem>
+                  </>
+                )}
+
+                {/* Restore native programming option - shown when mode was overridden */}
+                {canRestoreNativeMode && overriddenMode && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={handleRestoreMode}
+                      className="text-amber-600 dark:text-amber-400"
+                    >
+                      <RotateCcw className="w-4 h-4 mr-2" />
+                      Restore {overriddenMode.name} Mode
                     </DropdownMenuItem>
                   </>
                 )}

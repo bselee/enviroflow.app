@@ -34,12 +34,12 @@ interface TimeRangeConfig {
 
 const TIME_RANGE_CONFIG: Record<TimeRange, TimeRangeConfig> = {
   '1h':  { hours: 1,    intervalMinutes: 1,   useRPC: false },
-  '6h':  { hours: 6,    intervalMinutes: 2,   useRPC: false },
-  '24h': { hours: 24,   intervalMinutes: 5,   useRPC: false },
-  '1d':  { hours: 24,   intervalMinutes: 5,   useRPC: false },
-  '7d':  { hours: 168,  intervalMinutes: 30,  useRPC: true },
-  '30d': { hours: 720,  intervalMinutes: 120, useRPC: true },
-  '60d': { hours: 1440, intervalMinutes: 240, useRPC: true },
+  '6h':  { hours: 6,    intervalMinutes: 1,   useRPC: false },  // Was 2, now 1 for better resolution
+  '24h': { hours: 24,   intervalMinutes: 2,   useRPC: false },  // Was 5, now 2 for better resolution
+  '1d':  { hours: 24,   intervalMinutes: 2,   useRPC: false },  // Was 5, now 2 for better resolution
+  '7d':  { hours: 168,  intervalMinutes: 5,   useRPC: true },   // Was 30, now 5 for AC Infinity parity
+  '30d': { hours: 720,  intervalMinutes: 15,  useRPC: true },   // Was 120, now 15 for better resolution
+  '60d': { hours: 1440, intervalMinutes: 30,  useRPC: true },   // Was 240, now 30 for better resolution
 }
 
 // =============================================================================
@@ -496,11 +496,13 @@ async function fetchDirectData(
     }))
     .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 
-  // Cap at 400 points for performance
-  if (result.length > 400) {
-    const step = result.length / 400
+  // Cap at 1000 points for performance (increased from 400 for better chart resolution)
+  // AC Infinity native app shows 500-1000 points per view
+  const MAX_POINTS = 1000
+  if (result.length > MAX_POINTS) {
+    const step = result.length / MAX_POINTS
     const downsampled: SensorDataPoint[] = []
-    for (let i = 0; i < 400; i++) {
+    for (let i = 0; i < MAX_POINTS; i++) {
       downsampled.push(result[Math.floor(i * step)])
     }
     downsampled[downsampled.length - 1] = result[result.length - 1] // Ensure last point
