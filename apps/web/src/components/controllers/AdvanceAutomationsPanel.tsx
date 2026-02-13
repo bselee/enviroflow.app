@@ -428,7 +428,7 @@ export function AdvanceAutomationsPanel({
               The AC Infinity cloud API for Advance Automations was not found.
               This feature may not be supported for your controller model, or the API endpoint may have changed.
               <br /><br />
-              You can still program modes directly using the <strong>Program Mode</strong> option in each device's menu.
+              You can still program modes directly using the <strong>Program Mode</strong> option in each device&apos;s menu.
             </AlertDescription>
           </Alert>
         )}
