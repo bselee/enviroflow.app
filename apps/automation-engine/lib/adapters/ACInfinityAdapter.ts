@@ -1951,6 +1951,114 @@ export class ACInfinityAdapter implements ControllerAdapter, DiscoverableAdapter
     }
   }
 
+  /**
+   * Get mode settings for all ports on a controller
+   * Returns array of { port, modeId, ...triggerSettings }
+   */
+  async getDeviceModes(
+    controllerId: string
+  ): Promise<Array<{ port: number; modeId?: number; mode?: number; [key: string]: unknown }>> {
+    const stored = tokenStore.get(controllerId)
+    if (!stored) {
+      log('warn', `getDeviceModes: Controller ${controllerId} not connected`)
+      return []
+    }
+
+    try {
+      // Get device info to find all ports
+      const capsResult = await adapterFetch<ACDeviceListResponse>(
+        ADAPTER_NAME,
+        `${API_BASE}/api/user/devInfoListAll`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'User-Agent': USER_AGENT,
+            'token': stored.token,
+          },
+          body: new URLSearchParams({ userId: stored.token }).toString()
+        }
+      )
+
+      if (!capsResult.success || !capsResult.data || capsResult.data.code !== 200) {
+        log('warn', `getDeviceModes: Failed to get device list`)
+        return []
+      }
+
+      const allDevices = capsResult.data.data || []
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const device = allDevices.find((d: any) => d.devId === controllerId) as any
+      if (!device || !device.portData) {
+        return []
+      }
+
+      // Fetch mode settings for each port
+      const modes: Array<{ port: number; modeId?: number; mode?: number; [key: string]: unknown }> = []
+
+      for (const portInfo of device.portData as Array<{ portId: number }>) {
+        await waitForRateLimit(`ac_infinity:${stored.email}`)
+
+        const result = await adapterFetch<{ code: number; data?: Record<string, unknown>; msg?: string }>(
+          ADAPTER_NAME,
+          `${API_BASE}/api/dev/getdevModeSettingList`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'Accept': 'application/json',
+              'User-Agent': USER_AGENT,
+              'token': stored.token,
+            },
+            body: new URLSearchParams({
+              devId: controllerId,
+              port: String(portInfo.portId)
+            }).toString()
+          }
+        )
+
+        if (result.success && result.data?.code === 200 && result.data?.data) {
+          const settings = result.data.data as Record<string, unknown>
+          modes.push({
+            port: portInfo.portId,
+            modeId: settings.devModeOne as number | undefined,
+            mode: settings.devModeOne as number | undefined,
+            // Trigger values for AUTO mode
+            tempTriggerHigh: settings.tempTriggerAbove as number | undefined,
+            tempTriggerLow: settings.tempTriggerBelow as number | undefined,
+            humidityTriggerHigh: settings.humTriggerAbove as number | undefined,
+            humidityTriggerLow: settings.humTriggerBelow as number | undefined,
+            // VPD triggers
+            vpdTriggerHigh: settings.vpdTriggerAbove as number | undefined,
+            vpdTriggerLow: settings.vpdTriggerBelow as number | undefined,
+            // Timer settings
+            timerDuration: settings.timerDuration as number | undefined,
+            timerType: settings.timerType as number | undefined,
+            // Cycle settings
+            cycleOnDuration: settings.cycleOnSec as number | undefined,
+            cycleOffDuration: settings.cycleOffSec as number | undefined,
+            // Schedule settings
+            scheduleStartTime: settings.scheduleStartTime as string | undefined,
+            scheduleEndTime: settings.scheduleEndTime as string | undefined,
+            // Level (for ON mode)
+            level: settings.speak as number | undefined,
+            speak: settings.speak as number | undefined,
+          })
+        }
+      }
+
+      log('info', `getDeviceModes: Fetched modes for ${modes.length} ports`, {
+        controllerId,
+        modes: modes.map(m => ({ port: m.port, modeId: m.modeId }))
+      })
+
+      return modes
+    } catch (err) {
+      log('error', `getDeviceModes error: ${err instanceof Error ? err.message : 'Unknown'}`)
+      return []
+    }
+  }
+
   // ============================================
   // Private Helper Methods
   // ============================================

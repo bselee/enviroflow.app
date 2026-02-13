@@ -28,6 +28,8 @@ import {
 import { ConnectedDeviceCard } from './ConnectedDeviceCard'
 import { ControllerStatusIndicator } from './ControllerStatusIndicator'
 import { DeviceModeProgramming } from './DeviceModeProgramming'
+import { AdvanceAutomationsPanel } from './AdvanceAutomationsPanel'
+import { Calendar } from 'lucide-react'
 import type { DeviceState } from '@/hooks/use-device-control'
 import { cn } from '@/lib/utils'
 import { useDeviceControl } from '@/hooks/use-device-control'
@@ -104,6 +106,7 @@ export function ControllerDeviceTree({
   const [wires, setWires] = useState<WireCoordinates[]>([])
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [programmingDevice, setProgrammingDevice] = useState<DeviceState | null>(null)
+  const [showAutomations, setShowAutomations] = useState(false)
 
   const health = getControllerHealth(controller.status, controller.last_seen)
 
@@ -302,6 +305,17 @@ export function ControllerDeviceTree({
                       </DropdownMenuItem>
                     )}
 
+                    {/* Advance Automations - AC Infinity only */}
+                    {controller.brand === 'ac_infinity' && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setShowAutomations(true)}>
+                          <Calendar className="w-4 h-4 mr-2 text-blue-500" />
+                          Advance Automations
+                        </DropdownMenuItem>
+                      </>
+                    )}
+
                     {onDelete && (
                       <>
                         <DropdownMenuSeparator />
@@ -496,6 +510,29 @@ export function ControllerDeviceTree({
               port={programmingDevice.port}
               deviceName={programmingDevice.name}
               onClose={() => setProgrammingDevice(null)}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Advance Automations Dialog - AC Infinity only */}
+      {showAutomations && controller.brand === 'ac_infinity' && (
+        <Dialog
+          open={showAutomations}
+          onOpenChange={(open) => !open && setShowAutomations(false)}
+        >
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Advance Automations</DialogTitle>
+              <DialogDescription>
+                Time-windowed mode overrides for {controller.name}
+              </DialogDescription>
+            </DialogHeader>
+            <AdvanceAutomationsPanel
+              controllerId={controller.id}
+              controllerName={controller.name}
+              availablePorts={devices.map(d => ({ port: d.port, name: d.name }))}
+              onClose={() => setShowAutomations(false)}
             />
           </DialogContent>
         </Dialog>

@@ -133,14 +133,31 @@ Implemented adapters: `ACInfinityAdapter`, `InkbirdAdapter`, `EcowittAdapter`, `
 
 ### Vercel Cron Jobs
 
+Defined in `vercel.json` at repo root (not in `apps/web/`).
+
 | Path | Schedule | Purpose |
 |------|----------|---------|
 | `/api/cron/workflows` | Every minute | Execute automation workflows |
-| `/api/cron/poll-sensors` | Every 2 minutes | Poll sensor data from controllers |
+| `/api/cron/poll-sensors` | Every minute | Poll sensor data from controllers |
 | `/api/cron/check-alerts` | Every 5 minutes | Evaluate alert conditions |
 | `/api/cron/schedules` | Every minute | Execute dimmer schedules |
 | `/api/cron/health-check` | Hourly | System health check |
-| `/api/cron/save-history` | Every 5 minutes | Persist sensor readings to DB |
+| `/api/cron/save-history` | Every minute | Persist sensor readings + device state to DB |
+
+### Chart Data Resolution
+
+The `/api/sensors/data` endpoint uses time-range-specific aggregation:
+
+| Range | Interval | Max Points |
+|-------|----------|------------|
+| 1h | 1 min | 1000 |
+| 6h | 1 min | 1000 |
+| 24h | 2 min | 1000 |
+| 7d | 5 min | 1000 |
+| 30d | 15 min | 1000 |
+| 60d | 30 min | 1000 |
+
+For 7d+ ranges, downsampling uses the `get_sensor_readings_downsampled` RPC which returns AVG, MIN, MAX values.
 
 ## Key Patterns
 

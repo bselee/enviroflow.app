@@ -60,6 +60,8 @@ interface AdvanceAutomationsPanelProps {
   portFilter?: number
   /** Available ports for automation */
   availablePorts: Array<{ port: number; name: string }>
+  /** Callback when panel should close */
+  onClose?: () => void
   className?: string
 }
 
