@@ -5,7 +5,7 @@
  *
  * Query Parameters:
  * - controllerId: UUID (optional, all controllers if not specified)
- * - range: 1h | 6h | 24h | 1d | 7d | 30d | 60d (default: 24h)
+ * - range: 1h | 6h | 24h | 7d | 30d | 60d (default: 24h)
  * - includeDeviceState: true | false (default: false)
  *
  * Returns sensor readings with appropriate aggregation:
@@ -24,7 +24,7 @@ export const dynamic = 'force-dynamic'
 // Configuration
 // =============================================================================
 
-type TimeRange = '1h' | '6h' | '24h' | '1d' | '7d' | '30d' | '60d'
+type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | '60d'
 
 interface TimeRangeConfig {
   hours: number
@@ -36,7 +36,6 @@ const TIME_RANGE_CONFIG: Record<TimeRange, TimeRangeConfig> = {
   '1h':  { hours: 1,    intervalMinutes: 1,   useRPC: false },
   '6h':  { hours: 6,    intervalMinutes: 1,   useRPC: false },  // Was 2, now 1 for better resolution
   '24h': { hours: 24,   intervalMinutes: 2,   useRPC: false },  // Was 5, now 2 for better resolution
-  '1d':  { hours: 24,   intervalMinutes: 2,   useRPC: false },  // Was 5, now 2 for better resolution
   '7d':  { hours: 168,  intervalMinutes: 5,   useRPC: true },   // Was 30, now 5 for AC Infinity parity
   '30d': { hours: 720,  intervalMinutes: 15,  useRPC: true },   // Was 120, now 15 for better resolution
   '60d': { hours: 1440, intervalMinutes: 30,  useRPC: true },   // Was 240, now 30 for better resolution
