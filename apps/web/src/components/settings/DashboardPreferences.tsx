@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { Loader2, Settings, Palette, Thermometer, Sparkles, RotateCcw } from "lucide-react";
+import { Loader2, Settings, Palette, Thermometer, Sparkles, RotateCcw, Database } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -600,6 +600,35 @@ export function DashboardPreferences({
 
         {/* Advanced Tab */}
         <TabsContent value="advanced" className="mt-6 space-y-6">
+          {/* Device State Logging */}
+          <div className="space-y-3">
+            <Label className="text-sm font-medium flex items-center gap-2">
+              <Database className="h-4 w-4" />
+              Device State Logging
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Log device ON/OFF states to the database for historical review.
+              Useful for analyzing cycles and correlating device activity with sensor data.
+            </p>
+            <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+              <div>
+                <p className="text-sm font-medium">Enable Logging</p>
+                <p className="text-xs text-muted-foreground">
+                  Records device state changes every 15 minutes
+                </p>
+              </div>
+              <Switch
+                checked={preferences.enableDeviceStateLogging}
+                onCheckedChange={(checked: boolean) =>
+                  updatePreference("enableDeviceStateLogging", checked)
+                }
+                aria-label="Toggle device state logging"
+              />
+            </div>
+          </div>
+
+          <Separator />
+
           {/* Reset Options */}
           <div className="space-y-4">
             <Label className="text-sm font-medium">Reset Options</Label>
@@ -654,6 +683,10 @@ export function DashboardPreferences({
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Custom Room Settings:</span>
                 <span className="font-mono">{Object.keys(preferences.roomSettings).length} rooms</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Device State Logging:</span>
+                <span className="font-mono">{preferences.enableDeviceStateLogging ? "Enabled" : "Disabled"}</span>
               </div>
             </div>
           </div>

@@ -74,6 +74,8 @@ export interface UserPreferences {
   timelineMetrics: TimelineMetric[];
   /** Per-room preferences, keyed by room ID */
   roomSettings: Record<string, RoomPreferences>;
+  /** Enable device state logging to database for historical review */
+  enableDeviceStateLogging: boolean;
 }
 
 /**
@@ -150,6 +152,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   primaryMetric: "vpd",
   timelineMetrics: ["vpd", "temperature", "humidity"],
   roomSettings: {},
+  enableDeviceStateLogging: true, // Log device ON/OFF states for historical review
 };
 
 // =============================================================================
@@ -168,6 +171,7 @@ function validatePreferences(partial: Partial<UserPreferences>): UserPreferences
     primaryMetric: partial.primaryMetric ?? DEFAULT_USER_PREFERENCES.primaryMetric,
     timelineMetrics: partial.timelineMetrics ?? DEFAULT_USER_PREFERENCES.timelineMetrics,
     roomSettings: partial.roomSettings ?? DEFAULT_USER_PREFERENCES.roomSettings,
+    enableDeviceStateLogging: partial.enableDeviceStateLogging ?? DEFAULT_USER_PREFERENCES.enableDeviceStateLogging,
   };
 }
 
