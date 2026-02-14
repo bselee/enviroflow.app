@@ -344,7 +344,12 @@ export async function GET(request: NextRequest) {
           previousState.state !== state ||
           previousState.speed !== speed;
 
-        if (stateChanged) {
+        // Also log periodic snapshots every 15 minutes for waveform chart
+        // This ensures continuous activity shows in the chart even without state changes
+        const currentMinute = new Date().getMinutes();
+        const shouldLogSnapshot = !stateChanged && (currentMinute % 15 === 0);
+
+        if (stateChanged || shouldLogSnapshot) {
           deviceStateRecords.push({
             controller_id: controller.id,
             port_number: portNum,
