@@ -65,6 +65,7 @@ export default function DashboardPage(): JSX.Element {
     sensors: liveSensors,
     loading: liveSensorsLoading,
     history: liveHistory,
+    portHistory: livePortHistory,
   } = useLiveSensors({ refreshInterval: 15, maxHistoryPoints: 200 });
 
   // Timeline state
@@ -138,12 +139,9 @@ export default function DashboardPage(): JSX.Element {
   }, [liveSensors]);
 
   /**
-   * Merge historical device state data with current live port states.
-   * This ensures the waveform chart shows current device states even if
-   * no historical state changes are logged in the database.
-   *
-   * CRITICAL FIX: For devices without historical data, create synthetic state
-   * spanning the full time range to show flat lines indicating assumed state.
+   * Merge live port history with database historical data for waveform chart.
+   * Live port history updates every 15 seconds (real-time).
+   * Database data provides longer history for 7d+ time ranges.
    */
   const enrichedDeviceStateData = useMemo(() => {
     const now = new Date();
@@ -151,7 +149,7 @@ export default function DashboardPage(): JSX.Element {
 
     // Calculate start time matching the selected time range
     const hoursMap: Record<string, number> = {
-      '1h': 1, '6h': 6, '24h': 24, '1d': 24, '7d': 168, '30d': 720, '60d': 1440
+      '1h': 1, '6h': 6, '24h': 24, '7d': 168, '30d': 720, '60d': 1440
     };
     const hours = hoursMap[timeRange] || 24;
     const rangeStart = new Date(now.getTime() - hours * 60 * 60 * 1000);
@@ -159,53 +157,64 @@ export default function DashboardPage(): JSX.Element {
 
     const result: Record<string, Array<{ timestamp: string; state: boolean; speed: number }>> = {};
 
-    // First, copy historical data
+    // 1. Start with database historical data (for longer time ranges)
     if (deviceStateData) {
       for (const [deviceName, points] of Object.entries(deviceStateData)) {
         result[deviceName] = [...points];
       }
     }
 
-    // Then, inject current live port states from the selected controller
+    // 2. Merge in live port history (real-time data from polling)
+    // This is the PRIMARY source for short time ranges (1h, 6h, 24h)
+    if (livePortHistory && Object.keys(livePortHistory).length > 0) {
+      for (const [deviceName, points] of Object.entries(livePortHistory)) {
+        if (!result[deviceName]) {
+          result[deviceName] = [];
+        }
+        // Add all live points that aren't duplicates
+        for (const point of points) {
+          const exists = result[deviceName].some(
+            p => p.timestamp === point.timestamp && p.state === point.state
+          );
+          if (!exists) {
+            result[deviceName].push(point);
+          }
+        }
+        // Sort by timestamp
+        result[deviceName].sort(
+          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        );
+      }
+    }
+
+    // 3. Ensure each device has at least start + end points for proper rendering
     const selectedSensor = selectedControllerId
       ? liveSensors.find(s => s.id === selectedControllerId)
       : liveSensors[0];
 
-    // Debug logging
-    console.log('[Dashboard] enrichedDeviceStateData:', {
-      selectedControllerId,
-      liveSensorsCount: liveSensors.length,
-      selectedSensorId: selectedSensor?.id,
-      selectedSensorName: selectedSensor?.name,
-      hasPorts: !!selectedSensor?.ports,
-      portsCount: selectedSensor?.ports?.length ?? 0,
-      ports: selectedSensor?.ports?.map(p => ({ name: p.name, portId: p.portId, isOn: p.isOn, speed: p.speed }))
-    });
-
     if (selectedSensor?.ports) {
       for (const port of selectedSensor.ports) {
         const deviceName = port.name || `Port ${port.portId}`;
-        const existingPoints = result[deviceName] || [];
-
-        // If no historical data exists, create a flat line showing the
-        // assumed state for the entire time range
-        if (existingPoints.length === 0) {
-          result[deviceName] = [
-            {
-              timestamp: rangeStartISO,
-              state: port.isOn,
-              speed: port.speed,
-            },
-          ];
+        if (!result[deviceName]) {
+          result[deviceName] = [];
         }
 
-        // Add current state as the latest point
         const points = result[deviceName];
-        const lastPoint = points[points.length - 1];
 
-        // Only add if state differs OR if we need a closing point
-        if (!lastPoint || lastPoint.state !== port.isOn || lastPoint.speed !== port.speed || points.length === 1) {
-          result[deviceName].push({
+        // Add start point if missing
+        if (points.length === 0 || new Date(points[0].timestamp).getTime() > rangeStart.getTime()) {
+          const startState = points.length > 0 ? points[0].state : port.isOn;
+          points.unshift({
+            timestamp: rangeStartISO,
+            state: startState,
+            speed: port.speed,
+          });
+        }
+
+        // Add current state as end point
+        const lastPoint = points[points.length - 1];
+        if (!lastPoint || lastPoint.state !== port.isOn || lastPoint.speed !== port.speed) {
+          points.push({
             timestamp: nowISO,
             state: port.isOn,
             speed: port.speed,
@@ -214,9 +223,8 @@ export default function DashboardPage(): JSX.Element {
       }
     }
 
-    console.log('[Dashboard] enrichedDeviceStateData result:', Object.keys(result).length, 'devices', result);
     return result;
-  }, [deviceStateData, liveSensors, selectedControllerId, timeRange]);
+  }, [deviceStateData, livePortHistory, liveSensors, selectedControllerId, timeRange]);
 
   /**
    * Convert historical data to timeline format.
