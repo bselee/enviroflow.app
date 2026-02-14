@@ -150,6 +150,7 @@ export function useLiveSensors(options: UseLiveSensorsOptions = {}): UseLiveSens
         });
 
         // Accumulate port state history for waveform chart
+        // Log EVERY poll (like AC Infinity does)
         setPortHistory((prev) => {
           const updated = { ...prev };
           for (const sensor of result.sensors) {
@@ -164,19 +165,11 @@ export function useLiveSensors(options: UseLiveSensorsOptions = {}): UseLiveSens
               if (!updated[key]) {
                 updated[key] = [];
               }
-              // Only add if state changed or every 4th poll (~1 min) for continuous data
-              const lastPoint = updated[key][updated[key].length - 1];
-              const stateChanged = !lastPoint ||
-                lastPoint.state !== point.state ||
-                lastPoint.speed !== point.speed;
-              const shouldSnapshot = updated[key].length % 4 === 0; // Every 4 polls = ~1 min
-
-              if (stateChanged || shouldSnapshot || updated[key].length === 0) {
-                updated[key].push(point);
-                // Keep only last maxHistoryPoints per port
-                if (updated[key].length > maxHistoryPoints) {
-                  updated[key] = updated[key].slice(-maxHistoryPoints);
-                }
+              // Log every poll for real-time waveform updates
+              updated[key].push(point);
+              // Keep only last maxHistoryPoints per port
+              if (updated[key].length > maxHistoryPoints) {
+                updated[key] = updated[key].slice(-maxHistoryPoints);
               }
             }
           }

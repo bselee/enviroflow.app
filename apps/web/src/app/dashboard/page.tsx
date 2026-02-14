@@ -61,12 +61,13 @@ export default function DashboardPage(): JSX.Element {
   } = useDashboardData();
 
   // Live sensor data from Direct API (bypasses Supabase)
+  // 10 second refresh matches AC Infinity app
   const {
     sensors: liveSensors,
     loading: liveSensorsLoading,
     history: liveHistory,
     portHistory: livePortHistory,
-  } = useLiveSensors({ refreshInterval: 15, maxHistoryPoints: 200 });
+  } = useLiveSensors({ refreshInterval: 10, maxHistoryPoints: 360 }); // 360 points = 1 hour at 10s intervals
 
   // Timeline state
   const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
@@ -428,7 +429,7 @@ export default function DashboardPage(): JSX.Element {
 
             {/* AC Infinity-style Live Sensor Cards */}
             {!isDemoMode && (
-              <LiveSensorDashboard refreshInterval={15} />
+              <LiveSensorDashboard refreshInterval={10} />
             )}
 
             <div
