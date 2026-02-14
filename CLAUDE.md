@@ -133,7 +133,7 @@ Implemented adapters: `ACInfinityAdapter`, `InkbirdAdapter`, `EcowittAdapter`, `
 
 ### Vercel Cron Jobs
 
-Defined in `vercel.json` at repo root (not in `apps/web/`).
+Defined in `apps/web/vercel.json`.
 
 | Path | Schedule | Purpose |
 |------|----------|---------|
@@ -258,7 +258,8 @@ API routes are in `apps/web/src/app/api/`. Key patterns:
 
 ## Build Configuration Notes
 
-- `next.config.js` sets `ignoreDuringBuilds: true` for ESLint and `ignoreBuildErrors: true` for TypeScript (temporary)
+- `next.config.js` has `ignoreDuringBuilds: false` for ESLint and `ignoreBuildErrors: false` for TypeScript (enforced)
+- CI workflow `.github/workflows/typecheck-lint.yml` runs `tsc --noEmit` + `next lint` on PRs
 - Console logs are stripped in production (except `error`/`warn`)
 - Optimized package imports: `recharts`, `@xyflow/react`, `lucide-react`, Radix UI
 - Sentry integration is conditional — only loaded if `@sentry/nextjs` is installed and DSN is configured
