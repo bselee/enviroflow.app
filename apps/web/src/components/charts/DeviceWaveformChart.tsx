@@ -40,13 +40,28 @@ export interface DeviceWaveformChartProps {
 // =============================================================================
 
 const ROW_HEIGHT = 32; // Height per device row
-const WAVEFORM_COLOR = "#4fc3f7"; // AC Infinity cyan/blue
 const WAVEFORM_FILL_OPACITY = 0.2;
 const WAVEFORM_STROKE_WIDTH = 1;
 const LABEL_WIDTH = 90; // Width for device name labels
 const STATUS_WIDTH = 40; // Width for status indicator on right
 const WAVEFORM_PADDING_TOP = 4; // Padding from top of row
 const WAVEFORM_PADDING_BOTTOM = 4; // Padding from bottom of row
+
+// AC Infinity style blue shades — Port 1 darkest → Port 4+ lightest
+const PORT_COLORS = [
+  "#1565c0", // Port 1 — dark blue
+  "#1e88e5", // Port 2 — medium blue
+  "#42a5f5", // Port 3 — blue
+  "#64b5f6", // Port 4 — light blue
+  "#90caf9", // Port 5+
+  "#bbdefb", // Port 6+
+  "#e3f2fd", // Port 7+
+  "#b3e5fc", // Port 8+
+];
+
+function getPortColor(index: number): string {
+  return PORT_COLORS[Math.min(index, PORT_COLORS.length - 1)];
+}
 
 // =============================================================================
 // SVG Helpers
@@ -196,7 +211,7 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
       const isOn = currentSpeed > 0;
 
       if (states.length === 0) {
-        return { name, wPath: "", fPath: "", topY, bottomY, rowTop, currentSpeed, isOn };
+        return { name, wPath: "", fPath: "", topY, bottomY, rowTop, currentSpeed, isOn, color: getPortColor(index) };
       }
 
       // Get speed at a given time for this device
@@ -222,7 +237,7 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
       const wPath = buildSpeedPath(states, t0, dur, chartW, topY, bottomY, P.left);
       const fPath = buildFillPath(wPath, states, t0, dur, chartW, bottomY, P.left);
 
-      return { name, wPath, fPath, topY, bottomY, rowTop, currentSpeed, isOn };
+      return { name, wPath, fPath, topY, bottomY, rowTop, currentSpeed, isOn, color: getPortColor(index) };
     });
   }, [deviceNames, deviceStateData, t0, t1, dur, chartW, P.left]);
 
@@ -332,11 +347,11 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
             <text
               x={P.left - 8}
               y={device.rowTop + ROW_HEIGHT / 2 + 3}
-              fill="hsl(var(--muted-foreground))"
+              fill={device.color}
               fontSize="10"
               textAnchor="end"
               fontFamily="ui-monospace, monospace"
-              opacity={0.7}
+              opacity={0.8}
             >
               {device.name.length > 12 ? device.name.slice(0, 11) + "…" : device.name}
             </text>
@@ -346,18 +361,18 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
               cx={P.left + chartW + 14}
               cy={device.rowTop + ROW_HEIGHT / 2}
               r={3}
-              fill={device.isOn ? WAVEFORM_COLOR : "hsl(var(--muted-foreground))"}
+              fill={device.isOn ? device.color : "hsl(var(--muted-foreground))"}
               opacity={device.isOn ? 0.9 : 0.2}
             />
             {device.isOn && device.currentSpeed < 100 && (
               <text
                 x={P.left + chartW + 24}
                 y={device.rowTop + ROW_HEIGHT / 2 + 3}
-                fill={WAVEFORM_COLOR}
+                fill={device.color}
                 fontSize="8"
                 textAnchor="start"
                 fontFamily="ui-monospace, monospace"
-                opacity={0.6}
+                opacity={0.7}
               >
                 {device.currentSpeed}%
               </text>
@@ -367,19 +382,19 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
             {device.fPath && (
               <path
                 d={device.fPath}
-                fill={WAVEFORM_COLOR}
+                fill={device.color}
                 opacity={WAVEFORM_FILL_OPACITY}
               />
             )}
 
-            {/* Speed waveform line — cyan */}
+            {/* Speed waveform line */}
             {device.wPath && (
               <path
                 d={device.wPath}
                 fill="none"
-                stroke={WAVEFORM_COLOR}
+                stroke={device.color}
                 strokeWidth={WAVEFORM_STROKE_WIDTH}
-                opacity={0.8}
+                opacity={0.85}
               />
             )}
           </g>
@@ -456,11 +471,11 @@ export function DeviceStateTooltip({
         {timeStr}
       </div>
       <div className="space-y-1.5">
-        {entries.map(([name, { state }]) => (
+        {entries.map(([name, { state }], idx) => (
           <div key={name} className="flex items-center gap-2">
             <div
               className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: WAVEFORM_COLOR }}
+              style={{ backgroundColor: getPortColor(idx) }}
             />
             <span className="text-xs text-muted-foreground flex-1 truncate">
               {name}
@@ -480,9 +495,9 @@ export function DeviceStateTooltip({
   );
 }
 
-// Helper to get device color (now uses unified cyan)
-export function getDeviceColor(_name: string): string {
-  return WAVEFORM_COLOR;
+// Helper to get device color by index
+export function getDeviceColor(_name: string, index = 0): string {
+  return getPortColor(index);
 }
 
 export default DeviceWaveformChart;

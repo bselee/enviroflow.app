@@ -22,6 +22,8 @@ import { ErrorBoundary } from "@/components/ui/error-boundary";
 
 const DEFAULT_TIME_RANGE: TimeRange = "24h";
 const STORAGE_KEY_CONTROLLER = "enviroflow_selected_controller";
+const STORAGE_KEY_TIME_RANGE = "enviroflow_time_range";
+const VALID_TIME_RANGES: TimeRange[] = ['1h', '6h', '24h', '7d', '30d', '60d'];
 
 // =============================================================================
 // Loading Skeletons
@@ -70,7 +72,13 @@ export default function DashboardPage(): JSX.Element {
   } = useLiveSensors({ refreshInterval: 10, maxHistoryPoints: 360 }); // 360 points = 1 hour at 10s intervals
 
   // Timeline state
-  const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
+  const [timeRange, setTimeRange] = useState<TimeRange>(() => {
+    if (typeof window === "undefined") return DEFAULT_TIME_RANGE;
+    const stored = localStorage.getItem(STORAGE_KEY_TIME_RANGE);
+    return stored && VALID_TIME_RANGES.includes(stored as TimeRange)
+      ? (stored as TimeRange)
+      : DEFAULT_TIME_RANGE;
+  });
   const [selectedControllerId, setSelectedControllerId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     return localStorage.getItem(STORAGE_KEY_CONTROLLER);
@@ -156,45 +164,81 @@ export default function DashboardPage(): JSX.Element {
     const rangeStart = new Date(now.getTime() - hours * 60 * 60 * 1000);
     const rangeStartISO = rangeStart.toISOString();
 
+    // Determine which controllers to show
+    const selectedSensor = selectedControllerId
+      ? liveSensors.find(s => s.id === selectedControllerId)
+      : liveSensors[0];
+    const controllersToShow = selectedControllerId
+      ? [selectedSensor].filter(Boolean)
+      : liveSensors;
+
+    // Build set of valid port names for the selected controller(s)
+    const validPortNames = new Set<string>();
+    for (const sensor of controllersToShow) {
+      if (!sensor?.ports) continue;
+      for (const port of sensor.ports) {
+        validPortNames.add(port.name || `Port ${port.portId}`);
+      }
+    }
+
     const result: Record<string, Array<{ timestamp: string; state: boolean; speed: number }>> = {};
 
     // 1. Start with database historical data (for longer time ranges)
+    // API already filters by controllerId, so these are pre-filtered
     if (deviceStateData) {
       for (const [deviceName, points] of Object.entries(deviceStateData)) {
-        result[deviceName] = [...points];
+        if (validPortNames.has(deviceName)) {
+          result[deviceName] = [...points];
+        }
       }
     }
 
     // 2. Merge in live port history (real-time data from polling)
-    // This is the PRIMARY source for short time ranges (1h, 6h, 24h)
+    // Keys are "controllerId::portName" format — filter by selected controller
     if (livePortHistory && Object.keys(livePortHistory).length > 0) {
-      for (const [deviceName, points] of Object.entries(livePortHistory)) {
-        if (!result[deviceName]) {
-          result[deviceName] = [];
+      for (const [compositeKey, points] of Object.entries(livePortHistory)) {
+        // Parse the controllerId::portName key
+        const separatorIdx = compositeKey.indexOf('::');
+        let controllerId: string;
+        let portName: string;
+        if (separatorIdx >= 0) {
+          controllerId = compositeKey.slice(0, separatorIdx);
+          portName = compositeKey.slice(separatorIdx + 2);
+        } else {
+          // Legacy format (no prefix) — accept if port name matches
+          controllerId = '';
+          portName = compositeKey;
+        }
+
+        // Filter: only include ports from the selected controller(s)
+        const belongsToSelected = !selectedControllerId
+          || controllerId === selectedControllerId
+          || controllerId === '';
+        if (!belongsToSelected || !validPortNames.has(portName)) continue;
+
+        if (!result[portName]) {
+          result[portName] = [];
         }
         // Add all live points that aren't duplicates
         for (const point of points) {
-          const exists = result[deviceName].some(
+          const exists = result[portName].some(
             p => p.timestamp === point.timestamp && p.state === point.state && p.speed === point.speed
           );
           if (!exists) {
-            result[deviceName].push(point);
+            result[portName].push(point);
           }
         }
         // Sort by timestamp
-        result[deviceName].sort(
+        result[portName].sort(
           (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
         );
       }
     }
 
     // 3. Ensure each device has at least start + end points for proper rendering
-    const selectedSensor = selectedControllerId
-      ? liveSensors.find(s => s.id === selectedControllerId)
-      : liveSensors[0];
-
-    if (selectedSensor?.ports) {
-      for (const port of selectedSensor.ports) {
+    for (const sensor of controllersToShow) {
+      if (!sensor?.ports) continue;
+      for (const port of sensor.ports) {
         const deviceName = port.name || `Port ${port.portId}`;
         if (!result[deviceName]) {
           result[deviceName] = [];
@@ -402,6 +446,7 @@ export default function DashboardPage(): JSX.Element {
 
   const handleTimeRangeChange = useCallback((range: TimeRange) => {
     setTimeRange(range);
+    try { localStorage.setItem(STORAGE_KEY_TIME_RANGE, range); } catch {}
   }, []);
 
   const handleControllerChange = useCallback((controllerId: string | null) => {

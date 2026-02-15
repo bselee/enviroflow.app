@@ -151,12 +151,14 @@ export function useLiveSensors(options: UseLiveSensorsOptions = {}): UseLiveSens
 
         // Accumulate port state history for waveform chart
         // Log EVERY poll (like AC Infinity does)
+        // Key format: "controllerId::portName" to disambiguate across controllers
         setPortHistory((prev) => {
           const updated = { ...prev };
           for (const sensor of result.sensors) {
             if (!sensor.ports) continue;
             for (const port of sensor.ports) {
-              const key = port.name || `Port ${port.portId}`;
+              const portName = port.name || `Port ${port.portId}`;
+              const key = `${sensor.id}::${portName}`;
               const point: PortStatePoint = {
                 timestamp: now,
                 state: port.isOn,
