@@ -23,6 +23,7 @@ const PROTECTED_ROUTES = [
   "/analytics",
   "/rooms",
   "/schedules",
+  "/diaries",
 ];
 
 /**

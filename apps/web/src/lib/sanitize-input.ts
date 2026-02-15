@@ -15,7 +15,7 @@
  */
 export const MAX_LENGTHS = {
   name: 100,
-  description: 500,
+  description: 1000,
   shortText: 255,
   longText: 2000,
 } as const
@@ -220,7 +220,7 @@ export function sanitizeName(name: unknown): string {
  * Descriptions allow newlines but still strip HTML:
  * - No HTML tags
  * - Newlines allowed
- * - Max 500 characters
+ * - Max 1000 characters
  *
  * @param description - Raw description input
  * @returns Sanitized description

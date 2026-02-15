@@ -337,13 +337,13 @@ export const EnviroSensorChart = memo(function EnviroSensorChart({
           {/* Gradient fills */}
           {keys.map((k) => (
             <linearGradient key={`g-${k}`} id={`efg-${k}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={METRICS[k].color} stopOpacity={0.22} />
+              <stop offset="0%" stopColor={METRICS[k].color} stopOpacity={0.15} />
               <stop offset="100%" stopColor={METRICS[k].color} stopOpacity={0.01} />
             </linearGradient>
           ))}
-          {/* Glow filter */}
+          {/* Subtle glow filter */}
           <filter id="ef-glow">
-            <feGaussianBlur stdDeviation="2" result="b" />
+            <feGaussianBlur stdDeviation="0.6" result="b" />
             <feMerge>
               <feMergeNode in="b" />
               <feMergeNode in="SourceGraphic" />
@@ -399,11 +399,11 @@ export const EnviroSensorChart = memo(function EnviroSensorChart({
             d={entries[k].line}
             fill="none"
             stroke={METRICS[k].color}
-            strokeWidth={2}
+            strokeWidth={1.5}
             strokeLinejoin="round"
             strokeLinecap="round"
             filter="url(#ef-glow)"
-            opacity={0.88}
+            opacity={0.95}
           />
         ))}
 

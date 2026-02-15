@@ -527,9 +527,9 @@ export function SensorChart({
               dataKey={sensor.key}
               name={sensor.label}
               stroke={sensor.color}
-              strokeWidth={2}
+              strokeWidth={1.5}
               dot={false}
-              activeDot={{ r: 4, strokeWidth: 0 }}
+              activeDot={{ r: 3, strokeWidth: 0 }}
               connectNulls
             />
           ))}
@@ -599,10 +599,10 @@ export function SensorChart({
             dataKey={sensor.key}
             name={sensor.label}
             stroke={sensor.color}
-            strokeWidth={2}
+            strokeWidth={1.5}
             fill={`url(#${sensor.gradientId})`}
             dot={false}
-            activeDot={{ r: 4, strokeWidth: 0 }}
+            activeDot={{ r: 3, strokeWidth: 0 }}
             connectNulls
           />
         ))}

@@ -51,7 +51,7 @@ type TrendDirection = "up" | "down" | "stable";
 // =============================================================================
 
 const DEFAULT_HEIGHT = 32;
-const DEFAULT_STROKE_WIDTH = 1.5;
+const DEFAULT_STROKE_WIDTH = 1.2;
 const DEFAULT_GRADIENT_TOP = 0.3;
 const DEFAULT_GRADIENT_BOTTOM = 0;
 

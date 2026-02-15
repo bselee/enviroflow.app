@@ -42,7 +42,7 @@ export interface DeviceWaveformChartProps {
 const ROW_HEIGHT = 36; // Height per device row
 const WAVEFORM_COLOR = "#4fc3f7"; // AC Infinity cyan/blue
 const WAVEFORM_FILL_OPACITY = 0.3;
-const WAVEFORM_STROKE_WIDTH = 1.5;
+const WAVEFORM_STROKE_WIDTH = 1;
 const LABEL_WIDTH = 90; // Width for device name labels
 
 // =============================================================================
