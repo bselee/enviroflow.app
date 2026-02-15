@@ -39,25 +39,24 @@ export interface DeviceWaveformChartProps {
 // Constants — AC Infinity Style
 // =============================================================================
 
-const CHART_AREA_HEIGHT = 80; // Shared chart area height (ON at top, OFF at bottom)
-const WAVEFORM_FILL_OPACITY = 0.15; // Semi-transparent so overlaps are visible
-const WAVEFORM_STROKE_WIDTH = 1.5;
+const CHART_AREA_HEIGHT = 100; // Taller shared chart area for better definition
+const WAVEFORM_STROKE_WIDTH = 2; // Bold strokes for clear definition
 const Y_LABEL_WIDTH = 32; // Width for ON/OFF labels on left
 const LEGEND_HEIGHT = 24; // Height for legend row below chart
 const TIME_LABEL_HEIGHT = 20; // Height for time axis labels
 const PADDING_TOP = 4;
 const PADDING_BOTTOM = 4;
 
-// AC Infinity style blue/cyan shades — Port 1 darkest → Port 4+ lightest
+// High-contrast colors — distinct hues so overlapping waveforms are clearly separable
 const PORT_COLORS = [
-  "#1565c0", // Port 1 — dark blue
-  "#1e88e5", // Port 2 — medium blue
-  "#42a5f5", // Port 3 — blue
-  "#64b5f6", // Port 4 — light blue
-  "#90caf9", // Port 5+
-  "#bbdefb", // Port 6+
-  "#e3f2fd", // Port 7+
-  "#b3e5fc", // Port 8+
+  "#00bcd4", // Port 1 — cyan (primary, like AC Infinity)
+  "#1565c0", // Port 2 — dark blue
+  "#7c4dff", // Port 3 — purple
+  "#26a69a", // Port 4 — teal
+  "#42a5f5", // Port 5 — blue
+  "#80cbc4", // Port 6 — light teal
+  "#64b5f6", // Port 7 — light blue
+  "#b388ff", // Port 8 — light purple
 ];
 
 function getPortColor(index: number): string {
@@ -358,26 +357,26 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
           strokeWidth={0.5}
         />
 
-        {/* ── All device waveforms overlaid on same area ── */}
+        {/* ── All device waveforms overlaid — stroke-only for clarity ── */}
         {deviceWaveforms.map((device) => (
           <g key={device.name}>
-            {/* Semi-transparent fill */}
+            {/* Subtle fill only for the first (primary) device */}
             {device.fPath && (
               <path
                 d={device.fPath}
                 fill={device.color}
-                opacity={WAVEFORM_FILL_OPACITY}
+                opacity={0.06}
               />
             )}
 
-            {/* Waveform stroke line */}
+            {/* Bold waveform stroke line — primary visual */}
             {device.wPath && (
               <path
                 d={device.wPath}
                 fill="none"
                 stroke={device.color}
                 strokeWidth={WAVEFORM_STROKE_WIDTH}
-                opacity={0.85}
+                opacity={0.95}
               />
             )}
           </g>
