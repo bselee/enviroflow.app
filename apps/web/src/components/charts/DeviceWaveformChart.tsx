@@ -3,12 +3,12 @@
 /**
  * DeviceWaveformChart — AC Infinity Style Device Activity Chart
  *
- * Shows each device as a separate ON/OFF waveform row:
- * - Binary ON/OFF waveform per device
+ * Shows each device as a speed-based waveform row:
+ * - Height represents device speed (0-100%)
  * - Cyan/blue color with semi-transparent fill
- * - Device name labels on left
+ * - Device name labels on left, current status on right
  * - Time axis aligned with sensor chart
- * - Clean step transitions
+ * - Step transitions show speed changes over time
  */
 
 import { useMemo, useCallback, useRef, memo } from "react";
@@ -39,11 +39,14 @@ export interface DeviceWaveformChartProps {
 // Constants — AC Infinity Style
 // =============================================================================
 
-const ROW_HEIGHT = 36; // Height per device row
+const ROW_HEIGHT = 32; // Height per device row
 const WAVEFORM_COLOR = "#4fc3f7"; // AC Infinity cyan/blue
-const WAVEFORM_FILL_OPACITY = 0.3;
+const WAVEFORM_FILL_OPACITY = 0.2;
 const WAVEFORM_STROKE_WIDTH = 1;
 const LABEL_WIDTH = 90; // Width for device name labels
+const STATUS_WIDTH = 40; // Width for status indicator on right
+const WAVEFORM_PADDING_TOP = 4; // Padding from top of row
+const WAVEFORM_PADDING_BOTTOM = 4; // Padding from bottom of row
 
 // =============================================================================
 // SVG Helpers
@@ -54,29 +57,30 @@ function f(v: number): string {
 }
 
 /**
- * Build step-after waveform path for binary ON/OFF states
- * AC Infinity style: ON = top, OFF = bottom, clean vertical transitions
+ * Build step waveform path based on speed (0-100).
+ * Height represents speed level: 0% = bottom, 100% = top.
  */
-function buildOnOffPath(
-  states: Array<{ ts: number; on: boolean }>,
+function buildSpeedPath(
+  states: Array<{ ts: number; speed: number }>,
   t0: number,
   dur: number,
   cw: number,
-  onY: number,
-  offY: number,
+  topY: number,
+  bottomY: number,
   padL: number
 ): string {
   if (states.length === 0 || dur === 0) return "";
 
+  const rowH = bottomY - topY;
   const xS = (t: number) => padL + ((t - t0) / dur) * cw;
-  const yS = (on: boolean) => (on ? onY : offY);
+  const yS = (speed: number) => bottomY - (Math.min(100, Math.max(0, speed)) / 100) * rowH;
 
-  let d = `M${f(xS(states[0].ts))},${f(yS(states[0].on))}`;
+  let d = `M${f(xS(states[0].ts))},${f(yS(states[0].speed))}`;
 
   for (let i = 1; i < states.length; i++) {
     const x = xS(states[i].ts);
-    const prevY = yS(states[i - 1].on);
-    const curY = yS(states[i].on);
+    const prevY = yS(states[i - 1].speed);
+    const curY = yS(states[i].speed);
 
     // Step-after: horizontal to new X at previous level, then vertical to new level
     d += ` L${f(x)},${f(prevY)}`;
@@ -89,15 +93,15 @@ function buildOnOffPath(
 }
 
 /**
- * Close the waveform path into a fill area reaching the OFF baseline
+ * Close the waveform path into a fill area reaching the baseline (speed=0)
  */
 function buildFillPath(
   linePath: string,
-  states: Array<{ ts: number; on: boolean }>,
+  states: Array<{ ts: number; speed: number }>,
   t0: number,
   dur: number,
   cw: number,
-  offY: number,
+  bottomY: number,
   padL: number
 ): string {
   if (!linePath || states.length < 2 || dur === 0) return "";
@@ -106,7 +110,7 @@ function buildFillPath(
   const lastX = xS(states[states.length - 1].ts);
   const firstX = xS(states[0].ts);
 
-  return `${linePath} L${f(lastX)},${f(offY)} L${f(firstX)},${f(offY)} Z`;
+  return `${linePath} L${f(lastX)},${f(bottomY)} L${f(firstX)},${f(bottomY)} Z`;
 }
 
 // =============================================================================
@@ -162,7 +166,7 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
   }, [sensorData, deviceStateData]);
 
   // ── Dimensions ─────────────────────────────────────────────────────────────
-  const P = { ...CHART_PAD, left: LABEL_WIDTH }; // Extra left padding for labels
+  const P = { ...CHART_PAD, left: LABEL_WIDTH, right: STATUS_WIDTH + CHART_PAD.right };
   const chartW = (forcedWidth ?? 800) - P.left - P.right;
   const totalH = deviceNames.length * ROW_HEIGHT + 28; // Height for all device rows + time labels
 
@@ -172,47 +176,51 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
 
     return deviceNames.map((name, index) => {
       const rowTop = index * ROW_HEIGHT;
-      const onY = rowTop + 6;  // ON position (top of row)
-      const offY = rowTop + ROW_HEIGHT - 6;  // OFF position (bottom of row)
+      const topY = rowTop + WAVEFORM_PADDING_TOP;
+      const bottomY = rowTop + ROW_HEIGHT - WAVEFORM_PADDING_BOTTOM;
 
       const raw = deviceStateData[name] || [];
 
-      // Convert to sorted state array
+      // Convert to sorted state array with speed
       const states = raw
         .map((pt) => ({
           ts: new Date(pt.timestamp).getTime(),
-          on: pt.state,
+          speed: pt.speed || (pt.state ? 100 : 0), // Fallback: ON=100, OFF=0
         }))
         .sort((a, b) => a.ts - b.ts);
 
+      // Calculate current speed (last known value)
+      const currentSpeed = states.length > 0 ? states[states.length - 1].speed : 0;
+      const isOn = currentSpeed > 0;
+
       if (states.length === 0) {
-        return { name, wPath: "", fPath: "", onY, offY, rowTop };
+        return { name, wPath: "", fPath: "", topY, bottomY, rowTop, currentSpeed, isOn };
       }
 
-      // Get state at a given time for this device
-      const getStateAtTime = (time: number): boolean => {
+      // Get speed at a given time for this device
+      const getSpeedAtTime = (time: number): number => {
         for (let i = states.length - 1; i >= 0; i--) {
           if (states[i].ts <= time) {
-            return states[i].on;
+            return states[i].speed;
           }
         }
-        return states[0]?.on ?? false;
+        return states[0]?.speed ?? 0;
       };
 
       // Extend to start of time domain
       if (states[0].ts > t0) {
-        states.unshift({ ts: t0, on: getStateAtTime(t0) });
+        states.unshift({ ts: t0, speed: getSpeedAtTime(t0) });
       }
 
       // Extend to end of time domain
       if (states[states.length - 1].ts < t1) {
-        states.push({ ts: t1, on: getStateAtTime(t1) });
+        states.push({ ts: t1, speed: getSpeedAtTime(t1) });
       }
 
-      const wPath = buildOnOffPath(states, t0, dur, chartW, onY, offY, P.left);
-      const fPath = buildFillPath(wPath, states, t0, dur, chartW, offY, P.left);
+      const wPath = buildSpeedPath(states, t0, dur, chartW, topY, bottomY, P.left);
+      const fPath = buildFillPath(wPath, states, t0, dur, chartW, bottomY, P.left);
 
-      return { name, wPath, fPath, onY, offY, rowTop };
+      return { name, wPath, fPath, topY, bottomY, rowTop, currentSpeed, isOn };
     });
   }, [deviceNames, deviceStateData, t0, t1, dur, chartW, P.left]);
 
@@ -269,13 +277,10 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
 
     let text: string;
     if (dur <= 86_400_000) {
-      // Within 24h: show time (matches EnviroSensorChart)
       text = format(d, "h:mm a");
     } else if (dur <= 604_800_000) {
-      // Within 7 days: show day + hour (matches EnviroSensorChart)
       text = format(d, "EEE ha");
     } else {
-      // Longer: show date (matches EnviroSensorChart)
       text = format(d, "MMM d");
     }
     tLabels.push({ x: P.left + (chartW * i) / tCount, text });
@@ -306,14 +311,25 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
                 x2={svgWidth}
                 y2={device.rowTop}
                 stroke="hsl(var(--border))"
-                strokeOpacity={0.1}
+                strokeOpacity={0.15}
               />
             )}
+
+            {/* Baseline (speed=0) — subtle dashed line */}
+            <line
+              x1={P.left}
+              y1={device.bottomY}
+              x2={P.left + chartW}
+              y2={device.bottomY}
+              stroke="hsl(var(--muted-foreground))"
+              strokeOpacity={0.08}
+              strokeWidth={0.5}
+            />
 
             {/* Device name label */}
             <text
               x={P.left - 8}
-              y={device.rowTop + ROW_HEIGHT / 2 + 4}
+              y={device.rowTop + ROW_HEIGHT / 2 + 3}
               fill="hsl(var(--muted-foreground))"
               fontSize="10"
               textAnchor="end"
@@ -322,6 +338,28 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
             >
               {device.name.length > 12 ? device.name.slice(0, 11) + "…" : device.name}
             </text>
+
+            {/* Current status indicator (right side) */}
+            <circle
+              cx={P.left + chartW + 14}
+              cy={device.rowTop + ROW_HEIGHT / 2}
+              r={3}
+              fill={device.isOn ? WAVEFORM_COLOR : "hsl(var(--muted-foreground))"}
+              opacity={device.isOn ? 0.9 : 0.2}
+            />
+            {device.isOn && device.currentSpeed < 100 && (
+              <text
+                x={P.left + chartW + 24}
+                y={device.rowTop + ROW_HEIGHT / 2 + 3}
+                fill={WAVEFORM_COLOR}
+                fontSize="8"
+                textAnchor="start"
+                fontFamily="ui-monospace, monospace"
+                opacity={0.6}
+              >
+                {device.currentSpeed}%
+              </text>
+            )}
 
             {/* Semi-transparent fill under waveform */}
             {device.fPath && (
@@ -332,14 +370,14 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
               />
             )}
 
-            {/* Step waveform line — cyan */}
+            {/* Speed waveform line — cyan */}
             {device.wPath && (
               <path
                 d={device.wPath}
                 fill="none"
                 stroke={WAVEFORM_COLOR}
                 strokeWidth={WAVEFORM_STROKE_WIDTH}
-                opacity={0.9}
+                opacity={0.8}
               />
             )}
           </g>

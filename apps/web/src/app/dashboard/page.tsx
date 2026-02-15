@@ -175,7 +175,7 @@ export default function DashboardPage(): JSX.Element {
         // Add all live points that aren't duplicates
         for (const point of points) {
           const exists = result[deviceName].some(
-            p => p.timestamp === point.timestamp && p.state === point.state
+            p => p.timestamp === point.timestamp && p.state === point.state && p.speed === point.speed
           );
           if (!exists) {
             result[deviceName].push(point);
