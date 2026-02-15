@@ -39,7 +39,7 @@ export interface DeviceWaveformChartProps {
 // Constants — AC Infinity Style
 // =============================================================================
 
-const CHART_AREA_HEIGHT = 100; // Taller shared chart area for better definition
+const CHART_AREA_HEIGHT = 120; // Shared chart area — divided into per-device lanes
 const WAVEFORM_STROKE_WIDTH = 2; // Bold strokes for clear definition
 const Y_LABEL_WIDTH = 32; // Width for ON/OFF labels on left
 const LEGEND_HEIGHT = 24; // Height for legend row below chart
@@ -188,12 +188,25 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
   const bottomY = PADDING_TOP + CHART_AREA_HEIGHT - PADDING_BOTTOM;
   const totalH = CHART_AREA_HEIGHT + TIME_LABEL_HEIGHT + LEGEND_HEIGHT;
 
-  // ── Per-device waveforms — all share same topY/bottomY ────────────────────
+  // ── Per-device waveforms — each device gets its own vertical lane ─────────
+  // Devices are staggered vertically so even when all are at the same
+  // speed level, each line occupies a distinct band and remains visible.
   const deviceWaveforms = useMemo(() => {
     if (dur === 0 || deviceNames.length === 0) return [];
 
+    const n = deviceNames.length;
+    const areaH = bottomY - topY;
+    // Each device gets its own vertical band within the chart area
+    const laneH = areaH / n;
+    // Small gap between lanes for visual separation
+    const laneGap = 2;
+
     return deviceNames.map((name, index) => {
       const raw = deviceStateData[name] || [];
+
+      // This device's vertical band
+      const laneTop = topY + index * laneH + laneGap;
+      const laneBottom = topY + (index + 1) * laneH - laneGap;
 
       // Convert to sorted state array with effective speed
       // When state=false (device OFF), effective speed is 0
@@ -211,7 +224,7 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
       const color = getPortColor(index);
 
       if (states.length === 0) {
-        return { name, wPath: "", fPath: "", currentSpeed, isOn, color };
+        return { name, wPath: "", fPath: "", currentSpeed, isOn, color, laneTop, laneBottom };
       }
 
       // Get speed at a given time
@@ -230,10 +243,11 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
         states.push({ ts: t1, speed: getSpeedAtTime(t1) });
       }
 
-      const wPath = buildOverlayPath(states, t0, dur, chartW, topY, bottomY, P.left);
-      const fPath = buildFillPath(wPath, states, t0, dur, chartW, bottomY, P.left);
+      // Each device maps speed to its own lane (laneTop=ON, laneBottom=OFF)
+      const wPath = buildOverlayPath(states, t0, dur, chartW, laneTop, laneBottom, P.left);
+      const fPath = buildFillPath(wPath, states, t0, dur, chartW, laneBottom, P.left);
 
-      return { name, wPath, fPath, currentSpeed, isOn, color };
+      return { name, wPath, fPath, currentSpeed, isOn, color, laneTop, laneBottom };
     });
   }, [deviceNames, deviceStateData, t0, t1, dur, chartW, topY, bottomY, P.left]);
 
@@ -319,7 +333,7 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
           fontSize="9"
           textAnchor="end"
           fontFamily="ui-monospace, monospace"
-          opacity={0.5}
+          opacity={0.4}
         >
           ON
         </text>
@@ -330,23 +344,21 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
           fontSize="9"
           textAnchor="end"
           fontFamily="ui-monospace, monospace"
-          opacity={0.5}
+          opacity={0.4}
         >
           OFF
         </text>
 
-        {/* ── Baseline (OFF) — subtle line ── */}
+        {/* ── Outer boundary lines ── */}
         <line
           x1={P.left}
           y1={bottomY}
           x2={P.left + chartW}
           y2={bottomY}
           stroke="hsl(var(--muted-foreground))"
-          strokeOpacity={0.15}
+          strokeOpacity={0.12}
           strokeWidth={0.5}
         />
-
-        {/* ── Top line (ON) — subtle ── */}
         <line
           x1={P.left}
           y1={topY}
@@ -357,19 +369,30 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
           strokeWidth={0.5}
         />
 
-        {/* ── All device waveforms overlaid — stroke-only for clarity ── */}
+        {/* ── Per-device lanes with waveforms ── */}
         {deviceWaveforms.map((device) => (
           <g key={device.name}>
-            {/* Subtle fill only for the first (primary) device */}
+            {/* Lane baseline (OFF level) — subtle */}
+            <line
+              x1={P.left}
+              y1={device.laneBottom}
+              x2={P.left + chartW}
+              y2={device.laneBottom}
+              stroke={device.color}
+              strokeOpacity={0.1}
+              strokeWidth={0.5}
+            />
+
+            {/* Fill under waveform */}
             {device.fPath && (
               <path
                 d={device.fPath}
                 fill={device.color}
-                opacity={0.06}
+                opacity={0.12}
               />
             )}
 
-            {/* Bold waveform stroke line — primary visual */}
+            {/* Bold waveform stroke line */}
             {device.wPath && (
               <path
                 d={device.wPath}
