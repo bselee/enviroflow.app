@@ -181,11 +181,13 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
 
       const raw = deviceStateData[name] || [];
 
-      // Convert to sorted state array with speed
+      // Convert to sorted state array with effective speed
+      // When state=false (device OFF), effective speed is 0 regardless of configured speed
+      // When state=true (device ON), use reported speed (fallback to 100%)
       const states = raw
         .map((pt) => ({
           ts: new Date(pt.timestamp).getTime(),
-          speed: pt.speed || (pt.state ? 100 : 0), // Fallback: ON=100, OFF=0
+          speed: pt.state ? (pt.speed || 100) : 0,
         }))
         .sort((a, b) => a.ts - b.ts);
 
