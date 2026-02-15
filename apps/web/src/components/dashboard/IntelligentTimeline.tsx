@@ -403,11 +403,10 @@ export function IntelligentTimeline({
 
   const handleControllerChange = useCallback(
     (value: string): void => {
-      const newValue = value === "all" ? null : value;
       if (onControllerChange) {
-        onControllerChange(newValue);
+        onControllerChange(value);
       } else {
-        setInternalControllerId(newValue);
+        setInternalControllerId(value);
       }
     },
     [onControllerChange]
@@ -511,14 +510,13 @@ export function IntelligentTimeline({
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">Controller:</span>
           <Select
-            value={controllerId ?? "all"}
+            value={controllerId ?? controllerOptions[0]?.id ?? ""}
             onValueChange={handleControllerChange}
           >
             <SelectTrigger className="w-[180px] h-8">
-              <SelectValue placeholder="All Controllers" />
+              <SelectValue placeholder="Select Controller" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Controllers</SelectItem>
               {controllerOptions.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.name}
