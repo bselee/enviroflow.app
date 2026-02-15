@@ -33,10 +33,22 @@ import { TagSelector } from "@/components/diary/TagSelector";
 import type { DiaryEntryTag, DiaryEntryWithPhotos, CreateDiaryEntryInput, UpdateDiaryEntryInput } from "@/types";
 import { cn } from "@/lib/utils";
 
+/**
+ * Strips HTML tags and checks if there's actual text content.
+ * Tiptap generates `<p></p>` for empty editors which passes `.min(1)` checks.
+ */
+function hasTextContent(html: string): boolean {
+  const text = html.replace(/<[^>]*>/g, "").trim();
+  return text.length > 0;
+}
+
 // Validation schema
 const entryFormSchema = z.object({
   title: z.string().max(200, "Title must be 200 characters or less").optional(),
-  content: z.string().min(1, "Content is required").max(50000, "Content must be 50,000 characters or less"),
+  content: z
+    .string()
+    .max(50000, "Content must be 50,000 characters or less")
+    .refine(hasTextContent, { message: "Content is required" }),
   tags: z.array(z.string()).default([]),
   entry_date: z.date(),
   capture_sensor_snapshot: z.boolean().default(true),
@@ -152,7 +164,7 @@ export function EntryFormDialog({ open, onOpenChange, entry, onSubmit }: EntryFo
               name="entry_date"
               render={({ field }) => (
                 <FormItem className="flex flex-col">
-                  <FormLabel>Entry Date & Time</FormLabel>
+                  <FormLabel>Entry Date</FormLabel>
                   <Popover>
                     <PopoverTrigger asChild>
                       <FormControl>
@@ -164,7 +176,7 @@ export function EntryFormDialog({ open, onOpenChange, entry, onSubmit }: EntryFo
                           )}
                         >
                           {field.value ? (
-                            format(field.value, "PPP 'at' p")
+                            format(field.value, "PPP")
                           ) : (
                             <span>Pick a date</span>
                           )}
@@ -275,12 +287,6 @@ export function EntryFormDialog({ open, onOpenChange, entry, onSubmit }: EntryFo
                 )}
               />
             )}
-
-            {/* Photo Upload Placeholder */}
-            <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">
-              <div className="text-4xl mb-2">📷</div>
-              <p className="text-sm">Photo upload coming in Phase 3</p>
-            </div>
 
             {/* Error Message */}
             {form.formState.errors.root && (

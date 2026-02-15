@@ -46,6 +46,19 @@ export default function DiaryPage() {
     }
   };
 
+  const handleReactivateCycle = async (cycleId: string) => {
+    const result = await updateCycle(cycleId, { status: "active", ended_at: null });
+    if (result.success) {
+      toast.success("Cycle reactivated", {
+        description: "The diary cycle is now active again.",
+      });
+    } else {
+      toast.error("Failed to reactivate cycle", {
+        description: result.error || "Please try again.",
+      });
+    }
+  };
+
   const handleDeleteCycle = async (cycleId: string) => {
     const result = await deleteCycle(cycleId);
     if (result.success) {
@@ -154,6 +167,7 @@ export default function DiaryPage() {
                 cycle={cycle}
                 onEdit={handleEditCycle}
                 onArchive={handleArchiveCycle}
+                onReactivate={handleReactivateCycle}
                 onDelete={handleDeleteCycle}
               />
             ))}

@@ -2,13 +2,23 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { ArrowLeft, Edit } from "lucide-react";
+import { ArrowLeft, Edit, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { StageProgress } from "@/components/diary/StageProgress";
 import { CycleFormDialog } from "@/components/diary/CycleFormDialog";
 import { DiaryTimeline } from "@/components/diary/DiaryTimeline";
@@ -34,6 +44,7 @@ export default function DiaryDetailPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [entryDialogOpen, setEntryDialogOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<DiaryEntryWithPhotos | null>(null);
+  const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
 
   // Use diary entries hook
   const {
@@ -154,6 +165,34 @@ export default function DiaryDetailPage() {
     setEntryDialogOpen(true);
   };
 
+  const handleCompleteCycle = async () => {
+    try {
+      const response = await fetch(`/api/diaries/${cycleId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ status: "completed" }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to complete cycle");
+      }
+
+      const data = await response.json();
+      setCycle(data.cycle);
+      setCompleteDialogOpen(false);
+
+      toast.success("Cycle completed", {
+        description: `"${data.cycle.name}" has been marked as completed.`,
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to complete cycle";
+      toast.error("Failed to complete cycle", {
+        description: errorMessage,
+      });
+    }
+  };
+
   const handleEditEntry = (entry: DiaryEntryWithPhotos) => {
     setEditingEntry(entry);
     setEntryDialogOpen(true);
@@ -263,10 +302,18 @@ export default function DiaryDetailPage() {
                 <p className="text-muted-foreground">{cycle.description}</p>
               )}
             </div>
-            <Button onClick={handleEdit}>
-              <Edit className="mr-2 h-4 w-4" />
-              Edit
-            </Button>
+            <div className="flex items-center gap-2">
+              {cycle.status === "active" && (
+                <Button variant="outline" onClick={() => setCompleteDialogOpen(true)}>
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  Complete
+                </Button>
+              )}
+              <Button onClick={handleEdit}>
+                <Edit className="mr-2 h-4 w-4" />
+                Edit
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -275,6 +322,7 @@ export default function DiaryDetailPage() {
           <StageProgress
             currentStage={cycle.current_stage}
             startedAt={cycle.started_at}
+            stageChangedAt={cycle.stage_changed_at}
             onStageChange={handleStageChange}
             disabled={cycle.status !== "active"}
           />
@@ -284,8 +332,6 @@ export default function DiaryDetailPage() {
         <Tabs defaultValue="diary" className="space-y-4">
           <TabsList>
             <TabsTrigger value="diary">Diary</TabsTrigger>
-            <TabsTrigger value="photos">Photos</TabsTrigger>
-            <TabsTrigger value="charts">Charts</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
 
@@ -300,29 +346,15 @@ export default function DiaryDetailPage() {
             />
           </TabsContent>
 
-          <TabsContent value="photos" className="space-y-4">
-            <div className="rounded-lg border bg-card p-8 text-center">
-              <span className="text-6xl mb-4 block">📷</span>
-              <h3 className="text-lg font-semibold mb-2">Photo Gallery</h3>
-              <p className="text-muted-foreground mb-4">
-                Photo gallery will be implemented in Phase 3
-              </p>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="charts" className="space-y-4">
-            <div className="rounded-lg border bg-card p-8 text-center">
-              <span className="text-6xl mb-4 block">📊</span>
-              <h3 className="text-lg font-semibold mb-2">Environmental Charts</h3>
-              <p className="text-muted-foreground mb-4">
-                Sensor and device charts will be implemented in Phase 4
-              </p>
-            </div>
-          </TabsContent>
-
           <TabsContent value="settings" className="space-y-4">
             <div className="rounded-lg border bg-card p-6">
-              <h3 className="text-lg font-semibold mb-4">Cycle Settings</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">Cycle Settings</h3>
+                <Button variant="outline" size="sm" onClick={handleEdit}>
+                  <Edit className="mr-2 h-3.5 w-3.5" />
+                  Edit Settings
+                </Button>
+              </div>
               <div className="space-y-4">
                 <div>
                   <label className="text-sm font-medium">Room</label>
@@ -382,6 +414,24 @@ export default function DiaryDetailPage() {
           entry={editingEntry}
           onSubmit={handleEntryFormSubmit}
         />
+
+        {/* Complete cycle confirmation dialog */}
+        <AlertDialog open={completeDialogOpen} onOpenChange={setCompleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Complete this cycle?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will mark &ldquo;{cycle.name}&rdquo; as completed. You won&apos;t be able to add new entries or change the stage after completing. You can still view all existing entries.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleCompleteCycle}>
+                Complete Cycle
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AppLayout>
   );

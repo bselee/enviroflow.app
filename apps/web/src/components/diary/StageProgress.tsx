@@ -1,9 +1,19 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { DiaryCycleStage } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -102,6 +112,7 @@ export function StageProgress({
   onStageChange,
   disabled = false,
 }: StageProgressProps) {
+  const [confirmStage, setConfirmStage] = useState<DiaryCycleStage | null>(null);
   const currentStageInfo = STAGES.find((s) => s.value === currentStage);
   const currentStageIndex = STAGES.findIndex((s) => s.value === currentStage);
 
@@ -119,9 +130,23 @@ export function StageProgress({
   }, [currentStageInfo, daysInStage]);
 
   const handleStageClick = (stage: DiaryCycleStage) => {
-    if (!disabled && onStageChange) {
+    if (disabled || !onStageChange) return;
+    const targetIndex = STAGES.findIndex((s) => s.value === stage);
+    if (targetIndex < currentStageIndex) {
+      // Backward move — ask for confirmation
+      setConfirmStage(stage);
+    } else if (targetIndex > currentStageIndex) {
+      // Forward move — apply directly
       onStageChange(stage);
     }
+    // Same stage — no-op
+  };
+
+  const confirmBackwardMove = () => {
+    if (confirmStage && onStageChange) {
+      onStageChange(confirmStage);
+    }
+    setConfirmStage(null);
   };
 
   const handleMoveToNext = () => {
@@ -178,15 +203,15 @@ export function StageProgress({
                     {/* Stage dot */}
                     <button
                       onClick={() => handleStageClick(stage.value)}
-                      disabled={disabled || isFuture}
+                      disabled={disabled || isActive}
                       className={cn(
                         "relative z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 transition-all",
                         isActive &&
                           "h-10 w-10 border-primary bg-primary text-primary-foreground shadow-lg",
                         isPast &&
                           "border-primary bg-primary/20 hover:bg-primary/30",
-                        isFuture && "border-muted bg-background",
-                        !disabled && !isFuture && "cursor-pointer"
+                        isFuture && "border-muted bg-background hover:border-primary/50 hover:bg-primary/10",
+                        !disabled && !isActive && "cursor-pointer"
                       )}
                       title={stage.label}
                     >
@@ -246,6 +271,27 @@ export function StageProgress({
           )}
         </div>
       </CardContent>
+
+      {/* Backward stage confirmation dialog */}
+      <AlertDialog open={!!confirmStage} onOpenChange={(open) => !open && setConfirmStage(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Move stage backward?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will move the cycle from{" "}
+              <strong>{currentStageInfo?.label}</strong> back to{" "}
+              <strong>{STAGES.find((s) => s.value === confirmStage)?.label}</strong>.
+              Stage timing will be reset. This action is usually not needed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmBackwardMove}>
+              Move Backward
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

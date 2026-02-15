@@ -279,6 +279,10 @@ export async function PATCH(
     }
     if (input.current_stage !== undefined) {
       updateData.current_stage = input.current_stage
+      // Track when the stage was changed for accurate day counting
+      if (input.current_stage !== existingCycle.current_stage) {
+        updateData.stage_changed_at = new Date().toISOString()
+      }
     }
     if (input.status !== undefined) {
       updateData.status = input.status

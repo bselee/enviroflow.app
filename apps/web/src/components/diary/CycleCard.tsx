@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { MoreVertical, Eye, Edit, Archive, Trash2 } from "lucide-react";
+import { MoreVertical, Eye, Edit, Archive, Trash2, RotateCcw } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -30,6 +30,7 @@ interface CycleCardProps {
   cycle: DiaryCycleWithCounts;
   onEdit?: (cycle: DiaryCycleWithCounts) => void;
   onArchive?: (cycleId: string) => void;
+  onReactivate?: (cycleId: string) => void;
   onDelete?: (cycleId: string) => void;
 }
 
@@ -72,7 +73,7 @@ function getDurationText(startedAt: string, endedAt: string | null, status: stri
   }
 }
 
-export function CycleCard({ cycle, onEdit, onArchive, onDelete }: CycleCardProps) {
+export function CycleCard({ cycle, onEdit, onArchive, onReactivate, onDelete }: CycleCardProps) {
   const router = useRouter();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
@@ -86,6 +87,10 @@ export function CycleCard({ cycle, onEdit, onArchive, onDelete }: CycleCardProps
 
   const handleArchive = () => {
     onArchive?.(cycle.id);
+  };
+
+  const handleReactivate = () => {
+    onReactivate?.(cycle.id);
   };
 
   const handleDeleteClick = () => {
@@ -137,6 +142,12 @@ export function CycleCard({ cycle, onEdit, onArchive, onDelete }: CycleCardProps
                   <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleArchive(); }}>
                     <Archive className="mr-2 h-4 w-4" />
                     Archive
+                  </DropdownMenuItem>
+                )}
+                {(cycle.status === "completed" || cycle.status === "archived") && (
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleReactivate(); }}>
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Reactivate
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />

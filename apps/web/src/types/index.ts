@@ -1691,6 +1691,7 @@ export interface DiaryCycle {
   room_id: string | null;
   controller_ids: string[];
   current_stage: DiaryCycleStage;
+  stage_changed_at: string | null;
   status: DiaryCycleStatus;
   enable_device_logging: boolean;
   enable_sensor_logging: boolean;

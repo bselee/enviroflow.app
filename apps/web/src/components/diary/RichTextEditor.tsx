@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useRef, useEffect } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
@@ -13,8 +14,12 @@ import {
   Code,
   Undo,
   Redo,
+  Check,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 interface RichTextEditorProps {
@@ -36,6 +41,10 @@ export function RichTextEditor({
   className,
   disabled = false,
 }: RichTextEditorProps) {
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
+  const linkInputRef = useRef<HTMLInputElement>(null);
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -74,15 +83,35 @@ export function RichTextEditor({
     },
   });
 
+  // Sync content when editing an existing entry
+  useEffect(() => {
+    if (editor && content !== undefined) {
+      const currentHTML = editor.getHTML();
+      // Only update if the content actually changed externally
+      if (currentHTML !== content) {
+        editor.commands.setContent(content, { emitUpdate: false });
+      }
+    }
+  }, [editor, content]);
+
   if (!editor) {
     return null;
   }
 
-  const addLink = () => {
-    const url = window.prompt("Enter URL:");
+  const applyLink = () => {
+    const url = linkUrl.trim();
     if (url) {
-      editor.chain().focus().setLink({ href: url }).run();
+      const href = url.match(/^https?:\/\//) ? url : `https://${url}`;
+      editor.chain().focus().setLink({ href }).run();
     }
+    setLinkUrl("");
+    setLinkOpen(false);
+  };
+
+  const removeLink = () => {
+    editor.chain().focus().unsetLink().run();
+    setLinkUrl("");
+    setLinkOpen(false);
   };
 
   return (
@@ -124,13 +153,69 @@ export function RichTextEditor({
         >
           <Code className="h-4 w-4" />
         </ToolbarButton>
-        <ToolbarButton
-          active={editor.isActive("link")}
-          onClick={addLink}
-          title="Link"
-        >
-          <LinkIcon className="h-4 w-4" />
-        </ToolbarButton>
+        <Popover open={linkOpen} onOpenChange={(open) => {
+          setLinkOpen(open);
+          if (open) {
+            // Pre-fill with existing link URL
+            const existingHref = editor.getAttributes("link").href || "";
+            setLinkUrl(existingHref);
+            setTimeout(() => linkInputRef.current?.focus(), 100);
+          }
+        }}>
+          <PopoverTrigger asChild>
+            <ToolbarButton
+              active={editor.isActive("link")}
+              onClick={() => setLinkOpen(!linkOpen)}
+              title="Link"
+            >
+              <LinkIcon className="h-4 w-4" />
+            </ToolbarButton>
+          </PopoverTrigger>
+          <PopoverContent className="w-72 p-2" align="start">
+            <div className="flex items-center gap-1.5">
+              <Input
+                ref={linkInputRef}
+                type="url"
+                placeholder="https://example.com"
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    applyLink();
+                  }
+                  if (e.key === "Escape") {
+                    setLinkOpen(false);
+                  }
+                }}
+                className="h-8 text-sm"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0"
+                onClick={applyLink}
+                disabled={!linkUrl.trim()}
+                title="Apply link"
+              >
+                <Check className="h-4 w-4" />
+              </Button>
+              {editor.isActive("link") && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0 text-destructive"
+                  onClick={removeLink}
+                  title="Remove link"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
 
         <div className="ml-auto flex items-center gap-0.5">
           <ToolbarButton
