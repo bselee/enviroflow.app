@@ -206,7 +206,9 @@ export async function GET(request: NextRequest) {
       throw new Error(`Failed to fetch controllers: ${controllerError?.message || 'Unknown error'}`);
     }
 
-    if (!controllers || controllers.length === 0) {
+    const controllersList = controllers ?? [];
+
+    if (controllersList.length === 0) {
       log('info', 'No AC Infinity controllers found in database');
       return NextResponse.json({
         success: true,
@@ -218,7 +220,7 @@ export async function GET(request: NextRequest) {
 
     // Create device ID to controller ID map
     const deviceToControllerMap = new Map<string, { id: string; name: string }>();
-    for (const controller of controllers) {
+    for (const controller of controllersList) {
       deviceToControllerMap.set(controller.controller_id, {
         id: controller.id,
         name: controller.name
@@ -232,42 +234,45 @@ export async function GET(request: NextRequest) {
 
     for (const device of devices) {
       // Skip devices not in our database
-      const controller = deviceToControllerMap.get(device.devId);
-      if (!controller) {
+      const controllerId = deviceToControllerMap.get(device.devId)?.id;
+      if (!controllerId) {
         continue;
       }
 
       // Extract sensor readings (convert from hundredths)
-      if (device.temperature !== undefined) {
+      const temperature = device.temperature;
+      if (typeof temperature === 'number') {
         readings.push({
-          controller_id: controller.id,
+          controller_id: controllerId,
           port: null,
           sensor_type: 'temperature',
-          value: device.temperature / 100,  // Convert from hundredths
+          value: temperature! / 100,  // Convert from hundredths
           unit: '°F',
           is_stale: false,
           recorded_at: timestamp
         });
       }
 
-      if (device.humidity !== undefined) {
+      const humidity = device.humidity;
+      if (typeof humidity === 'number') {
         readings.push({
-          controller_id: controller.id,
+          controller_id: controllerId,
           port: null,
           sensor_type: 'humidity',
-          value: device.humidity / 100,  // Convert from hundredths
+          value: humidity! / 100,  // Convert from hundredths
           unit: '%',
           is_stale: false,
           recorded_at: timestamp
         });
       }
 
-      if (device.vpd !== undefined) {
+      const vpd = device.vpd;
+      if (typeof vpd === 'number') {
         readings.push({
-          controller_id: controller.id,
+          controller_id: controllerId,
           port: null,
           sensor_type: 'vpd',
-          value: device.vpd / 100,  // Convert from hundredths
+          value: vpd! / 100,  // Convert from hundredths
           unit: 'kPa',
           is_stale: false,
           recorded_at: timestamp
@@ -293,7 +298,7 @@ export async function GET(request: NextRequest) {
       .insert(readings);
 
     if (insertError) {
-      throw new Error(`Failed to insert sensor readings: ${insertError.message}`);
+      throw new Error(`Failed to insert sensor readings: ${insertError?.message || 'Unknown error'}`);
     }
 
     log('info', `Successfully saved ${readings.length} sensor readings`);
@@ -384,7 +389,7 @@ export async function GET(request: NextRequest) {
 
       if (stateInsertError) {
         // Log but don't fail - table might not exist yet
-        log('warn', `Failed to insert device state changes: ${stateInsertError.message}`);
+        log('warn', `Failed to insert device state changes: ${stateInsertError?.message || 'Unknown error'}`);
       } else {
         log('info', `Logged ${deviceStateRecords.length} device state changes`);
       }
