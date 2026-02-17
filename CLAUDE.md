@@ -142,7 +142,8 @@ Defined in `apps/web/vercel.json`.
 | `/api/cron/check-alerts` | Every 5 minutes | Evaluate alert conditions |
 | `/api/cron/schedules` | Every minute | Execute dimmer schedules |
 | `/api/cron/health-check` | Hourly | System health check |
-| `/api/cron/save-history` | Every minute | Persist sensor readings + device state to DB |
+
+Note: `/api/cron/save-history` route exists but must be added to vercel.json if automated history persistence is needed.
 
 ### Chart Data Resolution
 
@@ -258,8 +259,7 @@ API routes are in `apps/web/src/app/api/`. Key patterns:
 
 ## Build Configuration Notes
 
-- `next.config.js` has `ignoreDuringBuilds: false` for ESLint and `ignoreBuildErrors: false` for TypeScript (enforced)
-- CI workflow `.github/workflows/typecheck-lint.yml` runs `tsc --noEmit` + `next lint` on PRs
+- `next.config.js` sets `ignoreDuringBuilds: true` for ESLint and `ignoreBuildErrors: true` for TypeScript (temporary)
 - Console logs are stripped in production (except `error`/`warn`)
 - Optimized package imports: `recharts`, `@xyflow/react`, `lucide-react`, Radix UI
 - Sentry integration is conditional — only loaded if `@sentry/nextjs` is installed and DSN is configured

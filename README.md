@@ -10,7 +10,7 @@ Universal environmental automation platform for monitoring sensors, controlling 
 
 - **Multi-Brand Support**: AC Infinity, Inkbird, CSV Upload
 - **Visual Workflow Builder**: Drag-and-drop automation with 6 node types
-- **Real-Time Monitoring**: Live sensor data with Supabase Realtime
+- **Real-Time Monitoring**: Live sensor data via Direct API Polling
 - **Smart Automation**: Hysteresis control prevents rapid on/off cycling
 - **AI Analysis**: Grok-powered environmental insights
 - **Push Notifications**: Web Push API for alerts
