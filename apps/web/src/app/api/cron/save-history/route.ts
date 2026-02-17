@@ -328,14 +328,14 @@ export async function GET(request: NextRequest) {
         .in('controller_id', controllerIds)
         .order('recorded_at', { ascending: false });
 
-      if (latestStates) {
-        // Build a map of the most recent state per controller:port
-        // Since we ordered by recorded_at desc, the first occurrence for each key is the latest
-        for (const entry of latestStates) {
-          const key = `${entry.controller_id}:${entry.port_number}`;
-          if (!previousStatesMap.has(key)) {
-            previousStatesMap.set(key, { state: entry.state, speed: entry.speed || 0 });
-          }
+      const latestStatesList = latestStates ?? [];
+
+      // Build a map of the most recent state per controller:port
+      // Since we ordered by recorded_at desc, the first occurrence for each key is the latest
+      for (const entry of latestStatesList) {
+        const key = `${entry.controller_id}:${entry.port_number}`;
+        if (!previousStatesMap.has(key)) {
+          previousStatesMap.set(key, { state: entry.state, speed: entry.speed || 0 });
         }
       }
     }
