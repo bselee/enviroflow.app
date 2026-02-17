@@ -1624,6 +1624,138 @@ export interface ModesListResponse {
 }
 
 // =============================================================================
+// Diary Types
+// =============================================================================
+
+export type DiaryCycleStage =
+  | 'germination'
+  | 'seedling'
+  | 'vegetative'
+  | 'flowering'
+  | 'harvest'
+  | 'cure';
+
+export type DiaryCycleStatus = 'active' | 'completed' | 'archived';
+
+export type DiaryEntryTag =
+  | 'watering'
+  | 'feeding'
+  | 'training'
+  | 'issue'
+  | 'milestone'
+  | 'observation'
+  | 'harvest';
+
+export interface DiarySensorSnapshot {
+  temperature?: number;
+  humidity?: number;
+  vpd?: number;
+  co2?: number;
+  timestamp: string;
+  controllerId?: string;
+  controllerName?: string;
+}
+
+export type SensorSnapshot = DiarySensorSnapshot;
+
+export interface DiaryPhoto {
+  id: string;
+  entry_id: string;
+  storage_path: string;
+  thumbnail_path: string | null;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  width: number | null;
+  height: number | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface DiaryEntry {
+  id: string;
+  cycle_id: string;
+  user_id: string;
+  title: string | null;
+  content: string;
+  tags: DiaryEntryTag[];
+  sensor_snapshot: DiarySensorSnapshot | null;
+  entry_date: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DiaryEntryWithPhotos extends DiaryEntry {
+  photos: DiaryPhoto[];
+}
+
+export interface DiaryCycle {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  started_at: string;
+  stage_changed_at?: string | null;
+  ended_at: string | null;
+  room_id: string | null;
+  controller_ids: string[];
+  current_stage: DiaryCycleStage;
+  status: DiaryCycleStatus;
+  enable_device_logging: boolean;
+  enable_sensor_logging: boolean;
+  created_at: string;
+  updated_at: string;
+  room?: {
+    id: string;
+    name: string;
+  } | null;
+}
+
+export interface DiaryCycleWithCounts extends DiaryCycle {
+  entry_count?: number;
+  photo_count?: number;
+}
+
+export interface CreateDiaryCycleInput {
+  name: string;
+  description?: string | null;
+  started_at?: string;
+  room_id?: string | null;
+  controller_ids?: string[];
+  current_stage?: DiaryCycleStage;
+  enable_device_logging?: boolean;
+  enable_sensor_logging?: boolean;
+}
+
+export interface UpdateDiaryCycleInput {
+  name?: string;
+  description?: string | null;
+  ended_at?: string | null;
+  room_id?: string | null;
+  controller_ids?: string[];
+  current_stage?: DiaryCycleStage;
+  status?: DiaryCycleStatus;
+  enable_device_logging?: boolean;
+  enable_sensor_logging?: boolean;
+}
+
+export interface CreateDiaryEntryInput {
+  title?: string | null;
+  content: string;
+  tags?: DiaryEntryTag[];
+  entry_date?: string;
+  capture_sensor_snapshot?: boolean;
+  cycle_id?: string;
+}
+
+export interface UpdateDiaryEntryInput {
+  title?: string | null;
+  content?: string;
+  tags?: DiaryEntryTag[];
+  entry_date?: string;
+}
+
+// =============================================================================
 // Enhanced Mode Programming Types (Re-export from modes.ts)
 // =============================================================================
 
