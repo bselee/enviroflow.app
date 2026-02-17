@@ -14,7 +14,6 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
-  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -38,7 +37,6 @@ const navigation = [
   { name: "Automations", href: "/automations", icon: Workflow },
   { name: "Schedules", href: "/schedules", icon: Calendar },
   { name: "Controllers", href: "/controllers", icon: Cpu },
-  { name: "Diary", href: "/diaries", icon: BookOpen },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 

@@ -337,13 +337,13 @@ export const EnviroSensorChart = memo(function EnviroSensorChart({
           {/* Gradient fills */}
           {keys.map((k) => (
             <linearGradient key={`g-${k}`} id={`efg-${k}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={METRICS[k].color} stopOpacity={0.15} />
+              <stop offset="0%" stopColor={METRICS[k].color} stopOpacity={0.22} />
               <stop offset="100%" stopColor={METRICS[k].color} stopOpacity={0.01} />
             </linearGradient>
           ))}
-          {/* Subtle glow filter */}
+          {/* Glow filter */}
           <filter id="ef-glow">
-            <feGaussianBlur stdDeviation="0.6" result="b" />
+            <feGaussianBlur stdDeviation="2" result="b" />
             <feMerge>
               <feMergeNode in="b" />
               <feMergeNode in="SourceGraphic" />
@@ -399,11 +399,11 @@ export const EnviroSensorChart = memo(function EnviroSensorChart({
             d={entries[k].line}
             fill="none"
             stroke={METRICS[k].color}
-            strokeWidth={1.5}
+            strokeWidth={2}
             strokeLinejoin="round"
             strokeLinecap="round"
             filter="url(#ef-glow)"
-            opacity={0.95}
+            opacity={0.88}
           />
         ))}
 
@@ -506,9 +506,9 @@ export const EnviroSensorChart = memo(function EnviroSensorChart({
         {hoverX !== null && (
           <line
             x1={hoverX}
-            y1={P.top}
+            y1={0}
             x2={hoverX}
-            y2={P.top + ch}
+            y2={height}
             stroke="hsl(var(--muted-foreground))"
             strokeWidth={1}
             strokeDasharray="3 3"
@@ -539,7 +539,14 @@ export const EnviroSensorChart = memo(function EnviroSensorChart({
 
       {/* ── Floating tooltip ── */}
       {hoverPt && (
-        <div className="absolute top-3 right-3 bg-popover/95 backdrop-blur-xl border border-border/50 rounded-xl shadow-2xl p-3 min-w-[175px] pointer-events-none z-20">
+        <div
+          className="absolute bg-popover/95 backdrop-blur-xl border border-border/50 rounded-xl shadow-2xl p-3 min-w-[175px] pointer-events-none z-20"
+          style={{
+            top: "8px",
+            left: hoverX !== null ? `${hoverX}px` : "50%",
+            transform: "translateX(-50%)",
+          }}
+        >
           <div className="text-[10px] text-muted-foreground mb-2 font-mono border-b border-border/40 pb-1.5">
             {hoverTimeStr}
           </div>

@@ -199,7 +199,8 @@ interface SensorReading {
   controller_id: string
   sensor_type: string
   value: number
-  timestamp: string
+  timestamp?: string
+  recorded_at?: string
   port?: number
   user_id?: string
 }
@@ -211,6 +212,48 @@ interface ExecutionResult {
   actionsExecuted: number
   error?: string
   conflictsWith?: string[] // IDs of conflicting workflows
+}
+
+const DEFAULT_MAX_SENSOR_AGE_SECONDS = 10 * 60
+const DEFAULT_ACTION_DEDUPE_WINDOW_SECONDS = 75
+
+function getMaxSensorAgeMs(): number {
+  const raw = process.env.WORKFLOW_MAX_SENSOR_AGE_SECONDS
+  const parsed = raw ? Number.parseInt(raw, 10) : DEFAULT_MAX_SENSOR_AGE_SECONDS
+  const seconds = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_SENSOR_AGE_SECONDS
+  return seconds * 1000
+}
+
+function getActionDedupeWindowMs(): number {
+  const raw = process.env.WORKFLOW_ACTION_DEDUPE_WINDOW_SECONDS
+  const parsed = raw ? Number.parseInt(raw, 10) : DEFAULT_ACTION_DEDUPE_WINDOW_SECONDS
+  const seconds = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_ACTION_DEDUPE_WINDOW_SECONDS
+  return seconds * 1000
+}
+
+function buildActionLockKey(
+  userId: string,
+  workflowId: string,
+  controllerId: string,
+  port: number,
+  variant: string | undefined,
+  value: number | undefined,
+): string {
+  const actionVariant = variant || 'set_level'
+  const actionValue = value ?? 0
+  return [userId, workflowId, controllerId, port, actionVariant, actionValue].join(':')
+}
+
+function isReadingFresh(readingTimestamp: string | undefined, maxAgeMs: number): boolean {
+  if (!readingTimestamp) return false
+  const ts = new Date(readingTimestamp).getTime()
+  if (!Number.isFinite(ts)) return false
+  return (Date.now() - ts) <= maxAgeMs
+}
+
+function getReadingTimestamp(reading: SensorReading | undefined): string | undefined {
+  if (!reading) return undefined
+  return reading.timestamp || reading.recorded_at
 }
 
 // Target port reference for conflict detection
@@ -666,6 +709,7 @@ async function executeFromNodes(
         sensorType?: string; port?: number; operator?: string; threshold?: number
       }
       try {
+        const maxSensorAgeMs = getMaxSensorAgeMs()
         let sensorReading: SensorReading | undefined
         if (sensorConfig.sensorId && (sensorConfig.sensorSource === 'standalone' || !sensorConfig.controllerId)) {
           const { data: readings } = await supabase.from('sensor_readings').select('*').eq('sensor_id', sensorConfig.sensorId).eq('sensor_type', sensorConfig.sensorType || '').order('timestamp', { ascending: false }).limit(1)
@@ -677,6 +721,23 @@ async function executeFromNodes(
           sensorReading = readings?.[0] as SensorReading | undefined
         }
         if (!sensorReading) { await logActivity(supabase, { user_id, workflow_id: id, action_type: 'sensor_evaluated', action_data: { ...sensorConfig, result: false, reason: 'no_reading' }, result: 'skipped' }); continue }
+        const readingTimestamp = getReadingTimestamp(sensorReading)
+        if (!isReadingFresh(readingTimestamp, maxSensorAgeMs)) {
+          await logActivity(supabase, {
+            user_id,
+            workflow_id: id,
+            action_type: 'sensor_evaluated',
+            action_data: {
+              ...sensorConfig,
+              result: false,
+              reason: 'stale_reading',
+              reading_timestamp: readingTimestamp,
+              max_age_ms: maxSensorAgeMs,
+            },
+            result: 'skipped',
+          })
+          continue
+        }
         const value = sensorReading.value
         const threshold = sensorConfig.threshold
         const operator = sensorConfig.operator
@@ -905,20 +966,30 @@ async function executeFromNodes(
           })
         } else {
           // Execute real action with workflow context
-          await executeAction(supabase, user_id, currentNode, {
+          const actionResult = await executeAction(supabase, user_id, currentNode, {
             workflowId: id,
             workflowName: name,
             roomName,
           })
 
-          // Log success
+          // Log result
           await logActivity(supabase, {
             user_id,
             workflow_id: id,
             action_type: currentNode.type,
             action_data: currentNode.data,
-            result: 'success'
+            result: actionResult.skipped ? 'skipped' : 'success'
           })
+
+          if (!actionResult.skipped) {
+            actionsExecuted++
+          }
+
+          // Continue graph traversal even when action execution is skipped
+          // (for example dedupe skips), so downstream nodes still run.
+          const nextEdges = parsedEdges.filter(e => e.source === currentNodeId && !e.sourceHandle)
+          nodesToExecute.push(...nextEdges.map(e => e.target))
+          continue
         }
         actionsExecuted++
       } catch (err) {
@@ -1014,6 +1085,7 @@ async function evaluateTrigger(
     }
 
     case 'sensor_threshold': {
+      const maxSensorAgeMs = getMaxSensorAgeMs()
       const sensorType = getField('sensorType') as string
       const threshold = getField('threshold') as number
       const operator = getField('operator') as string
@@ -1043,6 +1115,13 @@ async function evaluateTrigger(
       }
 
       if (!reading) return false
+      const readingTimestamp = getReadingTimestamp(reading)
+      if (!isReadingFresh(readingTimestamp, maxSensorAgeMs)) {
+        console.warn(
+          `[Sensor Trigger] Stale reading for ${sensorType}: ${readingTimestamp} (max ${maxSensorAgeMs}ms)`
+        )
+        return false
+      }
 
       switch (operator) {
         case 'gt': return reading.value > threshold
@@ -1311,9 +1390,9 @@ async function executeAction(
   userId: string,
   actionNode: WorkflowNode,
   context: ActionContext
-): Promise<void> {
+): Promise<{ skipped: boolean }> {
   const { type, data } = actionNode
-  const { workflowName, roomName } = context
+  const { workflowId, workflowName, roomName } = context
 
   switch (type) {
     case 'action': {
@@ -1340,16 +1419,65 @@ async function executeAction(
         throw new Error(`Controller not found: ${controllerError?.message || 'Unknown error'}`)
       }
 
+      const dedupeWindowMs = getActionDedupeWindowMs()
+      const lockKey = buildActionLockKey(
+        userId,
+        workflowId,
+        actionData.controllerId,
+        actionData.port ?? 1,
+        actionData.variant,
+        actionData.value,
+      )
+      const lockAcquired = await tryAcquireWorkflowActionLock(
+        supabase,
+        lockKey,
+        dedupeWindowMs,
+      )
+
+      let isDuplicate = !lockAcquired
+      if (!lockAcquired) {
+        isDuplicate = await wasRecentIdenticalAction(
+          supabase,
+          userId,
+          workflowId,
+          actionData.controllerId,
+          actionData.port ?? 1,
+          actionData.variant,
+          actionData.value,
+          dedupeWindowMs,
+        )
+      }
+
+      if (isDuplicate) {
+        await logActivity(supabase, {
+          user_id: userId,
+          workflow_id: workflowId,
+          controller_id: actionData.controllerId,
+          action_type: 'device_control_deduped',
+          action_data: {
+            controller_id: actionData.controllerId,
+            port: actionData.port ?? 1,
+            variant: actionData.variant,
+            value: actionData.value,
+            dedupe_window_ms: dedupeWindowMs,
+          },
+          result: 'skipped',
+        })
+
+        return { skipped: true }
+      }
+
       // Execute the device control action via the adapter
       await executeDeviceControl(
         supabase,
         userId,
         controller,
+        workflowId,
         actionData.port ?? 1,
         actionData.variant,
         actionData.value
       )
-      break
+      return { skipped: false }
     }
 
     case 'dimmer': {
@@ -1366,7 +1494,7 @@ async function executeAction(
       if (dimmerData) {
         await executeDimmerNode(supabase, userId, dimmerData as DimmerNodeConfig, context)
       }
-      break
+      return { skipped: false }
     }
 
     case 'notification': {
@@ -1435,7 +1563,7 @@ async function executeAction(
         )
       }
 
-      break
+      return { skipped: false }
     }
 
     case 'mode': {
@@ -1443,7 +1571,7 @@ async function executeAction(
       if (modeData) {
         await executeModeNode(supabase, userId, modeData, context)
       }
-      break
+      return { skipped: false }
     }
 
     case 'verified_action': {
@@ -1451,7 +1579,7 @@ async function executeAction(
       if (verifiedActionData) {
         await executeVerifiedActionNode(supabase, userId, verifiedActionData, context)
       }
-      break
+      return { skipped: false }
     }
 
     default:
@@ -1459,6 +1587,7 @@ async function executeAction(
       if (type !== 'port_condition') {
         console.log(`Unknown action type: ${type}`)
       }
+      return { skipped: true }
   }
 }
 
@@ -1594,6 +1723,7 @@ async function executeDeviceControl(
   supabase: SupabaseClient,
   userId: string,
   controller: DBController,
+  workflowId: string,
   port: number,
   variant: string | undefined,
   value: number | undefined
@@ -1688,9 +1818,12 @@ async function executeDeviceControl(
       // Log successful action to activity_logs
       await logActivity(supabase, {
         user_id: userId,
+        workflow_id: workflowId,
         controller_id: dbControllerId,
         action_type: `device_control_${variant || 'set_level'}`,
         action_data: {
+          controller_id: dbControllerId,
+          controller_external_id: controllerId,
           controller_name: name,
           port,
           command_type: command.type,
@@ -1713,9 +1846,12 @@ async function executeDeviceControl(
       // Log failed action
       await logActivity(supabase, {
         user_id: userId,
+        workflow_id: workflowId,
         controller_id: dbControllerId,
         action_type: `device_control_${variant || 'set_level'}`,
         action_data: {
+          controller_id: dbControllerId,
+          controller_external_id: controllerId,
           controller_name: name,
           port,
           command_type: command.type,
@@ -1746,6 +1882,76 @@ async function executeDeviceControl(
       )
     }
   }
+}
+
+async function wasRecentIdenticalAction(
+  supabase: SupabaseClient,
+  userId: string,
+  workflowId: string,
+  controllerId: string,
+  port: number,
+  variant: string | undefined,
+  value: number | undefined,
+  dedupeWindowMs: number,
+): Promise<boolean> {
+  const actionType = `device_control_${variant || 'set_level'}`
+  const since = new Date(Date.now() - dedupeWindowMs).toISOString()
+
+  const { data, error } = await supabase
+    .from('activity_logs')
+    .select('action_data, timestamp')
+    .eq('user_id', userId)
+    .eq('workflow_id', workflowId)
+    .eq('action_type', actionType)
+    .eq('result', 'success')
+    .gte('timestamp', since)
+    .order('timestamp', { ascending: false })
+    .limit(20)
+
+  if (error || !data || data.length === 0) {
+    return false
+  }
+
+  for (const row of data) {
+    const payload = row.action_data as {
+      controller_id?: string
+      port?: number
+      requested_value?: number
+    } | null
+
+    if (!payload) continue
+    if (payload.controller_id !== controllerId) continue
+    if ((payload.port ?? -1) !== port) continue
+
+    if (payload.requested_value === value) {
+      return true
+    }
+  }
+
+  return false
+}
+
+async function tryAcquireWorkflowActionLock(
+  supabase: SupabaseClient,
+  lockKey: string,
+  dedupeWindowMs: number,
+): Promise<boolean> {
+  const expiresAt = new Date(Date.now() + dedupeWindowMs).toISOString()
+
+  const { data, error } = await supabase.rpc('acquire_workflow_action_lock', {
+    p_lock_key: lockKey,
+    p_expires_at: expiresAt,
+  })
+
+  if (error) {
+    console.warn(
+      '[Workflow Executor] acquire_workflow_action_lock unavailable or failed; using fallback dedupe check.',
+      error.message,
+    )
+    return false
+  }
+
+  return data === true
 }
 
 // ============================================
@@ -2747,6 +2953,7 @@ async function executeDimmerNode(
       supabase,
       userId,
       controller,
+      context.workflowId,
       config.port,
       'set_level',
       targetLevel
@@ -2798,4 +3005,10 @@ async function executeDimmerNode(
 
     throw error
   }
+}
+
+export const __test__ = {
+  buildActionLockKey,
+  getReadingTimestamp,
+  isReadingFresh,
 }

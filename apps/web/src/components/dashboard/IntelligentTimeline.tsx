@@ -4,7 +4,7 @@ import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { format, parseISO, isValid, subHours } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Thermometer, Droplet, Activity, TrendingUp, TrendingDown } from "lucide-react";
+import { Thermometer, Droplet, Activity, TrendingUp, TrendingDown, Power } from "lucide-react";
 import { useUserPreferences } from "@/hooks/use-user-preferences";
 import { convertTemperatureFromCelsius } from "@/lib/temperature-utils";
 import {
@@ -53,7 +53,7 @@ export interface ControllerOption {
   name: string;
 }
 
-export type TimeRange = "1h" | "6h" | "24h" | "7d" | "30d" | "60d";
+export type TimeRange = "1h" | "6h" | "24h" | "1d" | "7d" | "30d" | "60d";
 
 export type FocusMetric = "vpd" | "temperature" | "humidity";
 export type OptimalRange = [number, number];
@@ -96,6 +96,8 @@ export interface IntelligentTimelineProps {
   onToggleDeviceActivity?: () => void;
   /** Loading state for sensor data (shows loading indicator in chart) */
   isSensorDataLoading?: boolean;
+  /** Callback to toggle a port on/off */
+  onPortToggle?: (controllerId: string, portId: number, turnOn: boolean) => Promise<void>;
 }
 
 // =============================================================================
@@ -135,6 +137,7 @@ const TIME_RANGE_LABELS: Record<TimeRange, string> = {
   "1h": "1H",
   "6h": "6H",
   "24h": "24H",
+  "1d": "1D",
   "7d": "7D",
   "30d": "30D",
   "60d": "60D",
@@ -149,6 +152,7 @@ function getTimeRangeHours(range: TimeRange): number {
     "1h": 1,
     "6h": 6,
     "24h": 24,
+    "1d": 24,
     "7d": 24 * 7,
     "30d": 24 * 30,
     "60d": 24 * 60,
@@ -190,6 +194,30 @@ function calculateMetricStats(data: TimeSeriesData[], metric: FocusMetric): Metr
     max: Math.max(...values),
     avg: sum / values.length,
   };
+}
+
+function formatAge(ageMs: number): string {
+  const seconds = Math.max(0, Math.floor(ageMs / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function getExpectedIntervalMs(range: TimeRange): number {
+  const byRange: Record<TimeRange, number> = {
+    "1h": 60_000,
+    "6h": 60_000,
+    "24h": 120_000,
+    "1d": 120_000,
+    "7d": 300_000,
+    "30d": 900_000,
+    "60d": 1_800_000,
+  };
+  return byRange[range];
 }
 
 // =============================================================================
@@ -283,6 +311,99 @@ function EmptyState(): JSX.Element {
   );
 }
 
+// =============================================================================
+// Port Timeline Component
+// =============================================================================
+
+interface PortTimelineProps {
+  ports: LivePort[];
+  controllerName?: string;
+  controllerId?: string;
+  onPortToggle?: (controllerId: string, portId: number, turnOn: boolean) => Promise<void>;
+}
+
+function PortTimeline({ ports, controllerName, controllerId, onPortToggle }: PortTimelineProps): JSX.Element {
+  const [loadingPorts, setLoadingPorts] = useState<Set<number>>(new Set());
+
+  const handleToggle = async (port: LivePort) => {
+    if (!controllerId || !onPortToggle) return;
+
+    setLoadingPorts(prev => new Set(prev).add(port.portId));
+    try {
+      await onPortToggle(controllerId, port.portId, !port.isOn);
+    } finally {
+      setLoadingPorts(prev => {
+        const next = new Set(prev);
+        next.delete(port.portId);
+        return next;
+      });
+    }
+  };
+
+  if (ports.length === 0) {
+    return (
+      <div className="text-center text-xs text-muted-foreground py-4">
+        No ports configured
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-medium text-muted-foreground">
+          Port Status {controllerName && <span className="text-foreground">{controllerName}</span>}
+        </div>
+        {onPortToggle && (
+          <div className="text-[10px] text-muted-foreground/50">
+            Click to toggle
+          </div>
+        )}
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        {ports.map((port) => {
+          const isLoading = loadingPorts.has(port.portId);
+          return (
+            <button
+              key={port.portId}
+              onClick={() => handleToggle(port)}
+              disabled={!onPortToggle || isLoading}
+              className={cn(
+                "flex items-center gap-2 rounded-md border p-2 text-xs transition-all text-left",
+                "hover:scale-[1.02] active:scale-[0.98]",
+                port.isOn
+                  ? "border-green-500/50 bg-green-500/10 hover:bg-green-500/20"
+                  : "border-border bg-card/50 hover:bg-muted/50",
+                isLoading && "opacity-50 cursor-wait",
+                !onPortToggle && "cursor-default hover:scale-100 active:scale-100"
+              )}
+            >
+              {isLoading ? (
+                <div className="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+              ) : (
+                <Power
+                  className={cn(
+                    "w-3.5 h-3.5",
+                    port.isOn ? "text-green-500" : "text-muted-foreground/50"
+                  )}
+                />
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate">{port.name}</div>
+                <div className="text-muted-foreground">
+                  {port.isOn ? `Speed: ${port.speed}%` : "Off"}
+                </div>
+              </div>
+              {port.isOn && !isLoading && (
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 // =============================================================================
 // Main Component
@@ -307,6 +428,7 @@ export function IntelligentTimeline({
   showDeviceActivity: controlledShowDeviceActivity,
   onToggleDeviceActivity,
   isSensorDataLoading = false,
+  onPortToggle,
 }: IntelligentTimelineProps): JSX.Element {
   const { preferences } = useUserPreferences();
   const tempUnit = preferences.temperatureUnit;
@@ -403,10 +525,11 @@ export function IntelligentTimeline({
 
   const handleControllerChange = useCallback(
     (value: string): void => {
+      const newValue = value === "all" ? null : value;
       if (onControllerChange) {
-        onControllerChange(value);
+        onControllerChange(newValue);
       } else {
-        setInternalControllerId(value);
+        setInternalControllerId(newValue);
       }
     },
     [onControllerChange]
@@ -481,6 +604,59 @@ export function IntelligentTimeline({
   const humStats = useMemo(() => calculateMetricStats(sortedData, "humidity"), [sortedData]);
   const vpdStats = useMemo(() => calculateMetricStats(sortedData, "vpd"), [sortedData]);
 
+  const dataFreshness = useMemo(() => {
+    if (sortedData.length === 0) {
+      return {
+        ageMs: Number.POSITIVE_INFINITY,
+        stale: true,
+        gapCount: 0,
+        hasMissingPoints: false,
+        expectedIntervalMs: getExpectedIntervalMs(timeRange),
+      };
+    }
+
+    const expectedIntervalMs = getExpectedIntervalMs(timeRange);
+    const timestamps = sortedData
+      .map((d) => d._ts)
+      .filter((ts) => Number.isFinite(ts))
+      .sort((a, b) => a - b);
+
+    const lastTs = timestamps[timestamps.length - 1] ?? 0;
+    const ageMs = Math.max(0, Date.now() - lastTs);
+    const stale = ageMs > expectedIntervalMs * 3;
+
+    let gapCount = 0;
+    for (let i = 1; i < timestamps.length; i++) {
+      const gap = timestamps[i] - timestamps[i - 1];
+      if (gap > expectedIntervalMs * 2.5) {
+        gapCount += 1;
+      }
+    }
+
+    return {
+      ageMs,
+      stale,
+      gapCount,
+      hasMissingPoints: gapCount > 0,
+      expectedIntervalMs,
+    };
+  }, [sortedData, timeRange]);
+
+  // Get ports for selected controller
+  const selectedPorts = useMemo((): LivePort[] => {
+    if (selectedSensor?.ports) return selectedSensor.ports;
+    if (!controllerId && liveSensors.length > 0 && liveSensors[0].ports) {
+      return liveSensors[0].ports;
+    }
+    return [];
+  }, [selectedSensor, controllerId, liveSensors]);
+
+  const selectedControllerName = useMemo(() => {
+    if (selectedSensor) return selectedSensor.name;
+    if (!controllerId && liveSensors.length > 0) return liveSensors[0].name;
+    return undefined;
+  }, [selectedSensor, controllerId, liveSensors]);
+
   // Optimal range bounds (kept for potential future use)
   // const ranges = optimalRanges ?? DEFAULT_OPTIMAL_RANGES;
 
@@ -510,13 +686,14 @@ export function IntelligentTimeline({
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">Controller:</span>
           <Select
-            value={controllerId ?? controllerOptions[0]?.id ?? ""}
+            value={controllerId ?? "all"}
             onValueChange={handleControllerChange}
           >
             <SelectTrigger className="w-[180px] h-8">
-              <SelectValue placeholder="Select Controller" />
+              <SelectValue placeholder="All Controllers" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="all">All Controllers</SelectItem>
               {controllerOptions.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.name}
@@ -623,33 +800,86 @@ export function IntelligentTimeline({
 
           {/* Data point count */}
           {sortedData.length > 1 && (
-            <div className="text-center">
+            <div className="flex items-center justify-center gap-2 flex-wrap">
               <span className="text-muted-foreground/40 text-[10px] font-mono">
                 {sortedData.length} data points
+              </span>
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-mono",
+                  dataFreshness.stale || dataFreshness.hasMissingPoints
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-600"
+                    : "border-emerald-500/40 bg-emerald-500/10 text-emerald-600"
+                )}
+                title={`Expected interval ${Math.round(dataFreshness.expectedIntervalMs / 60000)}m`}
+              >
+                last ingest {formatAge(dataFreshness.ageMs)}
+                {dataFreshness.hasMissingPoints ? ` • ${dataFreshness.gapCount} gap${dataFreshness.gapCount > 1 ? "s" : ""}` : ""}
               </span>
             </div>
           )}
         </>
       )}
 
-
-      {/* Device Activity Waveform Section — AC Infinity Style (minimal, no header) */}
-      {hasDeviceData && deviceStateData && (
+      {/* Port Timeline */}
+      {selectedPorts.length > 0 && (
         <div className="border-t border-border pt-4">
-          <DeviceWaveformChart
-            deviceStateData={deviceStateData}
-            sensorData={sortedData.map((d) => ({
-              timestamp: d.timestamp,
-              temperature: d.temperature ?? null,
-              humidity: d.humidity ?? null,
-              vpd: d.vpd ?? null,
-            }))}
-            hoverTimestamp={hoverTimestamp}
-            onHover={setHoverTimestamp}
-            showSensorOverlay={true}
-            visible={visibleMetrics}
-            width={chartWidth > 0 ? chartWidth : undefined}
+          <PortTimeline
+            ports={selectedPorts}
+            controllerName={selectedControllerName}
+            controllerId={controllerId ?? undefined}
+            onPortToggle={onPortToggle}
           />
+        </div>
+      )}
+
+      {/* Device Activity Waveform Section */}
+      {hasDeviceData && (
+        <div className="border-t border-border pt-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Device Activity
+              </span>
+              {isSensorDataLoading && showDeviceActivity && (
+                <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+              )}
+            </div>
+            <button
+              onClick={handleToggleDeviceActivity}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted/50"
+            >
+              {showDeviceActivity ? (
+                <>
+                  <ChevronUp className="w-3.5 h-3.5" />
+                  <span>Collapse</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-3.5 h-3.5" />
+                  <span>Expand</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {showDeviceActivity && deviceStateData && (
+            <DeviceWaveformChart
+              deviceStateData={deviceStateData}
+              sensorData={sortedData.map((d) => ({
+                timestamp: d.timestamp,
+                temperature: d.temperature ?? null,
+                humidity: d.humidity ?? null,
+                vpd: d.vpd ?? null,
+              }))}
+              hoverTimestamp={hoverTimestamp}
+              onHover={setHoverTimestamp}
+              showSensorOverlay={true}
+              visible={visibleMetrics}
+              width={chartWidth > 0 ? chartWidth : undefined}
+              className="mt-2"
+            />
+          )}
         </div>
       )}
     </div>

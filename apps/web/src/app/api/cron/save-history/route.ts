@@ -105,6 +105,16 @@ function log(level: 'info' | 'warn' | 'error', message: string, data?: unknown):
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
 
+  // Deprecated: writing history is now handled by /api/cron/poll-sensors only.
+  // Keep this endpoint as a compatibility shim to avoid duplicate writes.
+  return NextResponse.json({
+    success: true,
+    skipped: true,
+    message: 'Deprecated endpoint. History writes are handled by /api/cron/poll-sensors.',
+    saved: 0,
+    duration: Date.now() - startTime
+  });
+
   try {
     // Verify cron secret (optional - only if configured)
     const cronSecret = process.env.CRON_SECRET;

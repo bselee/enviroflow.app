@@ -28,13 +28,6 @@ export interface HistoryPoint {
   controllerId?: string;
 }
 
-/** Port state history point for waveform chart */
-export interface PortStatePoint {
-  timestamp: string;
-  state: boolean;
-  speed: number;
-}
-
 export interface UseLiveSensorsResult {
   /** Array of live sensor data */
   sensors: LiveSensor[];
@@ -60,8 +53,6 @@ export interface UseLiveSensorsResult {
   };
   /** Historical data points accumulated over time */
   history: HistoryPoint[];
-  /** Port state history for waveform chart - keyed by "controllerId:portName" */
-  portHistory: Record<string, PortStatePoint[]>;
 }
 
 // =============================================================================
@@ -96,7 +87,6 @@ export function useLiveSensors(options: UseLiveSensorsOptions = {}): UseLiveSens
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [history, setHistory] = useState<HistoryPoint[]>([]);
-  const [portHistory, setPortHistory] = useState<Record<string, PortStatePoint[]>>({});
 
   const isMountedRef = useRef(true);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -145,35 +135,6 @@ export function useLiveSensors(options: UseLiveSensorsOptions = {}): UseLiveSens
           const maxTotal = maxHistoryPoints * result.sensors.length;
           if (updated.length > maxTotal) {
             return updated.slice(-maxTotal);
-          }
-          return updated;
-        });
-
-        // Accumulate port state history for waveform chart
-        // Log EVERY poll (like AC Infinity does)
-        // Key format: "controllerId::portName" to disambiguate across controllers
-        setPortHistory((prev) => {
-          const updated = { ...prev };
-          for (const sensor of result.sensors) {
-            if (!sensor.ports) continue;
-            for (const port of sensor.ports) {
-              const portName = port.name || `Port ${port.portId}`;
-              const key = `${sensor.id}::${portName}`;
-              const point: PortStatePoint = {
-                timestamp: now,
-                state: port.isOn,
-                speed: port.speed,
-              };
-              if (!updated[key]) {
-                updated[key] = [];
-              }
-              // Log every poll for real-time waveform updates
-              updated[key].push(point);
-              // Keep only last maxHistoryPoints per port
-              if (updated[key].length > maxHistoryPoints) {
-                updated[key] = updated[key].slice(-maxHistoryPoints);
-              }
-            }
           }
           return updated;
         });
@@ -264,6 +225,5 @@ export function useLiveSensors(options: UseLiveSensorsOptions = {}): UseLiveSens
     refresh,
     averages,
     history,
-    portHistory,
   };
 }
