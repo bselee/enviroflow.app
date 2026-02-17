@@ -162,7 +162,7 @@ export async function GET(request: NextRequest) {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'Accept': 'application/json',
-        'token': acInfinityToken,  // AC Infinity uses 'token' header (not 'User-Token')
+        'token': acInfinityToken as string,  // AC Infinity uses 'token' header (not 'User-Token')
         'User-Agent': 'ACController/1.8.2 (com.acinfinity.humiture; build:489; iOS 16.5.1) Alamofire/5.4.4',
       },
       body: `userId=${acInfinityToken}`,

@@ -1,9 +1,11 @@
 /**
- * Workflow test utilities - extracted from cron/workflows/route.ts
- * to avoid Next.js route validation errors with __test__ exports
+ * Workflow helper utilities shared by cron/workflows route and tests.
  */
 
-import type { SensorReading } from '@/types'
+export interface TimestampedReading {
+  timestamp?: string
+  recorded_at?: string
+}
 
 export function buildActionLockKey(
   userId: string,
@@ -25,7 +27,7 @@ export function isReadingFresh(readingTimestamp: string | undefined, maxAgeMs: n
   return (Date.now() - ts) <= maxAgeMs
 }
 
-export function getReadingTimestamp(reading: SensorReading | undefined): string | undefined {
+export function getReadingTimestamp(reading: TimestampedReading | undefined): string | undefined {
   if (!reading) return undefined
   return reading.timestamp || reading.recorded_at
 }
