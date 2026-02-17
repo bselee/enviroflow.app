@@ -341,8 +341,8 @@ export async function GET(request: NextRequest) {
     }
 
     for (const device of devices) {
-      const controller = deviceToControllerMap.get(device.devId);
-      if (!controller) continue;
+      const controllerId = deviceToControllerMap.get(device.devId)?.id;
+      if (!controllerId) continue;
 
       // Get ports from deviceInfo (preferred) or fallback
       const ports = device.deviceInfo?.ports || [];
@@ -353,13 +353,14 @@ export async function GET(request: NextRequest) {
         const speed = (port.speak || 0) * 10;  // Convert 0-10 to 0-100%
         const state = speed > 0;
 
-        const cacheKey = `${controller.id}:${portNum}`;
+        const cacheKey = `${controllerId}:${portNum}`;
         const previousState = previousStatesMap.get(cacheKey);
 
         // Log if state changed OR if this is the first reading for this device
-        const stateChanged = !previousState ||
-          previousState.state !== state ||
-          previousState.speed !== speed;
+        const stateChanged =
+          previousState === undefined ||
+          previousState?.state !== state ||
+          previousState?.speed !== speed;
 
         // Also log periodic snapshots every 15 minutes for waveform chart
         // This ensures continuous activity shows in the chart even without state changes
@@ -368,7 +369,7 @@ export async function GET(request: NextRequest) {
 
         if (stateChanged || shouldLogSnapshot) {
           deviceStateRecords.push({
-            controller_id: controller.id,
+            controller_id: controllerId,
             port_number: portNum,
             device_name: portName,
             state: state,
@@ -406,9 +407,16 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     log('error', 'Cron execution error', { error });
+    const errorMessage =
+      typeof error === 'object' &&
+      error !== null &&
+      'message' in error &&
+      typeof (error as { message?: unknown }).message === 'string'
+        ? (error as { message: string }).message
+        : 'Internal server error';
     return NextResponse.json({
       success: false,
-      error: error instanceof Error ? error.message : 'Internal server error',
+      error: errorMessage,
       saved: 0,
       duration: Date.now() - startTime
     }, { status: 500 });
