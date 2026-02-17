@@ -3007,8 +3007,5 @@ async function executeDimmerNode(
   }
 }
 
-export const __test__ = {
-  buildActionLockKey,
-  getReadingTimestamp,
-  isReadingFresh,
-}
+// Test exports moved to separate file to avoid Next.js route validation errors
+// See: apps/web/src/lib/workflow-test-utils.ts
