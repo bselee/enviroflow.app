@@ -407,16 +407,9 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     log('error', 'Cron execution error', { error });
-    const errorMessage =
-      typeof error === 'object' &&
-      error !== null &&
-      'message' in error &&
-      typeof (error as { message?: unknown }).message === 'string'
-        ? (error as { message: string }).message
-        : 'Internal server error';
     return NextResponse.json({
       success: false,
-      error: errorMessage,
+      error: 'Internal server error',
       saved: 0,
       duration: Date.now() - startTime
     }, { status: 500 });
