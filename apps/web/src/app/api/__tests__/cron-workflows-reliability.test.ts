@@ -7,7 +7,7 @@ import {
   buildActionLockKey,
   getReadingTimestamp,
   isReadingFresh,
-} from '@/lib/workflow-test-utils'
+} from '../../../lib/workflow-test-utils'
 
 describe('cron workflow reliability helpers', () => {
   it('buildActionLockKey is deterministic and value-aware', () => {

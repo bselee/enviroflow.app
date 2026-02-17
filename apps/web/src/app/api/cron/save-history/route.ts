@@ -141,7 +141,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Check if AC Infinity token is configured
-    const acInfinityToken = process.env.AC_INFINITY_TOKEN;
+    const acInfinityToken = process.env.AC_INFINITY_TOKEN ?? '';
     if (!acInfinityToken) {
       log('info', 'AC_INFINITY_TOKEN not configured, skipping history save');
       return NextResponse.json({
@@ -157,14 +157,16 @@ export async function GET(request: NextRequest) {
     // Consistent with adapter: http://www.acinfinityserver.com
     log('info', 'Fetching live sensor data from AC Infinity API');
 
+    const headers = new Headers({
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json',
+      'User-Agent': 'ACController/1.8.2 (com.acinfinity.humiture; build:489; iOS 16.5.1) Alamofire/5.4.4',
+    });
+    headers.set('token', acInfinityToken);
+
     const response = await fetch('http://www.acinfinityserver.com/api/user/devInfoListAll', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json',
-        'token': acInfinityToken as string,  // AC Infinity uses 'token' header (not 'User-Token')
-        'User-Agent': 'ACController/1.8.2 (com.acinfinity.humiture; build:489; iOS 16.5.1) Alamofire/5.4.4',
-      },
+      headers,
       body: `userId=${acInfinityToken}`,
     });
 
@@ -201,7 +203,7 @@ export async function GET(request: NextRequest) {
       .eq('brand', 'ac_infinity');
 
     if (controllerError) {
-      throw new Error(`Failed to fetch controllers: ${controllerError.message}`);
+      throw new Error(`Failed to fetch controllers: ${controllerError?.message || 'Unknown error'}`);
     }
 
     if (!controllers || controllers.length === 0) {

@@ -5,6 +5,7 @@
 export interface TimestampedReading {
   timestamp?: string
   recorded_at?: string
+  [key: string]: unknown
 }
 
 export function buildActionLockKey(
