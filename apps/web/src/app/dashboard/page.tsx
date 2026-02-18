@@ -160,6 +160,29 @@ export default function DashboardPage(): JSX.Element {
 
     const result: Record<string, Array<{ timestamp: string; state: boolean; speed: number }>> = {};
 
+    const mergePoints = (
+      points: Array<{ timestamp: string; state: boolean; speed: number }>,
+    ): Array<{ timestamp: string; state: boolean; speed: number }> => {
+      if (points.length <= 1) return points;
+
+      const sorted = [...points].sort(
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+      );
+
+      const merged: Array<{ timestamp: string; state: boolean; speed: number }> = [];
+      for (const point of sorted) {
+        const last = merged[merged.length - 1];
+        if (!last || last.timestamp !== point.timestamp) {
+          merged.push(point);
+          continue;
+        }
+
+        merged[merged.length - 1] = point;
+      }
+
+      return merged;
+    };
+
     // First, copy historical data
     if (deviceStateData) {
       for (const [deviceName, points] of Object.entries(deviceStateData)) {
@@ -186,6 +209,16 @@ export default function DashboardPage(): JSX.Element {
     if (selectedSensor?.ports) {
       for (const port of selectedSensor.ports) {
         const deviceName = port.name || `Port ${port.portId}`;
+        const genericPortName = `Port ${port.portId}`;
+
+        // Historical logs may use generic names (e.g., "Port 4") while
+        // the live API returns user-friendly names (e.g., "Ex Fan").
+        // Merge generic history into the live display name so transitions show.
+        if (!result[deviceName]?.length && deviceName !== genericPortName && result[genericPortName]?.length) {
+          result[deviceName] = mergePoints(result[genericPortName]);
+          delete result[genericPortName];
+        }
+
         const existingPoints = result[deviceName] || [];
 
         if (existingPoints.length === 0) {
@@ -227,6 +260,8 @@ export default function DashboardPage(): JSX.Element {
             speed: port.speed,
           });
         }
+
+        result[deviceName] = mergePoints(result[deviceName]);
       }
     }
 

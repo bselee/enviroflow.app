@@ -413,7 +413,8 @@ function extractPorts(device: ACInfinityDevice, modeSettingsMap?: Map<number, Mo
   return ports
     .map((port: ACInfinityPort) => {
       const portId = port.port || port.portId
-      const isOn = port.loadState === 1 || (port.surplus ?? 0) > 0 || port.online === 1
+      const speedLevel = Math.max(0, Number(port.speak ?? 0))
+      const isOn = port.loadState === 1 || (port.surplus ?? 0) > 0 || speedLevel > 0
       const mode = mapCurModeToMode(port.curMode, isOn)
       const modeSettings = modeSettingsMap?.get(portId)
       const modeSummary = generateModeSummary(mode, modeSettings)
@@ -421,7 +422,7 @@ function extractPorts(device: ACInfinityDevice, modeSettingsMap?: Map<number, Mo
       return {
         portId,
         name: port.portName || `Port ${portId}`,
-        speed: (port.speak ?? 0) * 10, // Convert 0-10 scale to 0-100 percentage
+        speed: Math.min(100, speedLevel * 10), // Convert 0-10 scale to 0-100 percentage
         isOn,
         deviceType: mapLoadTypeToDeviceType(port.loadType),
         mode,

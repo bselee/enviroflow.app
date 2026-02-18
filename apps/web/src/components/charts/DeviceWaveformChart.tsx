@@ -44,6 +44,7 @@ export interface DeviceWaveformChartProps {
 const WAVE_H = 36;
 const SENSOR_OVERLAY_H = 44;
 const ROW_GAP = 2;
+const RIGHT_LABEL_INSET = 6;
 
 const OVERLAY_METRICS: Array<{
   key: "temperature" | "humidity";
@@ -95,14 +96,21 @@ function stepPath(
 ): string {
   if (states.length === 0 || dur === 0) return "";
   const xS = (t: number) => padL + ((t - t0) / dur) * cw;
-  // Map speed (0-100) to Y position (offY at 0, onY at 100)
-  const yS = (speed: number) => offY - ((speed / 100) * (offY - onY));
+  // Map state+speed to Y position.
+  // OFF always sits on offY. ON states are mapped by speed, with a small
+  // minimum visible lift so ON at 0% still differs from OFF.
+  const yS = (on: boolean, speed: number) => {
+    if (!on) return offY;
+    const normalizedSpeed = Math.max(0, Math.min(100, speed));
+    const visibleSpeed = normalizedSpeed > 0 ? normalizedSpeed : 12;
+    return offY - ((visibleSpeed / 100) * (offY - onY));
+  };
 
-  let d = `M${f(xS(states[0].ts))},${f(yS(states[0].speed))}`;
+  let d = `M${f(xS(states[0].ts))},${f(yS(states[0].on, states[0].speed))}`;
   for (let i = 1; i < states.length; i++) {
     const x = xS(states[i].ts);
-    const prevY = yS(states[i - 1].speed);
-    const curY = yS(states[i].speed);
+    const prevY = yS(states[i - 1].on, states[i - 1].speed);
+    const curY = yS(states[i].on, states[i].speed);
     // Step-after: horizontal to new X, then vertical to new Y
     d += ` L${f(x)},${f(prevY)}`;
     if (Math.abs(curY - prevY) > 0.1) d += ` L${f(x)},${f(curY)}`;
@@ -175,12 +183,7 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
       if (t > sHi) sHi = t;
     }
 
-    if (sLo !== Infinity && sHi !== -Infinity && sHi > sLo) {
-      // Use sensor data range — device state data will be clipped to fit
-      return { t0: sLo, t1: sHi, dur: sHi - sLo };
-    }
-
-    // Fallback: use device state data range
+    // Device state data range
     let lo = Infinity;
     let hi = -Infinity;
     for (const pts of Object.values(deviceStateData)) {
@@ -190,6 +193,30 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
         if (t > hi) hi = t;
       }
     }
+
+    // Prefer sensor range for crosshair sync only when it is sufficiently wide.
+    // If sensor data is too narrow (e.g. only 1-2 recent points), it hides
+    // meaningful device transitions. In that case, use device history range.
+    if (sLo !== Infinity && sHi !== -Infinity && sHi > sLo) {
+      const sensorDur = sHi - sLo;
+      const hasDeviceRange = lo !== Infinity && hi !== -Infinity && hi > lo;
+
+      if (!hasDeviceRange) {
+        return { t0: sLo, t1: sHi, dur: sensorDur };
+      }
+
+      const deviceDur = hi - lo;
+      const sensorTooNarrow = sensorDur < 10 * 60 * 1000;
+      const muchNarrowerThanDevice = sensorDur < deviceDur * 0.2;
+
+      if (sensorTooNarrow || muchNarrowerThanDevice) {
+        return { t0: lo, t1: hi, dur: deviceDur };
+      }
+
+      return { t0: sLo, t1: sHi, dur: sensorDur };
+    }
+
+    // Fallback: use device range
     if (lo === Infinity) {
       const now = Date.now();
       return { t0: now - 3_600_000, t1: now, dur: 3_600_000 };
@@ -527,11 +554,11 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
 
             {/* Right end item name label */}
             <text
-              x={P.left + chartW + 10}
+              x={P.left + chartW - RIGHT_LABEL_INSET}
               y={dw.yBase + WAVE_H / 2 + 3}
               fill={dw.color}
               fontSize="10"
-              textAnchor="start"
+              textAnchor="end"
               fontFamily="ui-monospace, monospace"
               fontWeight="700"
               opacity={0.85}
@@ -553,10 +580,11 @@ export const DeviceWaveformChart = memo(function DeviceWaveformChart({
 
               return (
                 <text
-                  x={P.left + chartW + 10}
+                  x={P.left + chartW - RIGHT_LABEL_INSET}
                   y={dw.yBase + WAVE_H / 2 + 15}
                   fill={displayOn ? "#22c55e" : "hsl(var(--muted-foreground))"}
                   fontSize="9"
+                  textAnchor="end"
                   fontFamily="ui-monospace, monospace"
                   fontWeight="600"
                   opacity={displayOn ? 1 : 0.5}
